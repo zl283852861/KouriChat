@@ -11,7 +11,7 @@ import os
 import webbrowser
 from flask_cors import CORS
 from database import Session, ChatMessage
-from config import DEEPSEEK_API_KEY,DEEPSEEK_API_URL,MAX_TOKEN,TEMPERATURE
+from config import DEEPSEEK_API_KEY,DEEPSEEK_API_URL,MAX_TOKEN,TEMPERATURE,MODEL
 
 # 获取程序根目录
 root_dir = os.path.dirname(os.path.abspath(__file__))
@@ -70,7 +70,7 @@ def get_deepseek_response(message, user_id):
         }
 
         data = {
-            "model": "deepseek-ai/DeepSeek-V3",
+            "model": MODEL,
             "messages": [
                 {"role": "system", "content": prompt_content},
                 *chat_contexts[user_id]
