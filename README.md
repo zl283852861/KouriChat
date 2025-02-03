@@ -50,7 +50,7 @@
    pip install -r requirements.txt
 3. **配置<code>config.py</code>**  
 修改<code>DEEPSEEK_API_URL</code>和<code>DEEPSEEK_API_KEY</code>。
-按需调整<code>MAX_TOKEN</code>和<code>TEMPERATURE</code>。
+按需调整<code>MAX_TOKEN</code>、<code>TEMPERATURE</code>和<code>MODEL</code>。
 4. 运行<code>bot.py</code>
    ```bash
    python bot.py
