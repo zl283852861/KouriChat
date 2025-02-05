@@ -75,3 +75,5 @@
 - Bilibili: [umaru今天吃什么](https://space.bilibili.com/209397245)
 - 感谢您的支持与使用！!<br>
 ![qrcode.jpg](img%2Fqrcode.jpg)
+## 请给我Star，这对我很重要TvT
+[![Star History Chart](https://api.star-history.com/svg?repos=umaru-233/My-Dream-Moments&type=Timeline)](https://star-history.com/?spm=a2c6h.12873639.article-detail.8.7b9d359dJmTgdE#umaru-233/My-Dream-Moments&Timeline)
