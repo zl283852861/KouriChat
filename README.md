@@ -43,6 +43,8 @@
 3. **DeepSeek API Key**  
    - 推荐使用：[获取 API Key（15元免费额度）](https://cloud.siliconflow.cn/i/aQXU6eC5)
 
+4. **(可选)云电脑或Windows Server**  
+   - 因为wxauto需要前台运行，所以最好有一台云电脑或Windows Server
 ---
 
 ### 2. 部署项目
