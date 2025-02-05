@@ -1,14 +1,10 @@
-import requests
 import logging
 from datetime import datetime
-from flask import Flask, render_template
 import threading
 import time
 import os
-import webbrowser
-from flask_cors import CORS
 from database import Session, ChatMessage
-from config import DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL
+from config import DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL,LISTEN_LIST
 from wxauto import WeChat
 from openai import OpenAI
 
@@ -17,10 +13,7 @@ from openai import OpenAI
 wx = WeChat()
 
 # 设置监听列表
-listen_list = [
-    'うまる',
-    '天天困🥱'
-]
+listen_list = LISTEN_LIST
 
 # 循环添加监听对象
 for i in listen_list:
@@ -117,7 +110,7 @@ def get_deepseek_response(message, user_id):
 
     except Exception as e:
         logger.error(f"DeepSeek调用失败: {str(e)}", exc_info=True)
-        return "亚托莉正在休息，请稍后再试"
+        return "睡着了..."
 
 def process_user_messages(user_id):
     # 处理用户消息队列
