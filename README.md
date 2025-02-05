@@ -3,6 +3,7 @@
 ---
 ## 简介
 简体中文 · [English](./README_EN.md) 
+- 已经更换了安全的微信自动化方案，即<code>wxauto</code>，封号可能性几乎没有，稳定性拉满
 - My Dream Moments 是一个基于大型语言模型（LLM）的情感陪伴程序，能够接入微信，提供更真实的情感交互体验。内置了 Atri-My dear moments 的 prompt，并且解决了传统人机对话程序一问一答的死板效果，提供沉浸式角色扮演和多轮对话支持。项目名字来源是运行在该程序上的第一个智能体的原作名称+项目价值观混合而来。
 - 推荐使用DeepSeek V3 模型。<br>
 ![demo.png](img%2Fdemo.png)
@@ -37,7 +38,7 @@
    - 微信电脑端登录必须有一个移动设备同时登录，因此不能使用您的主要设备。
    
 2. **微信小号**  
-   - 需要注册时间较久的微信号（新注册的账号可能无法登录为 bot）。如果扫码后报错，请检查此项。
+   - 可以登录微信电脑版即可。
 
 3. **DeepSeek API Key**  
    - 推荐使用：[获取 API Key（15元免费额度）](https://cloud.siliconflow.cn/i/aQXU6eC5)
@@ -52,16 +53,18 @@
    ```bash
    pip install -r requirements.txt
 3. **配置<code>config.py</code>**  
-修改<code>DEEPSEEK_API_URL</code>和<code>DEEPSEEK_API_KEY</code>。
+修改<code>LISTEN_LIST</code>、<code>DEEPSEEK_BASE_URL</code>和<code>DEEPSEEK_API_KEY</code>。
 按需调整<code>MAX_TOKEN</code>、<code>TEMPERATURE</code>和<code>MODEL</code>。
-4. 运行<code>bot.py</code>
+4. **运行<code>bot.py</code>，如果报错请尝试使用Python 3.11版本。**
    ```bash
    python bot.py
+
 ### 3. 如何使用
-1. **项目运行后，根目录下会生成 <code>QR.png</code>。**
-   - 使用您想作为 bot 的微信号扫码登录。
-   - 如果控制台没有响应，请重启项目以刷新二维码并重新登录。
-2. **当控制台提示 <code>Start auto replying.</code> 时，表示程序已成功运行。您可以在微信上与 bot 对话测试效果。**
+1. **项目运行后，控制台提示**
+     ```bash
+   初始化成功，获取到已登录窗口：<您的微信昵称>
+   开始运行BOT...
+即可开始监听并调用模型自动回复消息。
 ## 如果您想修改prompt
 - 项目根目录下的 <code>prompt.md</code> 可以编辑，修改后重启项目生效。
 - 注意：请不要修改与反斜线 <code> \ </code>相关的 prompt，因为它们被用于分段回复消息。
