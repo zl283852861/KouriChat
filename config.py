@@ -1,6 +1,8 @@
-# 用户列表(请配置要和bot说话的账号的昵称，不要写备注！)
-# 例如：LISTEN_LIST = ['用户1','用户2']
+# 用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)
+# 例如：LISTEN_LIST = ['用户1','用户2','群名']
 LISTEN_LIST = ['和bot说话的账号的昵称，不要写备注！保留单引号']
+#当前ai微信名称 如“Mona酱”
+CURRENT_WX_NAME = ''
 # DeepSeek API 配置
 DEEPSEEK_API_KEY = 'sk-'
 # 硅基流动API注册地址，免费15元额度 https://cloud.siliconflow.cn/i/aQXU6eC5
