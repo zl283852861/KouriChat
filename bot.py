@@ -8,7 +8,7 @@ from database import Session, ChatMessage
 from config import (
     DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
     IMAGE_MODEL, IMAGE_SIZE, BATCH_SIZE, GUIDANCE_SCALE, NUM_INFERENCE_STEPS, PROMPT_ENHANCEMENT,
-    TEMP_IMAGE_DIR, MAX_GROUPS
+    TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME
 )
 from wxauto import WeChat
 from openai import OpenAI
@@ -39,15 +39,17 @@ client = OpenAI(
 
 # 获取程序根目录
 root_dir = os.path.dirname(os.path.abspath(__file__))
+file_path = os.path.join(root_dir, "prompts", PROMPT_NAME)
 
 # 新增全局变量
 user_queues = {}  # 用户消息队列管理
 queue_lock = threading.Lock()  # 队列访问锁
 chat_contexts = {}  # 存储上下文
 
-# 读取 prompt.md 文件内容
-with open(os.path.join(root_dir, 'prompt.md'), 'r', encoding='utf-8') as file:
+# 读取文件内容到变量
+with open(file_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
+
 
 # 配置日志
 logging.basicConfig(
@@ -195,7 +197,7 @@ def get_deepseek_response(message, user_id):
                     temp_path = os.path.join(temp_dir, f"image_{timestamp}.jpg")
                     with open(temp_path, "wb") as f:
                         f.write(img_response.content)
-                    return f"[IMAGE]{temp_path}[/IMAGE]\n这是按照主人您的要求生成的图片\(^o^)/~"
+                    return f"[IMAGE]{temp_path}[/IMAGE]\n这是按照主人您的要求生成的图片\\(^o^)/~"
                 else:
                     return "抱歉主人，图片生成成功但下载失败，请稍后重试。"
             else:

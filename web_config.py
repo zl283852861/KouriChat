@@ -21,7 +21,7 @@ def save_config(config_data):
     # 先备份当前配置
     if os.path.exists(CONFIG_FILE):
         os.rename(CONFIG_FILE, backup_file)
-    
+
     try:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             for key, value in config_data.items():
@@ -45,10 +45,11 @@ def index():
     config = load_config()
     # 对配置进行分类，并添加说明文字
     config_descriptions = {
-        'LISTEN_LIST': '需要监听的微信用户昵称（不是备注名）',
+        'LISTEN_LIST': '需要监听的微信用户昵称（不是备注名）或群聊名称，可以是多个，用英文逗号分割,',
         'DEEPSEEK_API_KEY': 'DeepSeek API密钥',
         'DEEPSEEK_BASE_URL': 'API基础URL地址',
         'MODEL': '使用的AI模型名称',
+        'PROMPT_NAME': '使用的PROMPT',
         'MAX_TOKEN': '单次回复最大字数限制',
         'TEMPERATURE': '回复随机性程度（0-2之间，越大越随机）',
         'MAX_GROUPS': '上下文对话最大轮数',
@@ -60,7 +61,7 @@ def index():
         'PROMPT_ENHANCEMENT': '是否启用提示词增强',
         'TEMP_IMAGE_DIR': '临时图片存储目录'
     }
-    
+
     config_groups = {
         '基础配置': {
             'LISTEN_LIST': {
@@ -78,6 +79,10 @@ def index():
             'MODEL': {
                 'value': config.get('MODEL', ''),
                 'description': config_descriptions['MODEL']
+            },
+            'PROMPT_NAME': {
+                'value': config.get('PROMPT_NAME', 'ATRI.md'),
+                'description': config_descriptions['PROMPT_NAME']
             }
         },
         '对话配置': {
@@ -133,17 +138,17 @@ def index():
 def save():
     try:
         config_data = request.get_json()
-        
+
         # 处理特殊类型的配置项
         if 'LISTEN_LIST' in config_data:
             config_data['LISTEN_LIST'] = config_data['LISTEN_LIST'].split(',')
-        
+
         if 'TEMPERATURE' in config_data:
             config_data['TEMPERATURE'] = float(config_data['TEMPERATURE'])
-            
+
         if 'MAX_TOKEN' in config_data:
             config_data['MAX_TOKEN'] = int(config_data['MAX_TOKEN'])
-            
+
         if save_config(config_data):
             return jsonify({'status': 'success', 'message': '配置已保存'})
         else:
@@ -152,4 +157,4 @@ def save():
         return jsonify({'status': 'error', 'message': str(e)})
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000) 
+    app.run(debug=True, port=5000)
