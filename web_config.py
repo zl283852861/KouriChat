@@ -45,12 +45,13 @@ def index():
     config = load_config()
     # 对配置进行分类，并添加说明文字
     config_descriptions = {
-        'LISTEN_LIST': '需要监听的微信用户昵称列表（不是备注名）',
+        'LISTEN_LIST': '需要监听的微信用户昵称（不是备注名）',
         'DEEPSEEK_API_KEY': 'DeepSeek API密钥',
         'DEEPSEEK_BASE_URL': 'API基础URL地址',
         'MODEL': '使用的AI模型名称',
         'MAX_TOKEN': '单次回复最大字数限制',
         'TEMPERATURE': '回复随机性程度（0-2之间，越大越随机）',
+        'MAX_GROUPS': '上下文对话最大轮数',
         'IMAGE_MODEL': '图像生成使用的模型',
         'IMAGE_SIZE': '生成图片的尺寸（宽x高）',
         'BATCH_SIZE': '单次生成图片数量',
@@ -87,6 +88,10 @@ def index():
             'TEMPERATURE': {
                 'value': config.get('TEMPERATURE', 1.3),
                 'description': config_descriptions['TEMPERATURE']
+            },
+            'MAX_GROUPS':{
+                'value': config.get('MAX_GROUPS', 15),
+                'description': config_descriptions['MAX_GROUPS']
             }
         },
         '图像生成配置': {
