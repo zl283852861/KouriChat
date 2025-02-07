@@ -1,8 +1,9 @@
 wechaty==0.8.19
 wechaty-puppet-service==0.8.4
-pyee==8.2.2
-flask
-flask-cors
+pyee==11.1.0
+playwright==1.46.0
+Flask==3.0.2
+Flask-Cors==4.0.0
 sqlalchemy~=2.0.37
 requests
 itchat-uos==1.5.0.dev0
