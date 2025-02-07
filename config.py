@@ -26,4 +26,4 @@ TEMP_IMAGE_DIR = 'temp_images'
 #最大的上下文轮数
 MAX_GROUPS = 15
 #prompt文件名
-PROMPT_NAME = ATRI.md
+PROMPT_NAME = 'ATRI.md'
