@@ -7,7 +7,7 @@
 - My Dream Moments 是一个基于大型语言模型（LLM）的情感陪伴程序，能够接入微信，提供更真实的情感交互体验。内置了 Atri-My dear moments 的 prompt，并且解决了传统人机对话程序一问一答的死板效果，提供沉浸式角色扮演和多轮对话支持。项目名字来源是运行在该程序上的第一个智能体的原作名称+项目价值观混合而来。
 - 推荐使用DeepSeek V3 模型。<br>
 - [赞助者名单](SponsorList.md)
-- [里程碑](MileStone.md)
+- [里程碑](MileStone.md)<br>
 ![demo.png](img%2Fdemo.png)
 ---
 ## 声明
