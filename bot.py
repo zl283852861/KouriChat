@@ -1,4 +1,5 @@
 import logging
+import random
 from datetime import datetime
 import threading
 import time
@@ -7,7 +8,7 @@ from database import Session, ChatMessage
 from config import (
     DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
     IMAGE_MODEL, IMAGE_SIZE, BATCH_SIZE, GUIDANCE_SCALE, NUM_INFERENCE_STEPS, PROMPT_ENHANCEMENT,
-    TEMP_IMAGE_DIR
+    TEMP_IMAGE_DIR, MAX_GROUPS
 )
 from wxauto import WeChat
 from openai import OpenAI
@@ -208,7 +209,6 @@ def get_deepseek_response(message, user_id):
 
             chat_contexts[user_id].append({"role": "user", "content": message})
 
-            MAX_GROUPS = 5
             while len(chat_contexts[user_id]) > MAX_GROUPS * 2:
                 if len(chat_contexts[user_id]) >= 2:
                     del chat_contexts[user_id][0]
@@ -288,7 +288,7 @@ def process_user_messages(user_id):
             parts = [p.strip() for p in reply.split('\\') if p.strip()]
             for part in parts:
                 wx.SendMsg(msg=part, who=user_id)
-                time.sleep(0.2)
+                time.sleep(random.randint(3,5))
         else:
             wx.SendMsg(msg=reply, who=user_id)
             
@@ -367,7 +367,7 @@ def handle_wxauto_message(msg):
             if username not in user_queues:
                 # 减少等待时间为3秒
                 user_queues[username] = {
-                    'timer': threading.Timer(3.0, process_user_messages, args=[username]),
+                    'timer': threading.Timer(5.0, process_user_messages, args=[username]),
                     'messages': [time_aware_content],
                     'sender_name': sender_name,
                     'username': username
@@ -377,7 +377,7 @@ def handle_wxauto_message(msg):
                 # 重置现有定时器
                 user_queues[username]['timer'].cancel()
                 user_queues[username]['messages'].append(time_aware_content)
-                user_queues[username]['timer'] = threading.Timer(3.0, process_user_messages, args=[username])
+                user_queues[username]['timer'] = threading.Timer(5.0, process_user_messages, args=[username])
                 user_queues[username]['timer'].start()
 
     except Exception as e:
@@ -389,7 +389,7 @@ def main():
         # 静默初始化微信客户端
         wx = WeChat()
         if not wx.GetSessionList():
-            print("请确保微信已登录并保持在前台运行")
+            print("请确保微信已登录并保持在前台运行!")
             return
 
         # 静默添加监听列表，移除savepic参数
