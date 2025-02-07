@@ -7,8 +7,8 @@ DEEPSEEK_API_KEY = 'sk-'
 DEEPSEEK_BASE_URL = 'https://api.siliconflow.cn/v1/'
 # 如果要使用官方的API
 # DEEPSEEK_BASE_URL = 'https://api.deepseek.com'
-# 硅基流动API的V3模型
-MODEL = 'Pro/deepseek-ai/DeepSeek-V3'
+# 硅基流动API的V3模型，推荐充值杀那个pro，注意看模型名字哦
+MODEL = 'deepseek-ai/DeepSeek-V3'
 # 官方API的V3模型
 # MODEL = 'deepseek-chat'
 # 回复最大token
