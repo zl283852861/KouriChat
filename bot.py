@@ -3,8 +3,9 @@ from datetime import datetime
 import threading
 import time
 import os
+import re
 from database import Session, ChatMessage
-from config import DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL,LISTEN_LIST
+from config import DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL,LISTEN_LIST,CURRENT_WX_NAME
 from wxauto import WeChat
 from openai import OpenAI
 
@@ -159,24 +160,28 @@ def message_listener():
                     msgtype = msg.type  # 获取消息类型
                     content = msg.content  # 获取消息内容，字符串类型的消息内容
                     print(f'【{who}】：{content}')
-                    # if msgtype == 'friend':
-                    #     chat.SendMsg('收到')
-                    if msgtype == 'friend':
-                        handle_wxauto_message(msg) # 回复
-
+                    if msgtype != 'friend':
+                        print(f"非聊天消息，忽略: {msgtype}")
+                        continue
+                    # 收到窗口名是发送人，代表这是私聊，否则是群聊
+                    if who == msg.sender:
+                        handle_wxauto_message(msg,msg.sender) # 回复私聊
+                    elif bool(re.search('@'+CURRENT_WX_NAME, msg.content)):
+                        handle_wxauto_message(msg,who) # 回复群聊，只有@消息才回
                     else:
-                        print(f"忽略非文本消息类型: {msgtype}")
+                        print(f"其他消息，忽略: {msgtype}")
         except Exception as e:
             print(f"消息监听出错: {str(e)}")
         time.sleep(wait)
 
 
-def handle_wxauto_message(msg):
+def handle_wxauto_message(msg,chatName):
     try:
         print(f"收到的消息对象: {msg}")  # 打印整个消息对象
         print(f"消息类型: {type(msg)}")  # 打印消息对象类型
         print(f"消息属性: {vars(msg)}")  # 打印消息对象的所有属性
-        username = msg.sender  # 发送者昵称
+       # username = msg.sender  # 发送者昵称
+        username = chatName
         content = getattr(msg, 'content', None) or getattr(msg, 'text', None)  # 尝试获取消息内容
 
         if not content:
