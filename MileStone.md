@@ -6,7 +6,7 @@
 **Github Clones 1000**<br>
 **Github Clones 2000**<br>
 **Github Clones 5000**<br>
-**Github Views 5000**<br>
+**Github Views 5000** 2025年2月8日 <br>
 **Github Views 10000**<br>
 **Github Views 50000**<br>
 **Github Views 10000**<br>
