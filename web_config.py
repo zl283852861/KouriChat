@@ -50,6 +50,7 @@ def index():
         'DEEPSEEK_BASE_URL': 'API基础URL地址',
         'MODEL': '使用的AI模型名称',
         'PROMPT_NAME': '使用的PROMPT',
+        'ROBOT_WX_NAME': '机器人账号的微信名字',
         'MAX_TOKEN': '单次回复最大字数限制',
         'TEMPERATURE': '回复随机性程度（0-2之间，越大越随机）',
         'MAX_GROUPS': '上下文对话最大轮数',
@@ -83,6 +84,10 @@ def index():
             'PROMPT_NAME': {
                 'value': config.get('PROMPT_NAME', 'ATRI.md'),
                 'description': config_descriptions['PROMPT_NAME']
+            },
+            'ROBOT_WX_NAME':{
+                'value': config.get('ROBOT_WX_NAME', ''),
+                'description': config_descriptions['ROBOT_WX_NAME']
             }
         },
         '对话配置': {

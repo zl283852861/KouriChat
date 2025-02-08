@@ -340,6 +340,11 @@ def process_user_messages(user_id):
     merged_message = ' \\ '.join(messages)
     print(f"处理合并消息 ({sender_name}): {merged_message}")
 
+    # 获取API回复
+    reply = get_deepseek_response(merged_message, user_id)
+    if "</think>" in reply:
+         reply = reply.split("</think>", 1)[1].strip()
+    # 修改发送逻辑部分
     try:
         # 首先检查是否为语音请求
         if is_voice_request(merged_message):
