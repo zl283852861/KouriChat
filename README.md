@@ -73,9 +73,12 @@
 修改<code>LISTEN_LIST</code>、<code>DEEPSEEK_BASE_URL</code>和<code>DEEPSEEK_API_KEY</code>。
 
 按需调整<code>MAX_TOKEN</code>、<code>TEMPERATURE</code>和<code>MODEL</code>。如何配置请阅读<code>config.py</code>里的注释。
+
 5. **运行<code>bot.py</code>，如果报错请尝试使用Python 3.11版本。**
    ```bash
    python bot.py
+   ```
+
 6. FAQ:没什么问题是重启解决不了的，如果重启解决不了，请重启
 
 
@@ -85,6 +88,7 @@
      ```bash
    初始化成功，获取到已登录窗口：<您的微信昵称>
    开始运行BOT...
+     ```
 即可开始监听并调用模型自动回复消息。
 ## 如果您想修改prompt
 - 建议前往官网复制各种不同Prompt，然后修改prompts/ATRI.md的内容就可以了，什么？你问我官网呢，emm，可以加qq群获取prompt
