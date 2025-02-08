@@ -257,7 +257,7 @@ def process_user_messages(user_id):
         messages = user_data['messages']
         sender_name = user_data['sender_name']
         username = user_data['username']
-
+        recipient_id = user_data.get('chat_id', user_id)
     # 优化消息合并逻辑，只保留最后5条消息
     messages = messages[-5:]  # 限制处理的消息数量
     merged_message = ' \\ '.join(messages)
@@ -265,7 +265,8 @@ def process_user_messages(user_id):
 
     # 获取API回复
     reply = get_deepseek_response(merged_message, user_id)
-
+    if "</think>" in reply:
+         reply = reply.split("</think>", 1)[1].strip()
     # 修改发送逻辑部分
     try:
         if '[IMAGE]' in reply:
@@ -288,7 +289,10 @@ def process_user_messages(user_id):
                         logger.error(f"不好了主人！删除临时图片失败: {str(e)}")
         elif '\\' in reply:
             parts = [p.strip() for p in reply.split('\\') if p.strip()]
-            for part in parts:
+            for idx,part in enumerate(parts):
+                # 仅在分段回复的第一句加上@sender_name（群聊回复时才加）
+                if idx == 0 and recipient_id != user_id:
+                    part = f"@{sender_name} {part}"
                 wx.SendMsg(msg=part, who=user_id)
                 time.sleep(random.randint(3,5))
         else:
