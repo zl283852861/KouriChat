@@ -6,7 +6,7 @@ import time
 import os
 from database import Session, ChatMessage
 from config import (
-    DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
+    DEEPSEEK_API_KEY, MAX_TOKEN, ROBOT_WX_NAME, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
     IMAGE_MODEL, IMAGE_SIZE, BATCH_SIZE, GUIDANCE_SCALE, NUM_INFERENCE_STEPS, PROMPT_ENHANCEMENT,
     TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME
 )
@@ -338,10 +338,18 @@ def message_listener():
                         content = msg.content
                         if not content:
                             continue
-                            
+                        if msgtype != 'friend':
+                            logger.debug(f"非好友消息，忽略! 消息类型: {msgtype}")
+                            continue  
                         # 只输出实际的消息内容
-                        if msgtype == 'friend':
-                            handle_wxauto_message(msg)
+                        # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
+                        if who == msg.sender:
+                            handle_wxauto_message(msg,msg.sender) # 处理私聊信息
+                        elif ROBOT_WX_NAME != '' and bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)): 
+                            handle_wxauto_message(msg,who) # 处理群聊信息，只有@当前机器人才会处理
+                        # TODO(jett): 这里看需要要不要打日志，群聊信息太多可能日志会很多    
+                        else:
+                            logger.debug(f"非需要处理消息，可能是群聊非@消息: {content}")   
                     except Exception as e:
                         logger.debug(f"不好了主人！处理单条消息失败: {str(e)}")
                         continue
@@ -352,11 +360,12 @@ def message_listener():
         time.sleep(wait)
 
 
-def handle_wxauto_message(msg):
+def handle_wxauto_message(msg,chatName):
     try:
-        username = msg.sender
+        username = chatName
         content = getattr(msg, 'content', None) or getattr(msg, 'text', None)
-
+        # @消息过滤@头信息，防止机器名与prompt设定名不一致的问题
+        content = content.replace(f'@{ROBOT_WX_NAME}\u2005','')
         if not content:
             logger.debug("不好了主人！无法获取消息内容")
             return
