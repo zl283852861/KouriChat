@@ -94,7 +94,7 @@ def index():
                 'value': config.get('TEMPERATURE', 1.3),
                 'description': config_descriptions['TEMPERATURE']
             },
-            'MAX_GROUPS':{
+            'MAX_GROUPS': {
                 'value': config.get('MAX_GROUPS', 15),
                 'description': config_descriptions['MAX_GROUPS']
             }
@@ -148,6 +148,9 @@ def save():
 
         if 'MAX_TOKEN' in config_data:
             config_data['MAX_TOKEN'] = int(config_data['MAX_TOKEN'])
+
+        if 'MAX_GROUPS' in config_data:
+            config_data['MAX_GROUPS'] = int(config_data['MAX_GROUPS'])
 
         if save_config(config_data):
             return jsonify({'status': 'success', 'message': '配置已保存'})
