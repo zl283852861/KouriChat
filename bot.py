@@ -7,14 +7,14 @@ import os
 from database import Session, ChatMessage
 from config import (
     DEEPSEEK_API_KEY, MAX_TOKEN, ROBOT_WX_NAME, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
-    IMAGE_MODEL, IMAGE_SIZE, BATCH_SIZE, GUIDANCE_SCALE, NUM_INFERENCE_STEPS, PROMPT_ENHANCEMENT,
-    TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME
+    IMAGE_MODEL, TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME, EMOJI_DIR, TTS_API_URL, VOICE_DIR
 )
 from wxauto import WeChat
 from openai import OpenAI
 import requests
 from typing import Optional
 import re
+import sys
 
 
 # 获取微信窗口对象
@@ -95,24 +95,19 @@ def generate_image(prompt: str) -> Optional[str]:
         
         data = {
             "model": IMAGE_MODEL,
-            "prompt": prompt,
-            "batch_size": BATCH_SIZE,
-            "guidance_scale": GUIDANCE_SCALE,
-            "image_size": IMAGE_SIZE,
-            "num_inference_steps": NUM_INFERENCE_STEPS,
-            "prompt_enhancement": PROMPT_ENHANCEMENT
+            "prompt": prompt
         }
         
-        # 直接使用 requests 发送请求到图像生成API
-        image_api_url = f"{DEEPSEEK_BASE_URL}images/generations"
-        response = requests.post(image_api_url, headers=headers, json=data)
+        response = requests.post(
+            f"{DEEPSEEK_BASE_URL}/images/generations",
+            headers=headers,
+            json=data
+        )
         response.raise_for_status()
         
         result = response.json()
-        if "data" in result and len(result["data"]) > 0:  # 优先检查 data 字段
+        if "data" in result and len(result["data"]) > 0:
             return result["data"][0]["url"]
-        elif "images" in result and len(result["images"]) > 0:
-            return result["images"][0]["url"]
         return None
         
     except Exception as e:
@@ -183,6 +178,50 @@ def is_image_generation_request(text: str) -> bool:
     
     return False
 
+def is_emoji_request(text: str) -> bool:
+    """
+    判断是否为表情包请求
+    """
+    # 直接请求表情包的关键词
+    emoji_keywords = ["表情包", "表情", "斗图", "gif", "动图"]
+    
+    # 情感表达关键词
+    emotion_keywords = ["开心", "难过", "生气", "委屈", "高兴", "伤心",
+                       "哭", "笑", "怒", "喜", "悲", "乐", "泪", "哈哈",
+                       "呜呜", "嘿嘿", "嘻嘻", "哼", "啊啊", "呵呵","可爱"]
+    
+    # 检查直接请求
+    if any(keyword in text.lower() for keyword in emoji_keywords):
+        return True
+        
+    # 检查情感表达
+    if any(keyword in text for keyword in emotion_keywords):
+        return True
+        
+    return False
+
+def get_random_emoji() -> Optional[str]:
+    """
+    从表情包目录随机获取一个表情包
+    """
+    try:
+        emoji_dir = os.path.join(root_dir, EMOJI_DIR)
+        if not os.path.exists(emoji_dir):
+            logger.error(f"表情包目录不存在: {emoji_dir}")
+            return None
+            
+        emoji_files = [f for f in os.listdir(emoji_dir) 
+                      if f.lower().endswith(('.gif', '.jpg', '.png', '.jpeg'))]
+        
+        if not emoji_files:
+            return None
+            
+        random_emoji = random.choice(emoji_files)
+        return os.path.join(emoji_dir, random_emoji)
+    except Exception as e:
+        logger.error(f"获取表情包失败: {str(e)}")
+        return None
+
 def get_deepseek_response(message, user_id):
     try:
         # 检查是否为图像生成请求
@@ -192,7 +231,6 @@ def get_deepseek_response(message, user_id):
                 # 下载图片并保存到临时文件
                 img_response = requests.get(image_url)
                 if img_response.status_code == 200:
-                    # 使用时间戳创建唯一文件名
                     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
                     temp_path = os.path.join(temp_dir, f"image_{timestamp}.jpg")
                     with open(temp_path, "wb") as f:
@@ -203,7 +241,7 @@ def get_deepseek_response(message, user_id):
             else:
                 return "抱歉主人，图片生成失败，请稍后重试。"
 
-        # 原有的文本处理逻辑
+        # 文本处理逻辑
         print(f"调用 DeepSeek API - 用户ID: {user_id}, 消息: {message}")
         with queue_lock:
             if user_id not in chat_contexts:
@@ -238,16 +276,54 @@ def get_deepseek_response(message, user_id):
             return "抱歉主人，服务响应异常，请稍后再试"
 
         reply = response.choices[0].message.content
+        print(f"API响应 - 用户ID: {user_id}")
+        print(f"响应内容: {reply}")
 
         with queue_lock:
             chat_contexts[user_id].append({"role": "assistant", "content": reply})
-
-        print(f"API回复: {reply}")
+            
         return reply
 
     except Exception as e:
         logger.error(f"DeepSeek调用失败: {str(e)}", exc_info=True)
         return "抱歉主人，刚刚不小心睡着了..."
+
+def is_voice_request(text: str) -> bool:
+    """
+    判断是否为语音请求
+    """
+    voice_keywords = ["语音", "说话", "念", "读", "朗读", "播放", "声音"]
+    return any(keyword in text for keyword in voice_keywords)
+
+def generate_voice(text: str) -> Optional[str]:
+    """
+    调用TTS API生成语音
+    """
+    try:
+        # 确保语音目录存在
+        voice_dir = os.path.join(root_dir, VOICE_DIR)
+        if not os.path.exists(voice_dir):
+            os.makedirs(voice_dir)
+            
+        # 生成唯一的文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        voice_path = os.path.join(voice_dir, f"voice_{timestamp}.wav")
+        
+        # 调用TTS API
+        response = requests.get(f"{TTS_API_URL}?text={text}", stream=True)
+        if response.status_code == 200:
+            with open(voice_path, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+            return voice_path
+        else:
+            logger.error(f"语音生成失败: {response.status_code}")
+            return None
+            
+    except Exception as e:
+        logger.error(f"语音生成失败: {str(e)}")
+        return None
 
 def process_user_messages(user_id):
     with queue_lock:
@@ -258,6 +334,7 @@ def process_user_messages(user_id):
         sender_name = user_data['sender_name']
         username = user_data['username']
         recipient_id = user_data.get('chat_id', user_id)
+
     # 优化消息合并逻辑，只保留最后5条消息
     messages = messages[-5:]  # 限制处理的消息数量
     merged_message = ' \\ '.join(messages)
@@ -269,24 +346,64 @@ def process_user_messages(user_id):
          reply = reply.split("</think>", 1)[1].strip()
     # 修改发送逻辑部分
     try:
+        # 首先检查是否为语音请求
+        if is_voice_request(merged_message):
+            # 获取API回复
+            reply = get_deepseek_response(merged_message, user_id)
+            if "</think>" in reply:
+                reply = reply.split("</think>", 1)[1].strip()
+            
+            # 生成语音
+            voice_path = generate_voice(reply)
+            if voice_path:
+                try:
+                    # 发送语音文件
+                    wx.SendFiles(filepath=voice_path, who=user_id)
+                except Exception as e:
+                    logger.error(f"发送语音失败: {str(e)}")
+                    # 如果语音发送失败，退回到文本发送
+                    wx.SendMsg(msg=reply, who=user_id)
+                finally:
+                    # 删除临时语音文件
+                    try:
+                        os.remove(voice_path)
+                    except Exception as e:
+                        logger.error(f"删除临时语音文件失败: {str(e)}")
+            else:
+                # 语音生成失败，发送文本
+                wx.SendMsg(msg=reply, who=user_id)
+            return
+
+        # 首先检查是否需要发送表情包
+        if is_emoji_request(merged_message):
+            emoji_path = get_random_emoji()
+            if emoji_path:
+                try:
+                    # 先发送表情包
+                    wx.SendFiles(filepath=emoji_path, who=user_id)
+                except Exception as e:
+                    logger.error(f"发送表情包失败: {str(e)}")
+
+        # 获取API回复
+        reply = get_deepseek_response(merged_message, user_id)
+        if "</think>" in reply:
+         reply = reply.split("</think>", 1)[1].strip()
+
+        # 处理回复
         if '[IMAGE]' in reply:
             # 处理图片回复
             img_path = reply.split('[IMAGE]')[1].split('[/IMAGE]')[0].strip()
-            # 确保使用临时目录
             if os.path.exists(img_path):
                 try:
-                    # 使用SendFiles方法发送图片，注意参数名是filepath
                     wx.SendFiles(filepath=img_path, who=user_id)
-                    # 发送附加文本消息
                     text_msg = reply.split('[/IMAGE]')[1].strip()
                     if text_msg:
                         wx.SendMsg(msg=text_msg, who=user_id)
                 finally:
-                    # 删除临时图片
                     try:
                         os.remove(img_path)
                     except Exception as e:
-                        logger.error(f"不好了主人！删除临时图片失败: {str(e)}")
+                        logger.error(f"删除临时图片失败: {str(e)}")
         elif '\\' in reply:
             parts = [p.strip() for p in reply.split('\\') if p.strip()]
             for idx,part in enumerate(parts):
@@ -299,7 +416,7 @@ def process_user_messages(user_id):
             wx.SendMsg(msg=reply, who=user_id)
             
     except Exception as e:
-        logger.error(f"不好了主人！发送回复失败: {str(e)}")
+        logger.error(f"发送回复失败: {str(e)}")
 
     # 异步保存消息记录
     threading.Thread(target=save_message, args=(username, sender_name, merged_message, reply)).start()
@@ -380,7 +497,7 @@ def handle_wxauto_message(msg,chatName):
 
         with queue_lock:
             if username not in user_queues:
-                # 减少等待时间为3秒
+                # 减少等待时间为5秒
                 user_queues[username] = {
                     'timer': threading.Timer(5.0, process_user_messages, args=[username]),
                     'messages': [time_aware_content],
@@ -399,35 +516,76 @@ def handle_wxauto_message(msg,chatName):
         print(f"消息处理失败: {str(e)}")
 
 
+def initialize_wx_listener():
+    """
+    初始化微信监听，包含重试机制
+    """
+    max_retries = 3
+    retry_delay = 2  # 秒
+    
+    for attempt in range(max_retries):
+        try:
+            wx = WeChat()
+            if not wx.GetSessionList():
+                logger.error("未检测到微信会话列表，请确保微信已登录")
+                time.sleep(retry_delay)
+                continue
+                
+            # 循环添加监听对象
+            for chat_name in listen_list:
+                try:
+                    # 先检查会话是否存在
+                    if not wx.ChatWith(chat_name):
+                        logger.error(f"找不到会话: {chat_name}")
+                        continue
+                        
+                    # 尝试添加监听
+                    wx.AddListenChat(who=chat_name)
+                    logger.info(f"成功添加监听: {chat_name}")
+                    time.sleep(0.5)  # 添加短暂延迟，避免操作过快
+                except Exception as e:
+                    logger.error(f"添加监听失败 {chat_name}: {str(e)}")
+                    continue
+                    
+            return wx
+            
+        except Exception as e:
+            logger.error(f"初始化微信失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay)
+            else:
+                raise Exception("微信初始化失败，请检查微信是否正常运行")
+    
+    return None
+
 def main():
     try:
-        # 静默初始化微信客户端
-        wx = WeChat()
-        if not wx.GetSessionList():
-            print("请确保微信已登录并保持在前台运行!")
+        # 使用新的初始化函数
+        wx = initialize_wx_listener()
+        if not wx:
+            print("微信初始化失败，请确保微信已登录并保持在前台运行!")
             return
 
-        # 静默添加监听列表，移除savepic参数
-        for i in listen_list:
-            try:
-                wx.AddListenChat(who=i)  # 移除 savepic=True
-            except Exception as e:
-                logger.error(f"不好了主人！添加监听失败 {i}: {str(e)}")
-                return
-
-        # 启动监听线程，只输出一次启动提示
+        # 启动监听线程
         print("启动消息监听...")
         listener_thread = threading.Thread(target=message_listener)
         listener_thread.daemon = True
         listener_thread.start()
 
-        # 主循环保持安静
+        # 主循环
         while True:
             time.sleep(1)
             if not listener_thread.is_alive():
-                listener_thread = threading.Thread(target=message_listener)
-                listener_thread.daemon = True
-                listener_thread.start()
+                logger.warning("监听线程已断开，尝试重新连接...")
+                try:
+                    wx = initialize_wx_listener()  # 重新初始化
+                    if wx:
+                        listener_thread = threading.Thread(target=message_listener)
+                        listener_thread.daemon = True
+                        listener_thread.start()
+                except Exception as e:
+                    logger.error(f"重新连接失败: {str(e)}")
+                    time.sleep(5)  # 等待一段时间后重试
 
     except Exception as e:
         logger.error(f"主程序异常: {str(e)}")
