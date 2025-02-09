@@ -1,7 +1,7 @@
 
 ![ATRI.jpg](img%2FATRI.jpg)
 
-此版本为正式版，有Pull requests提交请前往Beta分支，有问题可以先尝试自己解决哦![00DD4CF4](https://github.com/user-attachments/assets/f1d68575-3aab-447f-a751-93ed0dcf8010)
+此版本为正式版，有Pull requests提交请前往Beta分支，有问题可以先尝试自己解决哦或加群：71566260
 
 - 夸克网盘：https://pan.quark.cn/s/f37d765e1404 提取码：zXpP 推荐转存，项目更新直接下载最新的代码zip。我也能有收益，感谢您的支持！
 ---
