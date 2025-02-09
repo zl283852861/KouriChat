@@ -1,3 +1,5 @@
+import base64
+import requests
 import logging
 import random
 from datetime import datetime
@@ -7,7 +9,8 @@ import os
 from database import Session, ChatMessage
 from config import (
     DEEPSEEK_API_KEY, MAX_TOKEN, ROBOT_WX_NAME, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
-    IMAGE_MODEL, TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME, EMOJI_DIR, TTS_API_URL, VOICE_DIR
+    IMAGE_MODEL, TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME, EMOJI_DIR, TTS_API_URL, VOICE_DIR,
+    MOONSHOT_API_KEY, MOONSHOT_BASE_URL, MOONSHOT_TEMPERATURE
 )
 from wxauto import WeChat
 from openai import OpenAI
@@ -23,9 +26,9 @@ wx = WeChat()
 # 设置监听列表
 listen_list = LISTEN_LIST
 
-# 循环添加监听对象，移除savepic=True参数
+# 循环添加监听对象，使用savepic=True参数保存识别图片
 for i in listen_list:
-    wx.AddListenChat(who=i)  # 移除 savepic=True
+    wx.AddListenChat(who=i, savepic=True) 
 
 # 修改等待时间为更短的间隔
 wait = 0.5  # 从1秒改为0.5秒
@@ -480,16 +483,55 @@ def message_listener():
             wx = None  # 出错时重置微信对象
         time.sleep(wait)
 
+def recognize_image_with_moonshot(image_path):
+    """使用Moonshot AI识别图片内容并返回文本"""
+    with open(image_path, 'rb') as img_file:
+        image_content = base64.b64encode(img_file.read()).decode('utf-8')
+    headers = {
+        'Authorization': f'Bearer {MOONSHOT_API_KEY}',
+        'Content-Type': 'application/json'
+    }
+    data = {
+        "model": "moonshot-v1-8k-vision-preview",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_content}"}},
+                    {"type": "text", "text": "请描述这个图片"}
+                ]
+            }
+        ],
+        "temperature": MOONSHOT_TEMPERATURE
+    }
+    try:
+        response = requests.post(f"{MOONSHOT_BASE_URL}/chat/completions", headers=headers, json=data)
+        response.raise_for_status()
+        result = response.json()
+        recognized_text = result['choices'][0]['message']['content']
+        logger.info(f"Moonshot AI图片识别结果: {recognized_text}")
+        return recognized_text
+    except Exception as e:
+        logger.error(f"调用Moonshot AI识别图片失败: {str(e)}")
+        return ""
 
 def handle_wxauto_message(msg,chatName):
     try:
-        username = chatName
-        content = getattr(msg, 'content', None) or getattr(msg, 'text', None)
-        # @消息过滤@头信息，防止机器名与prompt设定名不一致的问题
-        content = content.replace(f'@{ROBOT_WX_NAME}\u2005','')
-        if not content:
-            logger.debug("不好了主人！无法获取消息内容")
-            return
+        username = msg.sender  # 获取发送者的昵称或唯一标识
+        content = getattr(msg, 'content', None) or getattr(msg, 'text', None)  # 获取消息内容
+        img_path = None  # 初始化图片路径
+        if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            img_path = content  # 如果消息内容是图片路径，则赋值给img_path
+            content = None  # 将内容置为空，因为我们只处理图片
+
+        if img_path:
+            logger.info(f"处理图片消息 - {username}: {img_path}")
+            recognized_text = recognize_image_with_moonshot(img_path)
+            content = recognized_text if content is None else f"{content} {recognized_text}"
+
+        if content:
+            logger.info(f"处理消息 - {username}: {content}")
+            sender_name = username  # 使用昵称作为发送者名称
 
         sender_name = username
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -540,7 +582,7 @@ def initialize_wx_listener():
                         continue
                         
                     # 尝试添加监听
-                    wx.AddListenChat(who=chat_name)
+                    wx.AddListenChat(who=i, savepic=True)
                     logger.info(f"成功添加监听: {chat_name}")
                     time.sleep(0.5)  # 添加短暂延迟，避免操作过快
                 except Exception as e:
