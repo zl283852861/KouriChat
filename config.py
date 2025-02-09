@@ -2,7 +2,7 @@
 # 例如：LISTEN_LIST = ['用户1','用户2','群名']
 LISTEN_LIST = ['请配置要和bot说话的账号的昵称或者群名，不要写备注！']
 # 机器人的微信名称，如'亚托莉'
-ROBOT_WX_NAME = '亚托莉'
+ROBOT_WX_NAME = 'ATRI'
 # DeepSeek API 配置
 # 填你的秘钥
 DEEPSEEK_API_KEY = 'sk-'

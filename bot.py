@@ -339,6 +339,7 @@ def process_user_messages(user_id):
         sender_name = user_data['sender_name']
         username = user_data['username']
         recipient_id = user_data.get('chat_id', user_id)
+        is_group = user_data.get('is_group', False)  # 获取是否为群聊标记
 
     # 优化消息合并逻辑，只保留最后5条消息
     messages = messages[-5:]  # 限制处理的消息数量
@@ -358,6 +359,9 @@ def process_user_messages(user_id):
                 try:
                     wx.SendFiles(filepath=voice_path, who=user_id)
                 except Exception as e:
+                    # 在群聊中需要@发送者
+                    if is_group:
+                        reply = f"@{sender_name} {reply}"
                     logger.error(f"发送语音失败: {str(e)}")
                     wx.SendMsg(msg=reply, who=user_id)
                 finally:
@@ -366,6 +370,8 @@ def process_user_messages(user_id):
                     except Exception as e:
                         logger.error(f"删除临时语音文件失败: {str(e)}")
             else:
+                if is_group:
+                    reply = f"@{sender_name} {reply}"
                 wx.SendMsg(msg=reply, who=user_id)
             
             # 异步保存消息记录
@@ -397,9 +403,12 @@ def process_user_messages(user_id):
                     logger.info(f"图片发送成功: {img_path}")
                     text_msg = reply.split('[/IMAGE]')[1].strip()
                     if text_msg:
+                        if is_group:
+                            text_msg = f"@{sender_name} {text_msg}"
                         wx.SendMsg(msg=text_msg, who=user_id)
                 except Exception as e:
                     logger.error(f"发送图片失败: {str(e)}")
+
                 finally:
                     try:
                         os.remove(img_path)
@@ -408,15 +417,21 @@ def process_user_messages(user_id):
                         logger.error(f"删除临时图片失败: {str(e)}")
             else:
                 logger.error(f"图片文件不存在: {img_path}")
-                wx.SendMsg(msg="抱歉，图片生成失败了...", who=user_id)
+                error_msg = "抱歉，图片生成失败了..."
+                if is_group:
+                    error_msg = f"@{sender_name} {error_msg}"
+                wx.SendMsg(msg=error_msg, who=user_id)
         elif '\\' in reply:
             parts = [p.strip() for p in reply.split('\\') if p.strip()]
-            for idx,part in enumerate(parts):
-                if idx == 0 and recipient_id != user_id:
-                    part = f"@{sender_name} {part}"
+            for idx, part in enumerate(parts):
+                if is_group:
+                    if idx == 0:
+                        part = f"@{sender_name} {part}"
                 wx.SendMsg(msg=part, who=user_id)
                 time.sleep(random.randint(2,4))
         else:
+            if is_group:
+                reply = f"@{sender_name} {reply}"
             wx.SendMsg(msg=reply, who=user_id)
             
     except Exception as e:
@@ -429,13 +444,12 @@ def process_user_messages(user_id):
 def message_listener():
     wx = None
     last_window_check = 0
-    check_interval = 600  # 每600秒检查一次窗口状态,检查是否活动(是否在聊天界面)
+    check_interval = 600
     
     while True:
         try:
             current_time = time.time()
             
-            # 只在必要时初始化或重新获取微信窗口，不输出提示
             if wx is None or (current_time - last_window_check > check_interval):
                 wx = WeChat()
                 if not wx.GetSessionList():
@@ -463,25 +477,30 @@ def message_listener():
                         content = msg.content
                         if not content:
                             continue
-                        if msgtype != 'friend':
-                            logger.debug(f"非好友消息，忽略! 消息类型: {msgtype}")
-                            continue  
-                        # 只输出实际的消息内容
-                        # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
-                        if who == msg.sender:
-                            handle_wxauto_message(msg,msg.sender) # 处理私聊信息
-                        elif ROBOT_WX_NAME != '' and bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)): 
-                            handle_wxauto_message(msg,who) # 处理群聊信息，只有@当前机器人才会处理
-                        # TODO(jett): 这里看需要要不要打日志，群聊信息太多可能日志会很多    
+                            
+                        # 移除消息类型检查，允许处理群聊消息
+                        # 判断是否为群聊消息
+                        is_group_chat = (who != msg.sender)
+                        
+                        if is_group_chat:
+                            # 群聊消息处理
+                            if ROBOT_WX_NAME and f'@{ROBOT_WX_NAME}' in content:
+                                # 被@时处理群聊消息
+                                handle_wxauto_message(msg, who)  # 传入群ID作为接收者
+                            else:
+                                # 不是@机器人的群消息，跳过处理
+                                continue
                         else:
-                            logger.debug(f"非需要处理消息，可能是群聊非@消息: {content}")   
+                            # 私聊消息处理
+                            handle_wxauto_message(msg, msg.sender)
+                            
                     except Exception as e:
-                        logger.debug(f"不好了主人！处理单条消息失败: {str(e)}")
+                        logger.error(f"处理单条消息失败: {str(e)}")
                         continue
                         
         except Exception as e:
-            logger.debug(f"不好了主人！消息监听出错: {str(e)}")
-            wx = None  # 出错时重置微信对象
+            logger.error(f"消息监听出错: {str(e)}")
+            wx = None
         time.sleep(wait)
 
 def recognize_image_with_moonshot(image_path):
@@ -517,14 +536,25 @@ def recognize_image_with_moonshot(image_path):
         print(f"调用Moonshot AI识别图片失败: {str(e)}")
         return ""
 
-def handle_wxauto_message(msg,chatName):
+def handle_wxauto_message(msg, chat_id):
+    """
+    处理微信消息
+    :param msg: 消息对象
+    :param chat_id: 聊天ID（群聊时为群ID，私聊时为用户ID）
+    """
     try:
-        username = msg.sender  # 获取发送者的昵称或唯一标识
-        content = getattr(msg, 'content', None) or getattr(msg, 'text', None)  # 获取消息内容
-        img_path = None  # 初始化图片路径
+        username = msg.sender  # 获取发送者ID
+        content = getattr(msg, 'content', None) or getattr(msg, 'text', None)
+        is_group = (chat_id != username)  # 判断是否为群聊
+        
+        # 处理群聊@消息
+        if is_group and ROBOT_WX_NAME and content:
+            content = re.sub(f'@{ROBOT_WX_NAME}\u2005', '', content).strip()
+            
+        img_path = None
         if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-            img_path = content  # 如果消息内容是图片路径，则赋值给img_path
-            content = None  # 将内容置为空，因为我们只处理图片
+            img_path = content
+            content = None
 
         if img_path:
             logger.info(f"处理图片消息 - {username}: {img_path}")
@@ -533,31 +563,32 @@ def handle_wxauto_message(msg,chatName):
 
         if content:
             logger.info(f"处理消息 - {username}: {content}")
-            sender_name = username  # 使用昵称作为发送者名称
+            sender_name = username
 
-        sender_name = username
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        time_aware_content = f"[{current_time}] {content}"
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            time_aware_content = f"[{current_time}] {content}"
 
-        with queue_lock:
-            if username not in user_queues:
-                # 减少等待时间为5秒
-                user_queues[username] = {
-                    'timer': threading.Timer(5.0, process_user_messages, args=[username]),
-                    'messages': [time_aware_content],
-                    'sender_name': sender_name,
-                    'username': username
-                }
-                user_queues[username]['timer'].start()
-            else:
-                # 重置现有定时器
-                user_queues[username]['timer'].cancel()
-                user_queues[username]['messages'].append(time_aware_content)
-                user_queues[username]['timer'] = threading.Timer(5.0, process_user_messages, args=[username])
-                user_queues[username]['timer'].start()
+            with queue_lock:
+                if chat_id not in user_queues:
+                    user_queues[chat_id] = {
+                        'timer': threading.Timer(5.0, process_user_messages, args=[chat_id]),
+                        'messages': [time_aware_content],
+                        'sender_name': sender_name,
+                        'username': username,
+                        'chat_id': chat_id,
+                        'is_group': is_group
+                    }
+                    user_queues[chat_id]['timer'].start()
+                else:
+                    user_queues[chat_id]['timer'].cancel()
+                    user_queues[chat_id]['messages'].append(time_aware_content)
+                    user_queues[chat_id]['sender_name'] = sender_name  # 更新最新发送者
+                    user_queues[chat_id]['username'] = username
+                    user_queues[chat_id]['timer'] = threading.Timer(5.0, process_user_messages, args=[chat_id])
+                    user_queues[chat_id]['timer'].start()
 
     except Exception as e:
-        print(f"消息处理失败: {str(e)}")
+        logger.error(f"消息处理失败: {str(e)}")
 
 
 def initialize_wx_listener():
