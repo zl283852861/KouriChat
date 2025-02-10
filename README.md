@@ -15,7 +15,6 @@
 - [赞助者名单](SponsorList.md)
 - [里程碑](MileStone.md)
 - [致谢](Thanks.md)<br>
-<br>
 ![demo.png](img%2Fdemo.png)
 ---
 ## 声明
