@@ -368,6 +368,9 @@ def get_deepseek_response(message, user_id):
         # 清理wxauto文件
         cleanup_wxauto_files()
 
+        # 清理screenshot文件
+        clean_up_screenshot ()
+
         # 更新最后聊天时间
         update_last_chat_time()
         
@@ -866,6 +869,15 @@ def cleanup_wxauto_files():
     except Exception as e:
         print(f"清理wxauto文件夹时发生错误: {str(e)}")
 
+def clean_up_screenshot ():
+    # 检查是否存在该目录
+    if os.path.isdir("screenshot"):
+        # 递归删除目录及其内容
+        shutil.rmtree("screenshot")
+        print(f"目录 creenshot 已成功删除")
+    else:
+        print(f"目录 screenshot 不存在，无需删除")
+
 def capture_and_save_screenshot(who):
     screenshot_folder = os.path.join(root_dir, 'screenshot')
     if not os.path.exists(screenshot_folder):
@@ -905,6 +917,8 @@ def main():
         cleanup_temp_dir()
         # 清理wxauto文件夹
         cleanup_wxauto_files()
+        #清理screenshot文件
+        clean_up_screenshot()
         
         # 使用新的初始化函数
         wx = initialize_wx_listener()
