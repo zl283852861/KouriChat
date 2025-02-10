@@ -1,4 +1,3 @@
-![image](https://github.com/user-attachments/assets/42ac8d48-f97d-49c7-95ca-224ceb54d80d)
 ![ATRI.jpg](img%2FATRI.jpg)
 
 有问题可加群：71566260 
