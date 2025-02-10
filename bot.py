@@ -20,6 +20,7 @@ from openai import OpenAI
 import requests
 from typing import Optional
 import re
+import pyautogui
 
 # 获取微信窗口对象
 wx = WeChat()
@@ -586,7 +587,7 @@ def message_listener():
             wx = None  # 出错时重置微信对象
         time.sleep(wait)
 
-def recognize_image_with_moonshot(image_path):
+def recognize_image_with_moonshot(image_path, is_emoji=False):
     """使用Moonshot AI识别图片内容并返回文本"""
     with open(image_path, 'rb') as img_file:
         image_content = base64.b64encode(img_file.read()).decode('utf-8')
@@ -594,6 +595,7 @@ def recognize_image_with_moonshot(image_path):
         'Authorization': f'Bearer {MOONSHOT_API_KEY}',
         'Content-Type': 'application/json'
     }
+    text_prompt = "请描述这个图片" if not is_emoji else "请描述这个聊天窗口的最后一张表情包"
     data = {
         "model": "moonshot-v1-8k-vision-preview",
         "messages": [
@@ -601,7 +603,7 @@ def recognize_image_with_moonshot(image_path):
                 "role": "user",
                 "content": [
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_content}"}},
-                    {"type": "text", "text": "请描述这个图片"}
+                    {"type": "text", "text": text_prompt}
                 ]
             }
         ],
@@ -612,11 +614,18 @@ def recognize_image_with_moonshot(image_path):
         response.raise_for_status()
         result = response.json()
         recognized_text = result['choices'][0]['message']['content']
-        # 打印识别结果
-        print(f"Moonshot AI图片识别结果: {recognized_text}")
+        if is_emoji:
+            # 如果recognized_text包含“最后一张表情包是”，只保留后面的文本
+            if "最后一张表情包是" in recognized_text:
+                recognized_text = recognized_text.split("最后一张表情包是", 1)[1].strip()
+            recognized_text = "发送了表情包：" + recognized_text
+        else :
+            recognized_text = "发送了图片：" + recognized_text
+        logger.info(f"Moonshot AI图片识别结果: {recognized_text}")
         return recognized_text
+
     except Exception as e:
-        print(f"调用Moonshot AI识别图片失败: {str(e)}")
+        logger.error(f"调用Moonshot AI识别图片失败: {str(e)}")
         return ""
 
 def handle_wxauto_message(msg, chatName, is_group=False):
@@ -624,6 +633,7 @@ def handle_wxauto_message(msg, chatName, is_group=False):
         username = msg.sender  # 获取发送者的昵称或唯一标识
         content = getattr(msg, 'content', None) or getattr(msg, 'text', None)  # 获取消息内容
         img_path = None  # 初始化图片路径
+        is_emoji = False
         
         # 如果是群聊@消息，移除@机器人的部分
         if is_group and ROBOT_WX_NAME and content:
@@ -631,11 +641,19 @@ def handle_wxauto_message(msg, chatName, is_group=False):
         
         if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
             img_path = content  # 如果消息内容是图片路径，则赋值给img_path
+            is_emoji = False
             content = None  # 将内容置为空，因为我们只处理图片
+
+        # 检查是否是"[动画表情]"
+        if content and "[动画表情]" in content:
+            # 对聊天对象的窗口进行截图，并保存到指定目录           
+            img_path = capture_and_save_screenshot(username)
+            is_emoji = True  # 设置为动画表情
+            content = None  # 将内容置为空，不再处理该消息
 
         if img_path:
             logger.info(f"处理图片消息 - {username}: {img_path}")
-            recognized_text = recognize_image_with_moonshot(img_path)
+            recognized_text = recognize_image_with_moonshot(img_path, is_emoji)
             content = recognized_text if content is None else f"{content} {recognized_text}"
 
         if content:
@@ -847,6 +865,39 @@ def cleanup_wxauto_files():
         print(f"清理完成，共删除 {deleted_count} 个文件/文件夹")
     except Exception as e:
         print(f"清理wxauto文件夹时发生错误: {str(e)}")
+
+def capture_and_save_screenshot(who):
+    screenshot_folder = os.path.join(root_dir, 'screenshot')
+    if not os.path.exists(screenshot_folder):
+        os.makedirs(screenshot_folder)
+    
+    screenshot_path = os.path.join(screenshot_folder, f'{who}_{datetime.now().strftime("%Y%m%d%H%M%S")}.png')
+    
+    try:
+        # 激活并定位微信聊天窗口
+        wx_chat = WeChat()
+        wx_chat.ChatWith(who)
+        chat_window = pyautogui.getWindowsWithTitle(who)[0]
+        
+        # 确保窗口被前置和激活
+        if not chat_window.isActive:
+            chat_window.activate()
+        if not chat_window.isMaximized:
+            chat_window.maximize()
+        
+        # 获取窗口的坐标和大小
+        x, y, width, height = chat_window.left, chat_window.top, chat_window.width, chat_window.height
+
+        time.sleep(wait)
+
+        # 截取指定窗口区域的屏幕
+        screenshot = pyautogui.screenshot(region=(x, y, width, height))
+        screenshot.save(screenshot_path)
+        logger.info(f'已保存截图: {screenshot_path}')
+        return screenshot_path
+    except Exception as e:
+        logger.error(f'保存截图失败: {str(e)}')
+
 
 def main():
     try:

@@ -22,7 +22,7 @@ MAX_TOKEN = 2000
 #温度
 TEMPERATURE = 1.3
 
-# Moonshot AI配置（用于图片识别）
+# Moonshot AI配置（用于图片和表情包识别）
 # API申请https://platform.moonshot.cn/console/api-keys （免费15元额度）
 MOONSHOT_API_KEY = 'sk-'
 MOONSHOT_BASE_URL = "https://api.moonshot.cn/v1"
