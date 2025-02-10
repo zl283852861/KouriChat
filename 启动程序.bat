@@ -17,6 +17,38 @@ set "BASE_DIR=%~dp0"
 echo [信息] 当前工作目录: %BASE_DIR%
 echo.
 
+REM 检查Python是否安装
+echo [步骤 1/6] 检查Python环境...
+python --version > nul 2>&1
+if errorlevel 1 (
+    echo [错误] 未检测到Python！
+    echo [提示] 请安装Python 3.8或更高版本
+    pause
+    exit /b 1
+)
+
+REM 检查pip版本
+echo [信息] 检查pip版本...
+for /f "tokens=2" %%I in ('pip --version') do set PIP_VERSION=%%I
+echo [信息] 当前pip版本: %PIP_VERSION%
+pip list --outdated | find "pip" > nul
+if not errorlevel 1 (
+    echo [警告] 发现pip有新版本可用
+    echo [提示] 建议运行以下命令升级pip:
+    echo        python -m pip install --upgrade pip
+)
+
+REM 检查长路径支持
+echo [信息] 检查长路径支持...
+reg query "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v "LongPathsEnabled" | find "0x1" > nul
+if errorlevel 1 (
+    echo [警告] Windows长路径支持未启用
+    echo [提示] 建议启用长路径支持，可以：
+    echo        1. 以管理员身份运行PowerShell
+    echo        2. 执行: Set-ItemProperty -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' -Name 'LongPathsEnabled' -Value 1
+    echo        3. 重启计算机
+)
+
 echo [步骤 1/5] 检查必要文件...
 set "MISSING_FILES="
 set "CHECK_FILES=database.py bot.py config.py"
@@ -98,12 +130,28 @@ if not exist "%BASE_DIR%venv\Scripts\activate.bat" (
 )
 echo.
 
-echo [步骤 4/5] 激活虚拟环境并安装依赖...
+echo [步骤 4/6] 激活虚拟环境并安装依赖...
 call "%BASE_DIR%venv\Scripts\activate.bat"
 echo [成功] 虚拟环境已激活！
 
 echo [信息] 正在通过阿里云镜像源安装依赖...
-pip install sqlalchemy -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+REM 设置临时pip配置以允许长路径
+set PIP_MAX_PATH_LENGTH=260
+
+REM 添加错误处理的pip安装命令
+echo [安装] 正在安装基础依赖...
+(pip install sqlalchemy -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com) || (
+    echo [错误] 安装失败！可能原因：
+    echo        1. 路径过长导致安装失败
+    echo        2. 网络连接问题
+    echo [建议] 尝试以下解决方案：
+    echo        1. 将项目移动到更短的路径下
+    echo        2. 启用Windows长路径支持
+    echo        3. 检查网络连接
+    pause
+    exit /b 1
+)
+
 pip install wxauto -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 pip install openai -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 pip install requests -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
@@ -114,6 +162,9 @@ pip install regex -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirro
 echo [安装] SQLAlchemy相关依赖...
 pip install sqlalchemy-utils -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 pip install alembic -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+
+REM 恢复默认pip配置
+set PIP_MAX_PATH_LENGTH=
 
 echo [信息] 检查依赖安装状态...
 python -c "import datetime, sqlalchemy, sqlalchemy.ext.declarative, sqlalchemy.orm, wxauto, openai, requests, typing, re" 2>nul

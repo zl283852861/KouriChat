@@ -2,10 +2,12 @@ import os
 import requests
 import zipfile
 import shutil
+import json
 
 # 需要跳过的文件和文件夹（不会被更新）
 SKIP_FILES = [
     "AutoUpdate.py",#更新脚本
+    "chat_history.db",#聊天记录
     os.path.join("prompts", "ATRI.md"),#角色文件夹
     "custom_config.py",#自定义配置文件
     os.path.join("custom_folder", "custom_file.txt")#自定义文件夹
@@ -14,15 +16,16 @@ SKIP_FILES = [
 def check_and_update():
     print("开始检查更新...")
     
-    # GitHub API endpoint
-    api_url = "https://api.github.com/repos/umaru-233/My-Dream-Moments/releases/latest"
+    # 定义临时目录(要先定义，不然会报错)
+    temp_dir = "temp_update"
     
     try:
+        # GitHub API endpoint
+        api_url = "https://api.github.com/repos/umaru-233/My-Dream-Moments/releases/latest"
+        
         # 获取最新release信息
         response = requests.get(api_url)
-        if response.status_code != 200:
-            print(f"获取release信息失败: {response.status_code}")
-            return
+        response.raise_for_status()  # 如果状态码不是200，将引发异常
         
         release_data = response.json()
         
@@ -30,9 +33,9 @@ def check_and_update():
         zip_url = release_data['zipball_url']
         
         # 创建临时目录
-        temp_dir = "temp_update"
-        if not os.path.exists(temp_dir):
-            os.makedirs(temp_dir)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)  # 如果目录已存在，先删除
+        os.makedirs(temp_dir)
             
         # 下载zip文件
         print("下载更新文件...")
@@ -93,12 +96,19 @@ def check_and_update():
         
         print("更新完成！")
         
+    except requests.exceptions.RequestException as e:
+        print(f"网络请求错误: {str(e)}")
+    except json.JSONDecodeError as e:
+        print(f"JSON解析错误: {str(e)}")
     except Exception as e:
         print(f"更新过程中出现错误: {str(e)}")
     finally:
         # 确保清理临时目录
         if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+            try:
+                shutil.rmtree(temp_dir)
+            except Exception as e:
+                print(f"清理临时文件时出现错误: {str(e)}")
 
 if __name__ == "__main__":
     check_and_update() 

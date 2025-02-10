@@ -6,6 +6,7 @@ from datetime import datetime
 import threading
 import time
 import os
+import shutil
 from database import Session, ChatMessage
 from config import (
     DEEPSEEK_API_KEY, MAX_TOKEN, ROBOT_WX_NAME, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
@@ -26,9 +27,9 @@ wx = WeChat()
 # 设置监听列表
 listen_list = LISTEN_LIST
 
-# 循环添加监听对象，修改savepic参数为False（不保存图片）
+# 循环添加监听对象，修改savepic参数全要为True（要保存图片，才能识别图片）
 for i in listen_list:
-    wx.AddListenChat(who=i, savepic=False)
+    wx.AddListenChat(who=i, savepic=True)
 
 # 修改等待时间为更短的间隔（消息队列接受消息时间间隔）
 wait = 1  # 要想接受更多的消息就把时间改长
@@ -89,7 +90,59 @@ def save_message(sender_id, sender_name, message, reply):
         session.close()
     except Exception as e:
         print(f"保存消息失败: {str(e)}")
-
+# 判断是否需要随机图像
+def is_random_image_request(message: str) -> bool:
+    """检查消息是否为请求图片的模式"""
+    # 基础词组
+    basic_patterns = [
+        r'来个图',
+        r'来张图',
+        r'来点图',
+        r'想看图',
+    ]
+    
+    # 将消息转换为小写以进行不区分大小写的匹配(emm，好像没什么用)
+    message = message.lower()
+    
+    # 1. 检查基础模式
+    if any(pattern in message for pattern in basic_patterns):
+        return True
+        
+    # 2. 检查更复杂的模式
+    complex_patterns = [
+        r'来[张个幅]图',
+        r'发[张个幅]图',
+        r'看[张个幅]图',
+    ]
+    
+    if any(re.search(pattern, message) for pattern in complex_patterns):
+        return True
+        
+    return False
+# 获取随机图片(这个是壁纸不是表情包)
+def get_random_image() -> Optional[str]:
+    """从API获取随机图片并保存"""
+    try:
+        # 使用配置文件中定义的临时目录
+        temp_dir = os.path.join(root_dir, TEMP_IMAGE_DIR)
+        if not os.path.exists(temp_dir):
+            os.makedirs(temp_dir)
+            
+        # 获取图片链接
+        response = requests.get('https://t.mwm.moe/pc')
+        if response.status_code == 200:
+            # 生成唯一文件名
+            timestamp = int(time.time())
+            image_path = os.path.join(temp_dir, f'image_{timestamp}.jpg')
+            
+            # 保存图片
+            with open(image_path, 'wb') as f:
+                f.write(response.content)
+            
+            return image_path
+    except Exception as e:
+        logger.error(f"获取图片失败: {str(e)}")
+    return None
 #调用api生成图片
 def generate_image(prompt: str) -> Optional[str]:
     """
@@ -240,9 +293,30 @@ def get_random_emoji() -> Optional[str]:
     except Exception as e:
         logger.error(f"获取表情包失败: {str(e)}")
         return None
-#文生图功能
+# 获取DeepSeek API回复
 def get_deepseek_response(message, user_id):
     try:
+         # 首先检查是否为随机图片请求
+        if is_random_image_request(message):
+            image_path = get_random_image()
+            if image_path:
+                try:
+                    # 发送图片
+                    wx.SendFiles(filepath=image_path, who=user_id)
+                    # 删除临时图片
+                    os.remove(image_path)
+                    # 清理wxauto文件
+                    cleanup_wxauto_files()
+                    return "给主人你找了一张好看的图片哦~"
+                except Exception as e:
+                    logger.error(f"发送图片失败: {str(e)}")
+                    return "抱歉主人，图片发送失败了..."
+                finally:
+                    try:
+                        if os.path.exists(image_path):
+                            os.remove(image_path)
+                    except Exception as e:
+                        logger.error(f"删除临时图片失败: {str(e)}")
         # 检查是否为图像生成请求
         if is_image_generation_request(message):
             image_path = generate_image(message)
@@ -289,6 +363,9 @@ def get_deepseek_response(message, user_id):
         reply = response.choices[0].message.content
         print(f"API响应 - 用户ID: {user_id}")
         print(f"响应内容: {reply}")
+
+        # 清理wxauto文件
+        cleanup_wxauto_files()
 
         # 更新最后聊天时间
         update_last_chat_time()
@@ -367,9 +444,9 @@ def process_user_messages(chat_id):
             if voice_path:
                 try:
                     wx.SendFiles(filepath=voice_path, who=chat_id)
+                    cleanup_wxauto_files()  # 添加清理
                 except Exception as e:
                     logger.error(f"发送语音失败: {str(e)}")
-                    # 在群聊中需要@发送者
                     if is_group:
                         reply = f"@{sender_name} {reply}"
                     wx.SendMsg(msg=reply, who=chat_id)
@@ -409,6 +486,7 @@ def process_user_messages(chat_id):
             if os.path.exists(img_path):
                 try:
                     wx.SendFiles(filepath=img_path, who=chat_id)
+                    cleanup_wxauto_files()  # 添加清理
                     logger.info(f"图片发送成功: {img_path}")
                     text_msg = reply.split('[/IMAGE]')[1].strip()
                     if text_msg:
@@ -614,7 +692,7 @@ def initialize_wx_listener():
                         continue
                         
                     # 尝试添加监听，设置savepic=False
-                    wx.AddListenChat(who=i, savepic=False)
+                    wx.AddListenChat(who=i, savepic=True)
                     logger.info(f"成功添加监听: {chat_name}")
                     time.sleep(0.5)  # 添加短暂延迟，避免操作过快
                 except Exception as e:
@@ -733,10 +811,49 @@ def start_countdown():
     countdown_timer.start()
     is_countdown_running = True
 
+def cleanup_wxauto_files():
+    """
+    清理当前目录下的wxauto文件夹中的文件和子文件夹
+    """
+    try:
+        # 当前目录下的wxauto文件夹路径
+        wxauto_dir = os.path.join(os.getcwd(), "wxauto文件")
+        print(f"正在检查目录: {wxauto_dir}")
+        if not os.path.exists(wxauto_dir):
+            print("wxauto文件夹不存在，无需清理")
+            return
+            
+        files = os.listdir(wxauto_dir)
+        if not files:
+            print("wxauto文件夹为空，无需清理")
+            return
+            
+        deleted_count = 0
+        for file in files:
+            try:
+                file_path = os.path.join(wxauto_dir, file)
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                    # print(f"已删除文件: {file_path}")
+                    deleted_count += 1
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+                    # print(f"已删除文件夹: {file_path}")
+                    deleted_count += 1
+            except Exception as e:
+                # print(f"删除失败 {file_path}: {str(e)}")
+                continue
+                
+        print(f"清理完成，共删除 {deleted_count} 个文件/文件夹")
+    except Exception as e:
+        print(f"清理wxauto文件夹时发生错误: {str(e)}")
+
 def main():
     try:
         # 清理临时目录
         cleanup_temp_dir()
+        # 清理wxauto文件夹
+        cleanup_wxauto_files()
         
         # 使用新的初始化函数
         wx = initialize_wx_listener()
