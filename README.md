@@ -1,8 +1,10 @@
-
+![image](https://github.com/user-attachments/assets/42ac8d48-f97d-49c7-95ca-224ceb54d80d)
 ![ATRI.jpg](img%2FATRI.jpg)
 
-此版本为正式版，有Pull requests提交请前往Beta分支，有问题可以先尝试自己解决哦或加群：71566260 
+有问题可加群：71566260 
 - 夸克网盘：https://pan.quark.cn/s/f37d765e1404 提取码：zXpP 推荐转存，项目更新直接下载最新的代码zip。我也能有收益，感谢您的支持！
+- 部署项目推荐使用Windows服务器，雨云：https://www.rainyun.com/MzE0MTU=_ 注册送首月五折券！
+- 获取 DeepSeek API Key（15元免费额度）：https://cloud.siliconflow.cn/i/aQXU6eC5
 ---
 ## 简介
 简体中文 · [English](./README_EN.md) 
