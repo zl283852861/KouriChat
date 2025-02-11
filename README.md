@@ -2,7 +2,7 @@
 <br>
 ![ATRI.jpg](img%2FATRI.jpg)
 
-有问题可加群：71566260 
+有问题可加群：715616260 
 - 夸克网盘：https://pan.quark.cn/s/f37d765e1404 提取码：zXpP 推荐转存，项目更新直接下载最新的代码zip。我也能有收益，感谢您的支持！
 - 部署项目推荐使用Windows服务器，[雨云优惠通道注册送首月五折券](https://www.rainyun.com/MzE0MTU=_) 
 - 获取 DeepSeek API Key，[获取 API Key（15元免费额度）](https://cloud.siliconflow.cn/i/aQXU6eC5)
