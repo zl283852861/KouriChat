@@ -112,8 +112,12 @@ def save_config(new_config):
             value_str = f"'{value}'"
         elif isinstance(value, list):
             value_str = str(value)
+        elif isinstance(value, bool):
+            value_str = str(value).lower()  # 布尔值转换为小写字符串
+        elif isinstance(value, int):
+            value_str = str(value)  # 整数保持为字符串
         else:
-            value_str = str(value)
+            value_str = str(value)  # 确保其他类型的值转换为字符串
             
         # 使用正则表达式替换配置值
         pattern = rf'{key}\s*=\s*[^#\n]+'

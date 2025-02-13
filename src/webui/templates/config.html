@@ -195,30 +195,55 @@
                 document.body.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark');
         }
 
-        // 初始化工具提示 --
-        const tooltips = document.querySelectorAll('[data-bs-toggle="tooltip"]');
-        tooltips.forEach(t => new bootstrap.Tooltip(t));
+        // 初始化工具提示
+        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'))
+        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+            return new bootstrap.Tooltip(tooltipTriggerEl)
+        })
 
-        async function saveConfig() {
-            const formData = new FormData(document.getElementById('configForm'));
-            const configData = Object.fromEntries(formData.entries());
-
-            try {
-                const response = await fetch('/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(configData)
-                });
-
-                const result = await response.json();
-                showToast(result.message, result.status === 'success' ? 'success' : 'danger');
-                
-                if (result.status === 'success') {
-                    setTimeout(() => window.location.reload(), 1500);
+        function saveConfig() {
+            const form = document.getElementById('configForm');
+            const formData = new FormData(form);
+            const config = {};
+            
+            for (let [key, value] of formData.entries()) {
+                // 处理特殊类型
+                if (key === 'LISTEN_LIST') {
+                    config[key] = value.split(',').map(item => item.trim());
+                } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
+                    config[key] = value.toLowerCase() === 'true';
+                } else if (!isNaN(value) && value !== '') {
+                    config[key] = Number(value);
+                } else {
+                    config[key] = value;
                 }
-            } catch (error) {
-                showToast(`保存失败: ${error}`, 'danger');
             }
+
+            fetch('/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                const toast = new bootstrap.Toast(document.getElementById('saveToast'))
+                document.querySelector('.toast-body').textContent = data.message;
+                toast.show();
+                
+                if (data.status === 'success') {
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                const toast = new bootstrap.Toast(document.getElementById('saveToast'))
+                document.querySelector('.toast-body').textContent = '保存失败：' + error;
+                toast.show();
+            });
         }
 
         function showToast(message, type = 'info') {

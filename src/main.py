@@ -492,6 +492,7 @@ def main():
 
     except Exception as e:
         print_status(f"主程序异常: {str(e)}", "error", "💥")
+        logger.error(f"主程序异常: {str(e)}", exc_info=True)  # 添加详细日志记录
     finally:
         # 清理资源
         if countdown_timer:
@@ -499,9 +500,7 @@ def main():
         
         # 关闭监听线程
         if listener_thread and listener_thread.is_alive():
-            # 设置一个事件或标志来通知线程退出
             print_status("正在关闭监听线程...", "info", "🔄")
-            # 等待线程结束，但设置超时时间避免无限等待
             listener_thread.join(timeout=2)
             if listener_thread.is_alive():
                 print_status("监听线程未能正常关闭", "warning", "⚠️")
