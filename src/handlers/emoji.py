@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class EmojiHandler:
     def __init__(self, root_dir):
         self.root_dir = root_dir
-        self.emoji_dir = os.path.join(root_dir, "data", "avatars", "ATRI", "emoji")
+        self.emoji_dir = os.path.join(root_dir, "data", "avatars", "ATRI", "emojis")
         self.screenshot_dir = os.path.join(root_dir, 'screenshot')
         
         # 确保目录存在
@@ -60,9 +60,11 @@ class EmojiHandler:
                           if f.lower().endswith(('.gif', '.jpg', '.png', '.jpeg'))]
             
             if not emoji_files:
+                logger.warning("没有找到可用的表情包文件")
                 return None
                 
             random_emoji = random.choice(emoji_files)
+            logger.info(f"随机选择的表情包: {random_emoji}")
             return os.path.join(self.emoji_dir, random_emoji)
         except Exception as e:
             logger.error(f"获取表情包失败: {str(e)}")

@@ -168,6 +168,7 @@ class MessageHandler:
 
             # 检查是否需要发送表情包
             if self.emoji_handler.is_emoji_request(merged_message):
+                print("表情包请求")
                 emoji_path = self.emoji_handler.get_random_emoji()
                 if emoji_path:
                     try:

@@ -68,7 +68,7 @@ class SystemTests(unittest.TestCase):
             
     def test_cleanup_wxauto(self):
         """测试wxauto文件清理"""
-        wxauto_dir = os.path.join(os.getcwd(), "wxautoFiles")
+        wxauto_dir = os.path.join(os.getcwd(), "wxauto文件")
         
         # 创建测试文件
         if not os.path.exists(wxauto_dir):
@@ -88,18 +88,20 @@ class SystemTests(unittest.TestCase):
         )
 
 def cleanup_wxauto_files():
-    """清理wxauto文件夹"""
+    """
+    清理当前目录下的wxauto文件夹中的文件和子文件夹
+    """
     try:
-        wxauto_dir = os.path.join(os.getcwd(), "wxautoFiles")
-        logger.info(f"正在检查目录: {wxauto_dir}")
-        
+        # 当前目录下的wxauto文件夹路径
+        wxauto_dir = os.path.join(os.getcwd(), "wxauto文件")
+        print(f"正在检查目录: {wxauto_dir}")
         if not os.path.exists(wxauto_dir):
-            logger.info("wxauto文件夹不存在，无需清理")
+            print("wxauto文件夹不存在，无需清理")
             return
             
         files = os.listdir(wxauto_dir)
         if not files:
-            logger.info("wxauto文件夹为空，无需清理")
+            print("wxauto文件夹为空，无需清理")
             return
             
         deleted_count = 0
@@ -108,18 +110,19 @@ def cleanup_wxauto_files():
                 file_path = os.path.join(wxauto_dir, file)
                 if os.path.isfile(file_path):
                     os.remove(file_path)
+                    # print(f"已删除文件: {file_path}")
                     deleted_count += 1
                 elif os.path.isdir(file_path):
                     shutil.rmtree(file_path)
+                    # print(f"已删除文件夹: {file_path}")
                     deleted_count += 1
             except Exception as e:
-                logger.error(f"删除失败 {file_path}: {str(e)}")
+                # print(f"删除失败 {file_path}: {str(e)}")
                 continue
                 
-        logger.info(f"清理完成，共删除 {deleted_count} 个文件/文件夹")
-        
+        print(f"清理完成，共删除 {deleted_count} 个文件/文件夹")
     except Exception as e:
-        logger.error(f"清理wxauto文件夹时发生错误: {str(e)}")
+        print(f"清理wxauto文件夹时发生错误: {str(e)}")
 
 def check_python_version():
     """检查Python版本"""

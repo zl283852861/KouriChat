@@ -5,7 +5,7 @@ LISTEN_LIST = ['']
 # ROBOT_WX_NAME = ''
 # DeepSeek API 配置
 # 填你的秘钥
-DEEPSEEK_API_KEY = 'sk-qv'
+DEEPSEEK_API_KEY = ''
 # 硅基流动API注册地址，免费15元额度 https://cloud.siliconflow.cn/i/aQXU6eC5
 DEEPSEEK_BASE_URL = 'https://api.siliconflow.cn/v1/'
 # 如果要使用官方的API
