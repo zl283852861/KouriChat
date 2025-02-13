@@ -25,6 +25,22 @@
             background: var(--background-color);
             color: var(--text-color);
             transition: background 0.3s, color 0.3s;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+
+        /* 添加背景图片遮罩 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: inherit;
+            filter: blur(5px);
+            z-index: -1;
         }
 
         .config-section {
@@ -87,6 +103,12 @@
                 <div class="form-check form-switch me-3">
                     <input class="form-check-input" type="checkbox" role="switch" id="darkModeToggle" onclick="toggleDarkMode()">
                     <label class="form-check-label" for="darkModeToggle">护眼模式</label>
+                </div>
+                <div class="me-3">
+                    <input type="file" class="d-none" id="backgroundInput" accept="image/*">
+                    <button class="btn btn-outline-primary" onclick="document.getElementById('backgroundInput').click()">
+                        <i class="bi bi-image me-2"></i>更换背景
+                    </button>
                 </div>
             </div>
         </div>
@@ -297,6 +319,44 @@
                 removeElement.value = ''; // 清空输入框
             }
         }
+
+        // 添加背景图片上传处理
+        document.getElementById('backgroundInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('background', file);
+                
+                fetch('/upload_background', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.body.style.backgroundImage = `url('${data.path}')`;
+                        showToast(data.message, 'success');
+                    } else {
+                        showToast(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showToast('上传失败：' + error, 'danger');
+                });
+            }
+        });
+
+        // 页面加载时初始化背景
+        window.addEventListener('DOMContentLoaded', function() {
+            fetch('/get_background')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success' && data.path) {
+                    document.body.style.backgroundImage = `url('${data.path}')`;
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        });
     </script>
 </body>
 </html>

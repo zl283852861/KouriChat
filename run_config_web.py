@@ -10,10 +10,11 @@
 import os
 import sys
 import re
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 import importlib
 import json
 from colorama import init, Fore, Style
+from werkzeug.utils import secure_filename
 
 # 初始化colorama
 init()
@@ -28,6 +29,12 @@ sys.dont_write_bytecode = True
 app = Flask(__name__, 
     template_folder=os.path.join(ROOT_DIR, 'src/webui/templates'),
     static_folder=os.path.join(ROOT_DIR, 'src/webui/static'))
+
+# 添加配置
+app.config['UPLOAD_FOLDER'] = os.path.join(ROOT_DIR, 'src/webui/background_image')
+
+# 确保上传目录存在
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 def print_status(message: str, status: str = "info", emoji: str = ""):
     """打印带颜色和表情的状态消息"""
@@ -188,6 +195,57 @@ def save():
         return jsonify({"status": "error", "message": "保存失败"})
     except Exception as e:
         return jsonify({"status": "error", "message": f"保存失败: {str(e)}"})
+
+# 添加上传处理路由
+@app.route('/upload_background', methods=['POST'])
+def upload_background():
+    if 'background' not in request.files:
+        return jsonify({"status": "error", "message": "没有选择文件"})
+    
+    file = request.files['background']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "没有选择文件"})
+    
+    if file:
+        filename = secure_filename(file.filename)
+        # 清理旧的背景图片
+        for old_file in os.listdir(app.config['UPLOAD_FOLDER']):
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], old_file))
+        # 保存新图片
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        return jsonify({
+            "status": "success", 
+            "message": "背景图片已更新",
+            "path": f"/background_image/{filename}"
+        })
+
+# 添加背景图片目录的路由
+@app.route('/background_image/<filename>')
+def background_image(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 添加获取背景图片路由
+@app.route('/get_background')
+def get_background():
+    """获取当前背景图片"""
+    try:
+        # 获取背景图片目录中的第一个文件
+        files = os.listdir(app.config['UPLOAD_FOLDER'])
+        if files:
+            # 返回找到的第一个图片
+            return jsonify({
+                "status": "success",
+                "path": f"/background_image/{files[0]}"
+            })
+        return jsonify({
+            "status": "success",
+            "path": None
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        })
 
 def main():
     """主函数"""
