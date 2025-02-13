@@ -1,6 +1,4 @@
-本项目所有者正在对代码进行重构，为确保您的PR能顺利合并，请稍等片刻重构完成后再提交代码。
-<br>
-![ATRI.jpg](img%2FATRI.jpg)
+![ATRI.jpg](data%2Fimages%2Fimg%2FATRI.jpg)
 
 有问题可加群：715616260 
 - 夸克网盘：https://pan.quark.cn/s/f37d765e1404 提取码：zXpP 推荐转存，项目更新直接下载最新的代码zip。我也能有收益，感谢您的支持！
@@ -15,7 +13,7 @@
 - [赞助者名单](SponsorList.md)
 - [里程碑](MileStone.md)
 - [致谢](Thanks.md)<br>
-![demo.png](img%2Fdemo.png)
+![demo.png](data%2Fimages%2Fimg%2Fdemo.png)
 ---
 ## 声明
 - 本项目仅用于交流学习，LLM发言不代表作者本人立场。prompt所模仿角色版权归属原作者。任何未经许可进行的限制级行为均由使用者个人承担。
@@ -66,21 +64,21 @@
 1. **克隆本仓库**  
    ```bash
    git clone https://github.com/umaru-233/My-Dream-Moments.git
-2. **安装依赖**  
-   ```bash
-   pip install -r requirements.txt
-3. **安装pip** 
+2. **安装pip** 
    ```bash
    python -m ensurepip
    ```
-4. **配置<code>config.py</code>**  
+3. **安装依赖**  
+   ```bash
+   pip install -r requirements.txt
+4. **配置<code>src/config/settings.py</code>**  
 修改<code>LISTEN_LIST</code>、<code>DEEPSEEK_BASE_URL</code>和<code>DEEPSEEK_API_KEY</code>。
 
 按需调整<code>MAX_TOKEN</code>、<code>TEMPERATURE</code>和<code>MODEL</code>。如何配置请阅读<code>config.py</code>里的注释。
 
-5. **运行<code>bot.py</code>，如果报错请尝试使用Python 3.11版本。**
+5. **运行<code>run.py</code>，如果报错请尝试使用Python 3.11版本。**
    ```bash
-   python bot.py
+   python run.py
    ```
 
 6. FAQ:没什么问题是重启解决不了的，如果重启解决不了，请重启
@@ -95,8 +93,7 @@
      ```
 即可开始监听并调用模型自动回复消息。
 ## 如果您想修改prompt
-- 建议前往官网复制各种不同Prompt，然后修改prompts/ATRI.md的内容就可以了，什么？你问我官网呢，emm，可以加qq群获取prompt
-- 项目根目录下的 <code>prompt.md</code> 可以编辑，修改后重启项目生效。
+- 修改avatars/ATRI/ATRI.md的内容
 - 注意：请不要修改与反斜线 <code> \ </code>相关的 prompt，因为它们被用于分段回复消息。
 ## 赞助
 此项目欢迎赞助。您的支持对我非常重要！
@@ -104,6 +101,6 @@
 - E-Mail: yangchenglin2004@foxmail.com 
 - Bilibili: [umaru今天吃什么](https://space.bilibili.com/209397245)
 - 感谢您的支持与使用！!<br>
-![qrcode.jpg](img%2Fqrcode.jpg)
+![qrcode.jpg](data%2Fimages%2Fimg%2Fqrcode.jpg)
 ## 请给我Star，这对我很重要TvT
 - [![Star History Chart](https://api.star-history.com/svg?repos=umaru-233/My-Dream-Moments&type=Timeline)](https://star-history.com/?spm=a2c6h.12873639.article-detail.8.7b9d359dJmTgdE#umaru-233/My-Dream-Moments&Timeline)
