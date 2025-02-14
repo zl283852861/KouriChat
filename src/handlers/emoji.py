@@ -2,7 +2,7 @@
 表情包处理模块
 负责处理表情包相关功能，包括:
 - 表情包请求识别
-- 随机表情包选择
+- 表情包选择
 - 表情包截图
 - 文件管理
 """
@@ -25,50 +25,64 @@ class EmojiHandler:
         self.emoji_dir = os.path.join(root_dir, "data", "avatars", "ATRI", "emojis")
         self.screenshot_dir = os.path.join(root_dir, 'screenshot')
         
+        # 情感分类映射（情感目录名: 关键词列表）
+        self.emotion_map = {
+            'happy': ['开心', '高兴', '哈哈', '笑', '嘻嘻', '可爱', '乐'],
+            'sad': ['难过', '伤心', '哭', '委屈', '泪', '呜呜', '悲'],
+            'angry': ['生气', '怒', '哼', '啊啊', '呵呵'],
+            'neutral': []  # 默认中性分类
+        }
+        
         # 确保目录存在
         os.makedirs(self.emoji_dir, exist_ok=True)
         os.makedirs(self.screenshot_dir, exist_ok=True)
 
     def is_emoji_request(self, text: str) -> bool:
         """判断是否为表情包请求"""
-        # 直接请求表情包的关键词
         emoji_keywords = ["表情包", "表情", "斗图", "gif", "动图"]
-        
-        # 情感表达关键词
-        emotion_keywords = ["开心", "难过", "生气", "委屈", "高兴", "伤心",
-                          "哭", "笑", "怒", "喜", "悲", "乐", "泪", "哈哈",
-                          "呜呜", "嘿嘿", "嘻嘻", "哼", "啊啊", "呵呵", "可爱"]
-        
-        # 检查直接请求
-        if any(keyword in text.lower() for keyword in emoji_keywords):
-            return True
-            
-        # 检查情感表达
-        if any(keyword in text for keyword in emotion_keywords):
-            return True
-            
-        return False
+        return any(keyword in text.lower() for keyword in emoji_keywords)
 
-    def get_random_emoji(self) -> str:
-        """从表情包目录随机获取一个表情包"""
+    def detect_emotion(self, text: str) -> str:
+        """从文本中检测情感分类"""
+        for emotion, keywords in self.emotion_map.items():
+            if emotion == 'neutral':
+                continue
+            if any(keyword in text for keyword in keywords):
+                return emotion
+        return 'neutral'
+
+    def get_emotion_emoji(self, text: str) -> str:
+        """根据AI回复内容的情感获取对应表情包"""
         try:
-            if not os.path.exists(self.emoji_dir):
-                logger.error(f"表情包目录不存在: {self.emoji_dir}")
-                return None
-                
-            emoji_files = [f for f in os.listdir(self.emoji_dir) 
+            # 检测情感分类
+            emotion = self.detect_emotion(text)
+            target_dir = os.path.join(self.emoji_dir, emotion)
+            
+            # 回退机制处理
+            if not os.path.exists(target_dir):
+                if os.path.exists(self.emoji_dir):
+                    logger.warning(f"情感目录 {emotion} 不存在，使用根目录")
+                    target_dir = self.emoji_dir
+                else:
+                    logger.error(f"表情包根目录不存在: {self.emoji_dir}")
+                    return None
+
+            # 获取有效表情包文件
+            emoji_files = [f for f in os.listdir(target_dir)
                           if f.lower().endswith(('.gif', '.jpg', '.png', '.jpeg'))]
             
             if not emoji_files:
-                logger.warning("没有找到可用的表情包文件")
+                logger.warning(f"目录中未找到表情包: {target_dir}")
                 return None
                 
-            random_emoji = random.choice(emoji_files)
-            logger.info(f"随机选择的表情包: {random_emoji}")
-            return os.path.join(self.emoji_dir, random_emoji)
+            # 随机选择并返回路径
+            selected = random.choice(emoji_files)
+            logger.info(f"已选择 {emotion} 表情包: {selected}")
+            return os.path.join(target_dir, selected)
         except Exception as e:
-            logger.error(f"获取表情包失败: {str(e)}")
+            logger.error(f"获取表情包失败: {str(e)}", exc_info=True)
             return None
+
 
     def capture_and_save_screenshot(self, who: str) -> str:
         """捕获并保存聊天窗口截图"""

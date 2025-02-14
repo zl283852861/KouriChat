@@ -192,10 +192,11 @@ class MessageHandler:
             # 检查是否需要发送表情包
             if self.emoji_handler.is_emoji_request(merged_message):
                 print("表情包请求")
-                emoji_path = self.emoji_handler.get_random_emoji()
+                emoji_path = self.emoji_handler.get_emotion_emoji(merged_message)
                 if emoji_path:
                     try:
                         self.wx.SendFiles(filepath=emoji_path, who=chat_id)
+                        logger.info(f"附加情感表情包: {emoji_path}")
                         reply = "给主人发送了一个表情包哦~"
                     except Exception as e:
                         logger.error(f"发送表情包失败: {str(e)}")
