@@ -16,7 +16,7 @@
             "title": "大语言模型配置",
             "settings": {
                 "api_key": {
-                    "value": "sk-qfoawdyazbbgqkwjpuaykloicvswivqnkzywxglxnuwzktpv",
+                    "value": "sk-",
                     "type": "string",
                     "description": "DeepSeek API密钥",
                     "is_secret": true
@@ -55,7 +55,7 @@
             "settings": {
                 "image_recognition": {
                     "api_key": {
-                        "value": "sk-Sql4gHcAYIIedc5xmE2Lvdh6jxYKPSFzzGGMUUVIQ8Wz9F3E",
+                        "value": "sk-",
                         "type": "string",
                         "description": "Moonshot AI API密钥（用于图片和表情包识别）",
                         "is_secret": true
