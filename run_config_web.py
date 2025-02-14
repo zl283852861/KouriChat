@@ -198,6 +198,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             QuietTimeSettings,
             ContextSettings,
             BehaviorSettings,
+            config
         )
 
         # 构建新的配置对象
@@ -402,10 +403,9 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             }
         }
 
-        # 保存到文件
-        config_path = os.path.join(ROOT_DIR, "config.json")
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, indent=4, ensure_ascii=False)
+        # 使用 Config 类的方法保存配置
+        if not config.save_config(config_data):
+            return False
 
         # 重新加载配置模块
         importlib.reload(sys.modules["src.config"])
@@ -486,6 +486,8 @@ def get_background():
 
 def main():
     """主函数"""
+    from src.config import config
+    
     print("\n" + "="*50)
     print_status("配置管理系统启动中...", "info", "🚀")
     print("-"*50)
@@ -499,7 +501,7 @@ def main():
     
     # 检查配置文件
     print_status("检查配置文件...", "info", "⚙️")
-    if not os.path.exists(os.path.join(ROOT_DIR, 'config.json')):
+    if not os.path.exists(config.config_path):
         print_status("错误：配置文件不存在！", "error", "❌")
         return
     print_status("配置文件检查完成", "success", "✅")

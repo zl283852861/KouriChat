@@ -76,17 +76,39 @@ class Config:
         self.load_config()
     
     @property
-    def root_dir(self) -> str:
-        return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    def config_dir(self) -> str:
+        """返回配置文件所在目录"""
+        return os.path.dirname(__file__)
+    
+    @property
+    def config_path(self) -> str:
+        """返回配置文件完整路径"""
+        return os.path.join(self.config_dir, 'config.json')
+    
+    def save_config(self, config_data: dict) -> bool:
+        """保存配置到文件
+        
+        Args:
+            config_data: 要保存的配置数据
+            
+        Returns:
+            bool: 保存是否成功
+        """
+        try:
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                json.dump(config_data, f, indent=4, ensure_ascii=False)
+            return True
+        except Exception as e:
+            logger.error(f"保存配置失败: {str(e)}")
+            return False
     
     def load_config(self) -> None:
         """加载配置文件"""
-        config_path = os.path.join(self.root_dir, 'config.json')
         try:
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"配置文件不存在: {config_path}")
+            if not os.path.exists(self.config_path):
+                raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
                 
-            with open(config_path, 'r', encoding='utf-8') as f:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
             categories = data['categories']
