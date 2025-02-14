@@ -93,9 +93,11 @@ class MessageHandler:
                 new_content = content.replace("#记忆", f"#记忆\n{memory_section}")
                 f.seek(0)
                 f.write(new_content)
+            f.seek(0)
+            full_prompt = f.read()
 
         # 调用原有API
-        return self.deepseek.get_response(message, user_id, content)
+        return self.deepseek.get_response(message, user_id, full_prompt)
 
     def process_messages(self, chat_id: str):
         """处理消息队列中的消息"""
