@@ -25,6 +25,22 @@
             background: var(--background-color);
             color: var(--text-color);
             transition: background 0.3s, color 0.3s;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+        }
+
+        /* 添加背景图片遮罩 */
+        body::before {
+            content: '';
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: inherit;
+            filter: blur(5px);
+            z-index: -1;
         }
 
         .config-section {
@@ -88,91 +104,98 @@
                     <input class="form-check-input" type="checkbox" role="switch" id="darkModeToggle" onclick="toggleDarkMode()">
                     <label class="form-check-label" for="darkModeToggle">护眼模式</label>
                 </div>
+                <div class="me-3">
+                    <input type="file" class="d-none" id="backgroundInput" accept="image/*">
+                    <button class="btn btn-outline-primary" onclick="document.getElementById('backgroundInput').click()">
+                        <i class="bi bi-image me-2"></i>更换背景
+                    </button>
+                </div>
             </div>
         </div>
     </nav>
 
-    <main class="container py-4">
-        <div class="config-section">
-            <form id="configForm">
-                {% for group_name, configs in config_groups.items() %}
-                <div class="accordion mb-3">
-                    <div class="accordion-item">
-                        <h2 class="accordion-header">
-                            <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
-                                data-bs-target="#{{ group_name|replace(' ', '-') }}">
-                                {{ group_name }}
-                            </button>
-                        </h2>
-                        <div id="{{ group_name|replace(' ', '-') }}" class="accordion-collapse collapse">
-                            <div class="accordion-body">
-                                {% for key, config in configs.items() %}
-                                <div class="mb-4">
-                                    <label class="form-label">
-                                        {{ key }}
-                                        <span class="badge badge-info rounded-pill" 
-                                            data-bs-toggle="tooltip" 
-                                            title="{{ config.description }}">
-                                            <i class="bi bi-info-circle"></i>
-                                        </span>
-                                    </label>
-                                    {% if key == 'LISTEN_LIST' %}
-                                        <input type="text" class="form-control" 
-                                            id="{{ key }}" name="{{ key }}" 
-                                            value="{{ config.value|join(',') }}"
-                                            placeholder="多个值用英文逗号分隔">
-                                    {% elif key == 'DEEPSEEK_BASE_URL' %}
-                                        <select class="form-select mb-2" onchange="document.getElementById('DEEPSEEK_BASE_URL').value = this.value === 'siliconflow' ? 'https://api.siliconflow.cn/v1/' : 'https://api.deepseek.com/v1'">
-                                            <option value="siliconflow" {% if config.value == 'https://api.siliconflow.cn/v1/' %}selected{% endif %}>硅基流动</option>
-                                            <option value="deepseek" {% if config.value == 'https://api.deepseek.com/v1' %}selected{% endif %}>deepseek</option>
-                                        </select>
-                                        <input type="text" class="form-control" 
-                                            id="{{ key }}" name="{{ key }}" 
-                                            value="{{ config.value }}">
-                                    {% elif key == 'PROMPT_ENHANCEMENT' %}
-                                        <select class="form-select" id="{{ key }}" name="{{ key }}">
-                                            <option value="True" {% if config.value %}selected{% endif %}>启用</option>
-                                            <option value="False" {% if not config.value %}selected{% endif %}>停用</option>
-                                        </select>
-                                    {% elif config.value is boolean %}
-                                        <div class="form-check form-switch">
-                                            <input class="form-check-input" type="checkbox" role="switch" 
-                                                id="{{ key }}" name="{{ key }}" 
-                                                {% if config.value %}checked{% endif %}>
-                                            <label class="form-check-label" for="{{ key }}">
-                                                {{ '启用' if config.value else '停用' }}
-                                            </label>
+    <main class="container-fluid py-4">
+        <div class="row">
+            <!-- 左侧基础配置 -->
+            <div class="col-md-6 pe-md-2">
+                <div class="config-section h-100">
+                    <h4 class="mb-4">
+                        <i class="bi bi-gear-fill me-2"></i>基础配置
+                    </h4>
+                    <form id="configForm">
+                        {% for group_name, configs in config_groups.items() %}
+                            {% if group_name == '基础配置' %}
+                            <div class="accordion mb-3">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#{{ group_name|replace(' ', '-') }}">
+                                            {{ group_name }}
+                                        </button>
+                                    </h2>
+                                    <div id="{{ group_name|replace(' ', '-') }}" class="accordion-collapse collapse show">
+                                        <div class="accordion-body">
+                                            {% for key, config in configs.items() %}
+                                            <div class="mb-4">
+                                                {% include 'config_item.html' %}
+                                            </div>
+                                            {% endfor %}
                                         </div>
-                                    {% elif key == 'MODEL' %}
-                                        <select class="form-select mb-2" onchange="document.getElementById('MODEL').value = this.value">
-                                            <option value="deepseek-ai/DeepSeek-V3">硅基流动V3模型（免费额度版）</option>
-                                            <option value="deepseek-ai/DeepSeek-R1">硅基流动R1模型（免费额度版）</option>
-                                            <option value="Pro/deepseek-ai/DeepSeek-V3">硅基流动V3模型（付费版）</option>
-                                            <option value="Pro/deepseek-ai/DeepSeek-R1">硅基流动R1模型（付费版）</option>
-                                            <option value="deepseek-chat">deepseek官方V3模型</option>
-                                            <option value="deepseek-reasoner">deepseek官方R1模型</option>
-                                        </select>
-                                        <input type="text" class="form-control" 
-                                            id="{{ key }}" name="{{ key }}" 
-                                            value="{{ config.value }}">
-                                    {% else %}
-                                        <input type="text" class="form-control" 
-                                            id="{{ key }}" name="{{ key }}" 
-                                            value="{{ config.value }}">
-                                    {% endif %}
+                                    </div>
                                 </div>
-                                {% endfor %}
                             </div>
-                        </div>
+                            {% endif %}
+                        {% endfor %}
+                    </form>
+                </div>
+            </div>
+
+            <!-- 右侧其他配置 -->
+            <div class="col-md-6 ps-md-2">
+                <div class="config-section h-100">
+                    <h4 class="mb-4">
+                        <i class="bi bi-sliders me-2"></i>高级配置
+                    </h4>
+                    <form id="otherConfigForm">
+                        {% for group_name, configs in config_groups.items() %}
+                            {% if group_name != '基础配置' %}
+                            <div class="accordion mb-3">
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" 
+                                            data-bs-target="#{{ group_name|replace(' ', '-') }}">
+                                            {{ group_name }}
+                                        </button>
+                                    </h2>
+                                    <div id="{{ group_name|replace(' ', '-') }}" class="accordion-collapse collapse">
+                                        <div class="accordion-body">
+                                            {% for key, config in configs.items() %}
+                                            <div class="mb-4">
+                                                {% include 'config_item.html' %}
+                                            </div>
+                                            {% endfor %}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endif %}
+                        {% endfor %}
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <!-- 保存按钮固定在底部 -->
+        <div class="position-fixed bottom-0 start-0 w-100 bg-body p-3 shadow-lg">
+            <div class="container-fluid">
+                <div class="row">
+                    <div class="col-12">
+                        <button type="button" class="btn btn-primary btn-lg w-100" onclick="saveAllConfig()">
+                            <i class="bi bi-save me-2"></i>保存所有设置
+                        </button>
                     </div>
                 </div>
-                {% endfor %}
-                <div class="d-grid gap-2 mt-4">
-                    <button type="button" class="btn btn-primary btn-lg" onclick="saveConfig()">
-                        <i class="bi bi-save me-2"></i>保存所有设置
-                    </button>
-                </div>
-            </form>
+            </div>
         </div>
     </main>
 
@@ -201,24 +224,24 @@
             return new bootstrap.Tooltip(tooltipTriggerEl)
         })
 
-        function saveConfig() {
-            const form = document.getElementById('configForm');
-            const formData = new FormData(form);
+        function saveAllConfig() {
+            const mainForm = document.getElementById('configForm');
+            const otherForm = document.getElementById('otherConfigForm');
             const config = {};
             
+            // 合并两个表单的数据
+            const formData = new FormData(mainForm);
+            const otherFormData = new FormData(otherForm);
+            
             for (let [key, value] of formData.entries()) {
-                // 处理特殊类型
-                if (key === 'LISTEN_LIST') {
-                    config[key] = value.split(',').map(item => item.trim());
-                } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
-                    config[key] = value.toLowerCase() === 'true';
-                } else if (!isNaN(value) && value !== '') {
-                    config[key] = Number(value);
-                } else {
-                    config[key] = value;
-                }
+                processFormValue(config, key, value);
+            }
+            
+            for (let [key, value] of otherFormData.entries()) {
+                processFormValue(config, key, value);
             }
 
+            // 发送保存请求
             fetch('/save', {
                 method: 'POST',
                 headers: {
@@ -240,10 +263,20 @@
             })
             .catch(error => {
                 console.error('Error:', error);
-                const toast = new bootstrap.Toast(document.getElementById('saveToast'))
-                document.querySelector('.toast-body').textContent = '保存失败：' + error;
-                toast.show();
+                showToast('保存失败：' + error, 'danger');
             });
+        }
+
+        function processFormValue(config, key, value) {
+            if (key === 'LISTEN_LIST') {
+                config[key] = value.split(',').map(item => item.trim());
+            } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
+                config[key] = value.toLowerCase() === 'true';
+            } else if (!isNaN(value) && value !== '') {
+                config[key] = Number(value);
+            } else {
+                config[key] = value;
+            }
         }
 
         function showToast(message, type = 'info') {
@@ -256,6 +289,74 @@
             
             new bootstrap.Toast(toastEl).show();
         }
+
+        // 添加新函数
+        function addToList(key) {
+            const inputElement = document.getElementById('input_' + key);
+            const targetElement = document.getElementById(key);
+            const newValue = inputElement.value.trim();
+            
+            if (newValue) {
+                const currentValues = targetElement.value ? targetElement.value.split(',') : [];
+                if (!currentValues.includes(newValue)) {
+                    currentValues.push(newValue);
+                    targetElement.value = currentValues.join(',');
+                }
+                inputElement.value = ''; // 清空输入框
+            }
+        }
+
+        // 添加移除函数
+        function removeFromList(key) {
+            const removeElement = document.getElementById('remove_input_' + key);
+            const targetElement = document.getElementById(key);
+            const valueToRemove = removeElement.value.trim();
+            
+            if (valueToRemove) {
+                let currentValues = targetElement.value ? targetElement.value.split(',') : [];
+                currentValues = currentValues.filter(item => item.trim() !== valueToRemove);
+                targetElement.value = currentValues.join(',');
+                removeElement.value = ''; // 清空输入框
+            }
+        }
+
+        // 添加背景图片上传处理
+        document.getElementById('backgroundInput').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const formData = new FormData();
+                formData.append('background', file);
+                
+                fetch('/upload_background', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.body.style.backgroundImage = `url('${data.path}')`;
+                        showToast(data.message, 'success');
+                    } else {
+                        showToast(data.message, 'danger');
+                    }
+                })
+                .catch(error => {
+                    showToast('上传失败：' + error, 'danger');
+                });
+            }
+        });
+
+        // 页面加载时初始化背景
+        window.addEventListener('DOMContentLoaded', function() {
+            fetch('/get_background')
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success' && data.path) {
+                    document.body.style.backgroundImage = `url('${data.path}')`;
+                }
+            })
+            .catch(error => console.error('Error:', error));
+        });
     </script>
 </body>
 </html>

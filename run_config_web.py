@@ -10,10 +10,11 @@
 import os
 import sys
 import re
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, send_from_directory
 import importlib
 import json
 from colorama import init, Fore, Style
+from werkzeug.utils import secure_filename
 
 # 初始化colorama
 init()
@@ -28,6 +29,12 @@ sys.dont_write_bytecode = True
 app = Flask(__name__, 
     template_folder=os.path.join(ROOT_DIR, 'src/webui/templates'),
     static_folder=os.path.join(ROOT_DIR, 'src/webui/static'))
+
+# 添加配置
+app.config['UPLOAD_FOLDER'] = os.path.join(ROOT_DIR, 'src/webui/background_image')
+
+# 确保上传目录存在
+os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 def print_status(message: str, status: str = "info", emoji: str = ""):
     """打印带颜色和表情的状态消息"""
@@ -62,7 +69,46 @@ def parse_config_groups():
     # 提取所有注释
     for match in re.finditer(comment_pattern, config_content, re.MULTILINE):
         line_num = config_content.count('\n', 0, match.start())
-        comments[line_num] = match.group(1).strip()
+        comment_text = match.group(1).strip()
+        # 如果注释以变量名开头，则跳过（避免重复）
+        if not any(var.isupper() and comment_text.startswith(var) for var in dir(settings)):
+            comments[line_num] = comment_text
+    
+    # 配置项描述映射
+    descriptions = {
+        # 基础配置
+        'MODEL': 'AI模型选择',
+        'DEEPSEEK_BASE_URL': '硅基流动API注册地址',
+        'DEEPSEEK_API_KEY': 'DeepSeek API密钥',
+        'LISTEN_LIST': '用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)',
+        'MAX_GROUPS': '最大的上下文轮数',
+        'MAX_TOKEN': '回复最大token数',
+        'TEMPERATURE': '温度参数',
+        'EMOJI_DIR': '表情包存放目录',
+
+        # 图像识别API配置
+        'MOONSHOT_API_KEY': 'Moonshot API密钥（用于图片和表情包识别）',
+        'MOONSHOT_BASE_URL': 'Moonshot API基础URL',
+        'MOONSHOT_TEMPERATURE': 'Moonshot温度参数',
+
+        # 图像生成配置
+        'IMAGE_MODEL': '图像生成模型',
+        'TEMP_IMAGE_DIR': '临时图片目录',
+
+        # 时间配置
+        'AUTO_MESSAGE': '自动消息内容',
+        'MIN_COUNTDOWN_HOURS': '最小倒计时时间（小时）',
+        'MAX_COUNTDOWN_HOURS': '最大倒计时时间（小时）',
+        'QUIET_TIME_START': '安静时间开始',
+        'QUIET_TIME_END': '安静时间结束',
+
+        # 语音配置
+        'TTS_API_URL': '语音服务API地址',
+        'VOICE_DIR': '语音文件目录',
+
+        # Prompt配置
+        'PROMPT_NAME': 'Prompt文件路径'
+    }
     
     # 获取所有配置项
     for name in dir(settings):
@@ -74,20 +120,20 @@ def parse_config_groups():
                 match = re.search(pattern, config_content, re.MULTILINE)
                 if match:
                     line_num = config_content.count('\n', 0, match.start())
-                    # 获取该配置项上方的注释
-                    description = comments.get(line_num - 1, "")
+                    # 使用预定义的描述，如果没有则使用注释中的描述
+                    description = descriptions.get(name, comments.get(line_num - 1, ""))
                     
-                    # 根据注释内容确定分组
-                    if "API" in description.upper():
-                        group = "API配置"
-                    elif "图" in description or "Image" in description:
-                        group = "图像配置"
-                    elif "语音" in description or "Voice" in description:
-                        group = "语音配置"
-                    elif "时间" in description or "Time" in description:
+                    # 修改分组判断逻辑
+                    if "Moonshot" in name:
+                        group = "图像识别API配置"
+                    elif "IMAGE" in name or "TEMP_IMAGE_DIR" in name:
+                        group = "图像生成配置"
+                    elif name == "PROMPT_NAME":
+                        group = "Prompt配置"
+                    elif any(word in name for word in ["TIME", "COUNTDOWN", "AUTO_MESSAGE"]):
                         group = "时间配置"
-                    elif "更新" in description or "Update" in description:
-                        group = "更新配置"
+                    elif any(word in name for word in ["TTS", "VOICE"]):
+                        group = "语音配置"
                     else:
                         group = "基础配置"
                         
@@ -149,6 +195,57 @@ def save():
         return jsonify({"status": "error", "message": "保存失败"})
     except Exception as e:
         return jsonify({"status": "error", "message": f"保存失败: {str(e)}"})
+
+# 添加上传处理路由
+@app.route('/upload_background', methods=['POST'])
+def upload_background():
+    if 'background' not in request.files:
+        return jsonify({"status": "error", "message": "没有选择文件"})
+    
+    file = request.files['background']
+    if file.filename == '':
+        return jsonify({"status": "error", "message": "没有选择文件"})
+    
+    if file:
+        filename = secure_filename(file.filename)
+        # 清理旧的背景图片
+        for old_file in os.listdir(app.config['UPLOAD_FOLDER']):
+            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], old_file))
+        # 保存新图片
+        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+        return jsonify({
+            "status": "success", 
+            "message": "背景图片已更新",
+            "path": f"/background_image/{filename}"
+        })
+
+# 添加背景图片目录的路由
+@app.route('/background_image/<filename>')
+def background_image(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+# 添加获取背景图片路由
+@app.route('/get_background')
+def get_background():
+    """获取当前背景图片"""
+    try:
+        # 获取背景图片目录中的第一个文件
+        files = os.listdir(app.config['UPLOAD_FOLDER'])
+        if files:
+            # 返回找到的第一个图片
+            return jsonify({
+                "status": "success",
+                "path": f"/background_image/{files[0]}"
+            })
+        return jsonify({
+            "status": "success",
+            "path": None
+        })
+    except Exception as e:
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        })
 
 def main():
     """主函数"""
