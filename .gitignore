@@ -1,5 +1,13 @@
-data/database/chat_history.db
-logs/*
+# Database
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+
 # IntelliJ project files
 .idea
 *.iml
