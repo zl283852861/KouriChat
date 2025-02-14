@@ -15,7 +15,9 @@ import logging
 import re
 from datetime import datetime
 import pyautogui
+import time
 from wxauto import WeChat
+from typing import Tuple, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -39,7 +41,7 @@ class EmojiHandler:
 
     def is_emoji_request(self, text: str) -> bool:
         """判断是否为表情包请求"""
-        emoji_keywords = ["表情包", "表情", "斗图", "gif", "动图"]
+        emoji_keywords = ["来个表情包", "斗图", "gif", "动图"]
         return any(keyword in text.lower() for keyword in emoji_keywords)
 
     def detect_emotion(self, text: str) -> str:
@@ -51,7 +53,7 @@ class EmojiHandler:
                 return emotion
         return 'neutral'
 
-    def get_emotion_emoji(self, text: str) -> str:
+    def get_emotion_emoji(self, text: str) -> Optional[str]:
         """根据AI回复内容的情感获取对应表情包"""
         try:
             # 检测情感分类
@@ -83,38 +85,46 @@ class EmojiHandler:
             logger.error(f"获取表情包失败: {str(e)}", exc_info=True)
             return None
 
-
     def capture_and_save_screenshot(self, who: str) -> str:
         """捕获并保存聊天窗口截图"""
-        screenshot_path = os.path.join(
-            self.screenshot_dir, 
-            f'{who}_{datetime.now().strftime("%Y%m%d%H%M%S")}.png'
-        )
-        
         try:
-            # 激活并定位微信聊天窗口
-            wx_chat = WeChat()
-            wx_chat.ChatWith(who)
-            chat_window = pyautogui.getWindowsWithTitle(who)[0]
+            # 确保截图目录存在
+            os.makedirs(self.screenshot_dir, exist_ok=True)
             
-            # 确保窗口被前置和激活
-            if not chat_window.isActive:
-                chat_window.activate()
-            if not chat_window.isMaximized:
-                chat_window.maximize()
+            screenshot_path = os.path.join(
+                self.screenshot_dir, 
+                f'{who}_{datetime.now().strftime("%Y%m%d%H%M%S")}.png'
+            )
             
-            # 获取窗口的坐标和大小
-            x, y, width, height = chat_window.left, chat_window.top, chat_window.width, chat_window.height
+            try:
+                # 激活并定位微信聊天窗口
+                wx_chat = WeChat()
+                wx_chat.ChatWith(who)
+                chat_window = pyautogui.getWindowsWithTitle(who)[0]
+                
+                # 确保窗口被前置和激活
+                if not chat_window.isActive:
+                    chat_window.activate()
+                if not chat_window.isMaximized:
+                    chat_window.maximize()
+                
+                # 获取窗口的坐标和大小
+                x, y, width, height = chat_window.left, chat_window.top, chat_window.width, chat_window.height
 
-            time.sleep(1)  # 短暂等待确保窗口已激活
+                time.sleep(1)  # 短暂等待确保窗口已激活
 
-            # 截取指定窗口区域的屏幕
-            screenshot = pyautogui.screenshot(region=(x, y, width, height))
-            screenshot.save(screenshot_path)
-            logger.info(f'已保存截图: {screenshot_path}')
-            return screenshot_path
+                # 截取指定窗口区域的屏幕
+                screenshot = pyautogui.screenshot(region=(x, y, width, height))
+                screenshot.save(screenshot_path)
+                logger.info(f'已保存截图: {screenshot_path}')
+                return screenshot_path
+                
+            except Exception as e:
+                logger.error(f'截取或保存截图失败: {str(e)}')
+                return None
+                
         except Exception as e:
-            logger.error(f'保存截图失败: {str(e)}')
+            logger.error(f'创建截图目录失败: {str(e)}')
             return None
 
     def cleanup_screenshot_dir(self):

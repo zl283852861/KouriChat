@@ -3,6 +3,7 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+wxauto文件/
 
 # Logs
 logs/

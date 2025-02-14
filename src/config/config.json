@@ -5,7 +5,7 @@
             "settings": {
                 "listen_list": {
                     "value": [
-                        ""
+                        "hllqkb"
                     ],
                     "type": "array",
                     "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）"
@@ -16,7 +16,7 @@
             "title": "大语言模型配置",
             "settings": {
                 "api_key": {
-                    "value": "sk-",
+                    "value": "sk-qfoawdyazbbgqkwjpuaykloicvswivqnkzywxglxnuwzktpv",
                     "type": "string",
                     "description": "DeepSeek API密钥",
                     "is_secret": true
@@ -55,7 +55,7 @@
             "settings": {
                 "image_recognition": {
                     "api_key": {
-                        "value": "sk-",
+                        "value": "sk-Sql4gHcAYIIedc5xmE2Lvdh6jxYKPSFzzGGMUUVIQ8Wz9F3E",
                         "type": "string",
                         "description": "Moonshot AI API密钥（用于图片和表情包识别）",
                         "is_secret": true
@@ -66,11 +66,11 @@
                         "description": "Moonshot API基础URL"
                     },
                     "temperature": {
-                        "value": 1.1,
+                        "value": 0.8,
                         "type": "number",
                         "description": "Moonshot AI的温度值",
                         "min": 0,
-                        "max": 2
+                        "max": 1
                     }
                 },
                 "image_generation": {

@@ -95,6 +95,7 @@ class ChatBot:
             
             img_path = None
             is_emoji = False
+            is_image_recognition = False  # 新增标记，用于标识是否是图片识别结果
             
             # 如果是群聊@消息，移除@机器人的部分
             if is_group and self.robot_name and content:
@@ -125,6 +126,7 @@ class ChatBot:
                 recognized_text = self.moonshot_ai.recognize_image(img_path, is_emoji)
                 logger.info(f"图片/表情识别结果: {recognized_text}")
                 content = recognized_text if content is None else f"{content} {recognized_text}"
+                is_image_recognition = True  # 标记这是图片识别结果
 
             # 情感分析处理
             if content:
@@ -136,32 +138,39 @@ class ChatBot:
                     if emoji_path:
                         logger.info(f"准备发送情感表情包: {emoji_path}")
                         self.message_handler.wx.SendFiles(emoji_path, chatName)
-                        return  # 发送后直接返回
 
-            sender_name = username
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            time_aware_content = f"[{current_time}] {content}"
-            logger.info(f"格式化后的消息: {time_aware_content}")
+                # 如果是图片识别结果，跳过画图功能检测
+                if not is_image_recognition:
+                    logger.info("检查是否为画图请求")
+                    if image_handler.is_image_generation_request(content):
+                        logger.info(f"检测到画图请求: {content}")
+                    else:
+                        logger.info("不是画图请求，继续正常对话")
 
-            with self.queue_lock:
-                if chatName not in self.user_queues:
-                    logger.info(f"创建新的消息队列 - 聊天ID: {chatName}")
-                    self.user_queues[chatName] = {
-                        'timer': threading.Timer(5.0, self.process_user_messages, args=[chatName]),
-                        'messages': [time_aware_content],
-                        'sender_name': sender_name,
-                        'username': username,
-                        'is_group': is_group
-                    }
-                    self.user_queues[chatName]['timer'].start()
-                    logger.info(f"消息队列创建完成 - 是否群聊: {is_group}, 发送者: {sender_name}")
-                else:
-                    logger.info(f"更新现有消息队列 - 聊天ID: {chatName}")
-                    self.user_queues[chatName]['timer'].cancel()
-                    self.user_queues[chatName]['messages'].append(time_aware_content)
-                    self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName])
-                    self.user_queues[chatName]['timer'].start()
-                    logger.info("消息队列更新完成")
+                sender_name = username
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                time_aware_content = f"[{current_time}] {content}"
+                logger.info(f"格式化后的消息: {time_aware_content}")
+
+                with self.queue_lock:
+                    if chatName not in self.user_queues:
+                        logger.info(f"创建新的消息队列 - 聊天ID: {chatName}")
+                        self.user_queues[chatName] = {
+                            'timer': threading.Timer(5.0, self.process_user_messages, args=[chatName]),
+                            'messages': [time_aware_content],
+                            'sender_name': sender_name,
+                            'username': username,
+                            'is_group': is_group
+                        }
+                        self.user_queues[chatName]['timer'].start()
+                        logger.info(f"消息队列创建完成 - 是否群聊: {is_group}, 发送者: {sender_name}")
+                    else:
+                        logger.info(f"更新现有消息队列 - 聊天ID: {chatName}")
+                        self.user_queues[chatName]['timer'].cancel()
+                        self.user_queues[chatName]['messages'].append(time_aware_content)
+                        self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName])
+                        self.user_queues[chatName]['timer'].start()
+                        logger.info("消息队列更新完成")
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
@@ -440,7 +449,7 @@ def main():
         print("-" * 50)
         
         # 清理缓存
-        print_status("清理系统缓存...", "info", "🧹")
+        print_status("清理系统缓存...", "info", "��")
         cleanup_pycache()
         logger_config.cleanup_old_logs()
         cleanup_utils.cleanup_all()
@@ -449,7 +458,7 @@ def main():
         print_status("缓存清理完成", "success", "✨")
         
         # 检查系统目录
-        print_status("检查系统目录...", "info", "📂")
+        print_status("检查系统目录...", "info", "��")
         required_dirs = ['data', 'logs', 'src/config']
         for dir_name in required_dirs:
             dir_path = os.path.join(root_dir, dir_name)
@@ -523,7 +532,7 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         print("\n")
         print_status("用户终止程序", "warning", "🛑")
-        print_status("感谢使用，再见！", "info", "👋")
+        print_status("感谢使用，再见！", "info", "��")
         print("\n")
     except Exception as e:
         print_status(f"程序异常退出: {str(e)}", "error", "💥")

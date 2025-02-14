@@ -112,11 +112,20 @@ class MessageHandler:
 
         messages = messages[-5:]
         merged_message = ' \\ '.join(messages)
-        print(f"处理合并消息 ({sender_name}): {merged_message}")
+        print("\n" + "="*50)
+        print(f"收到消息 - 发送者: {sender_name}")
+        print(f"消息内容: {merged_message}")
+        print("-"*50)
 
         try:
+            # 检查消息是否包含图片识别结果
+            is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
+            if is_image_recognition:
+                print("消息类型: 图片识别结果")
+            
             # 检查是否为语音请求
             if self.voice_handler.is_voice_request(merged_message):
+                logger.info("检测到语音请求")
                 reply = self.get_api_response(merged_message, chat_id)
                 if "</think>" in reply:
                     reply = reply.split("</think>", 1)[1].strip()
@@ -146,7 +155,8 @@ class MessageHandler:
                 return
 
             # 检查是否为随机图片请求
-            if self.image_handler.is_random_image_request(merged_message):
+            elif self.image_handler.is_random_image_request(merged_message):
+                logger.info("检测到随机图片请求")
                 image_path = self.image_handler.get_random_image()
                 if image_path:
                     try:
@@ -167,8 +177,9 @@ class MessageHandler:
                     self.wx.SendMsg(msg=reply, who=chat_id)
                     return
 
-            # 检查是否为图像生成请求
-            if self.image_handler.is_image_generation_request(merged_message):
+            # 检查是否为图像生成请求，但跳过图片识别结果
+            elif not is_image_recognition and self.image_handler.is_image_generation_request(merged_message):
+                logger.info("检测到画图请求")
                 image_path = self.image_handler.generate_image(merged_message)
                 if image_path:
                     try:
@@ -190,7 +201,8 @@ class MessageHandler:
                     return
 
             # 检查是否需要发送表情包
-            if self.emoji_handler.is_emoji_request(merged_message):
+            elif self.emoji_handler.is_emoji_request(merged_message):
+                logger.info("检测到表情包请求")
                 print("表情包请求")
                 emoji_path = self.emoji_handler.get_emotion_emoji(merged_message)
                 if emoji_path:
@@ -207,28 +219,42 @@ class MessageHandler:
                     self.wx.SendMsg(msg=reply, who=chat_id)
                     return
 
-            # 获取普通文本回复
-            reply = self.get_api_response(merged_message, chat_id)
-            if "</think>" in reply:
-                reply = reply.split("</think>", 1)[1].strip()
-            print(f"API回复: {reply}")
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-
-            if '\\' in reply:
-                parts = [p.strip() for p in reply.split('\\') if p.strip()]
-                for part in parts:
-                    self.wx.SendMsg(msg=part, who=chat_id)
-                    time.sleep(random.randint(2, 4))
+            # 处理普通文本回复
             else:
-                self.wx.SendMsg(msg=reply, who=chat_id)
+                logger.info("处理普通文本回复")
+                reply = self.get_api_response(merged_message, chat_id)
+                if "</think>" in reply:
+                    think_content, reply = reply.split("</think>", 1)
+                    print("\n思考过程:")
+                    print(think_content.strip())
+                    print("\nAI回复:")
+                    print(reply.strip())
+                else:
+                    print("\nAI回复:")
+                    print(reply)
+                
+                if is_group:
+                    reply = f"@{sender_name} {reply}"
 
-            # 异步保存消息记录
-            threading.Thread(target=self.save_message, 
-                           args=(username, sender_name, merged_message, reply)).start()
+                if '\\' in reply:
+                    parts = [p.strip() for p in reply.split('\\') if p.strip()]
+                    for part in parts:
+                        self.wx.SendMsg(msg=part, who=chat_id)
+                        time.sleep(random.randint(2, 4))
+                else:
+                    self.wx.SendMsg(msg=reply, who=chat_id)
+
+                # 异步保存消息记录
+                threading.Thread(target=self.save_message, 
+                               args=(username, sender_name, merged_message, reply)).start()
+
+            print("="*50 + "\n")
 
         except Exception as e:
-            logger.error(f"处理消息失败: {str(e)}")
+            logger.error(f"处理消息失败: {str(e)}", exc_info=True)
+            print("\n处理消息时出现错误:")
+            print(f"错误信息: {str(e)}")
+            print("="*50 + "\n")
 
     def add_to_queue(self, chat_id: str, content: str, sender_name: str, 
                     username: str, is_group: bool = False):
