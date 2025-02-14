@@ -126,9 +126,17 @@ class ChatBot:
                 logger.info(f"图片/表情识别结果: {recognized_text}")
                 content = recognized_text if content is None else f"{content} {recognized_text}"
 
+            # 情感分析处理
             if content:
-                logger.info(f"处理文本消息 - 发送者: {username}, 内容: {content}")
-                sender_name = username
+                # 检测是否为表情包请求
+                if emoji_handler.is_emoji_request(content):
+                    logger.info("检测到表情包请求")
+                    # 使用AI识别的情感选择表情包
+                    emoji_path = emoji_handler.get_emotion_emoji(content)
+                    if emoji_path:
+                        logger.info(f"准备发送情感表情包: {emoji_path}")
+                        self.message_handler.wx.SendFiles(emoji_path, chatName)
+                        return  # 发送后直接返回
 
             sender_name = username
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
