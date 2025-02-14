@@ -50,3 +50,5 @@ MAX_COUNTDOWN_HOURS = 3# 最大倒计时时间（小时）
 # 消息发送时间限制
 QUIET_TIME_START = '22:00'# 安静时间开始
 QUIET_TIME_END = '08:00'# 安静时间结束
+#设置记忆保存api，如果需要更改还需在message.py中的init类更改
+MEMORY_API_ENDPOINT = "https://api.siliconflow.cn/v1/"
