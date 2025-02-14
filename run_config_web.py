@@ -10,11 +10,16 @@
 import os
 import sys
 import re
+import logging
 from flask import Flask, render_template, jsonify, request, send_from_directory
 import importlib
 import json
 from colorama import init, Fore, Style
 from werkzeug.utils import secure_filename
+from typing import Dict, Any
+
+# 初始化日志记录器
+logger = logging.getLogger(__name__)
 
 # 初始化colorama
 init()
@@ -47,137 +52,369 @@ def print_status(message: str, status: str = "info", emoji: str = ""):
     color = colors.get(status, Fore.WHITE)
     print(f"{color}{emoji} {message}{Style.RESET_ALL}")
 
-def get_config_with_comments():
-    """获取配置文件内容，包括注释"""
-    config_path = os.path.join(ROOT_DIR, 'src/config/settings.py')
-    with open(config_path, 'r', encoding='utf-8') as f:
-        return f.read()
 
-def parse_config_groups():
+def parse_config_groups() -> Dict[str, Dict[str, Any]]:
     """解析配置文件，将配置项按组分类"""
-    from src.config import settings
-    
-    config_content = get_config_with_comments()
-    config_groups = {}
-    current_group = "基础配置"
-    
-    # 使用正则表达式匹配注释
-    comment_pattern = r'#\s*(.*?)\n'
-    docstring_pattern = r'"""(.*?)"""'
-    
-    comments = {}
-    # 提取所有注释
-    for match in re.finditer(comment_pattern, config_content, re.MULTILINE):
-        line_num = config_content.count('\n', 0, match.start())
-        comment_text = match.group(1).strip()
-        # 如果注释以变量名开头，则跳过（避免重复）
-        if not any(var.isupper() and comment_text.startswith(var) for var in dir(settings)):
-            comments[line_num] = comment_text
-    
-    # 配置项描述映射
-    descriptions = {
-        # 基础配置
-        'MODEL': 'AI模型选择',
-        'DEEPSEEK_BASE_URL': '硅基流动API注册地址',
-        'DEEPSEEK_API_KEY': 'DeepSeek API密钥',
-        'LISTEN_LIST': '用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)',
-        'MAX_GROUPS': '最大的上下文轮数',
-        'MAX_TOKEN': '回复最大token数',
-        'TEMPERATURE': '温度参数',
-        'EMOJI_DIR': '表情包存放目录',
+    from src.config import config
 
-        # 图像识别API配置
-        'MOONSHOT_API_KEY': 'Moonshot API密钥（用于图片和表情包识别）',
-        'MOONSHOT_BASE_URL': 'Moonshot API基础URL',
-        'MOONSHOT_TEMPERATURE': 'Moonshot温度参数',
-
-        # 图像生成配置
-        'IMAGE_MODEL': '图像生成模型',
-        'TEMP_IMAGE_DIR': '临时图片目录',
-
-        # 时间配置
-        'AUTO_MESSAGE': '自动消息内容',
-        'MIN_COUNTDOWN_HOURS': '最小倒计时时间（小时）',
-        'MAX_COUNTDOWN_HOURS': '最大倒计时时间（小时）',
-        'QUIET_TIME_START': '安静时间开始',
-        'QUIET_TIME_END': '安静时间结束',
-
-        # 语音配置
-        'TTS_API_URL': '语音服务API地址',
-        'VOICE_DIR': '语音文件目录',
-
-        # Prompt配置
-        'PROMPT_NAME': 'Prompt文件路径'
+    config_groups = {
+        "基础配置": {},
+        "图像识别API配置": {},
+        "图像生成配置": {},
+        "时间配置": {},
+        "语音配置": {},
+        "Prompt配置": {},
     }
-    
-    # 获取所有配置项
-    for name in dir(settings):
-        if name.isupper():  # 只处理大写的配置项
-            value = getattr(settings, name)
-            if not callable(value):  # 排除方法
-                # 在配置内容中查找该配置项的位置
-                pattern = rf'{name}\s*='
-                match = re.search(pattern, config_content, re.MULTILINE)
-                if match:
-                    line_num = config_content.count('\n', 0, match.start())
-                    # 使用预定义的描述，如果没有则使用注释中的描述
-                    description = descriptions.get(name, comments.get(line_num - 1, ""))
-                    
-                    # 修改分组判断逻辑
-                    if "Moonshot" in name:
-                        group = "图像识别API配置"
-                    elif "IMAGE" in name or "TEMP_IMAGE_DIR" in name:
-                        group = "图像生成配置"
-                    elif name == "PROMPT_NAME":
-                        group = "Prompt配置"
-                    elif any(word in name for word in ["TIME", "COUNTDOWN", "AUTO_MESSAGE"]):
-                        group = "时间配置"
-                    elif any(word in name for word in ["TTS", "VOICE"]):
-                        group = "语音配置"
-                    else:
-                        group = "基础配置"
-                        
-                    if group not in config_groups:
-                        config_groups[group] = {}
-                    
-                    config_groups[group][name] = {
-                        "value": value,
-                        "description": description
-                    }
-    
+
+    # 基础配置
+    config_groups["基础配置"].update(
+        {
+            "LISTEN_LIST": {
+                "value": config.user.listen_list,
+                "description": "用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)",
+            },
+            "MODEL": {"value": config.llm.model, "description": "AI模型选择"},
+            "DEEPSEEK_BASE_URL": {
+                "value": config.llm.base_url,
+                "description": "硅基流动API注册地址",
+            },
+            "DEEPSEEK_API_KEY": {
+                "value": config.llm.api_key,
+                "description": "DeepSeek API密钥",
+            },
+            "MAX_TOKEN": {
+                "value": config.llm.max_tokens,
+                "description": "回复最大token数",
+            },
+            "TEMPERATURE": {"value": config.llm.temperature, "description": "温度参数"},
+        }
+    )
+
+    # 图像识别API配置
+    config_groups["图像识别API配置"].update(
+        {
+            "MOONSHOT_API_KEY": {
+                "value": config.media.image_recognition.api_key,
+                "description": "Moonshot API密钥（用于图片和表情包识别）",
+            },
+            "MOONSHOT_BASE_URL": {
+                "value": config.media.image_recognition.base_url,
+                "description": "Moonshot API基础URL",
+            },
+            "MOONSHOT_TEMPERATURE": {
+                "value": config.media.image_recognition.temperature,
+                "description": "Moonshot温度参数",
+            },
+        }
+    )
+
+    # 图像生成配置
+    config_groups["图像生成配置"].update(
+        {
+            "IMAGE_MODEL": {
+                "value": config.media.image_generation.model,
+                "description": "图像生成模型",
+            },
+            "TEMP_IMAGE_DIR": {
+                "value": config.media.image_generation.temp_dir,
+                "description": "临时图片目录",
+            },
+        }
+    )
+
+    # 时间配置
+    config_groups["时间配置"].update(
+        {
+            "AUTO_MESSAGE": {
+                "value": config.behavior.auto_message.content,
+                "description": "自动消息内容",
+            },
+            "MIN_COUNTDOWN_HOURS": {
+                "value": config.behavior.auto_message.min_hours,
+                "description": "最小倒计时时间（小时）",
+            },
+            "MAX_COUNTDOWN_HOURS": {
+                "value": config.behavior.auto_message.max_hours,
+                "description": "最大倒计时时间（小时）",
+            },
+            "QUIET_TIME_START": {
+                "value": config.behavior.quiet_time.start,
+                "description": "安静时间开始",
+            },
+            "QUIET_TIME_END": {
+                "value": config.behavior.quiet_time.end,
+                "description": "安静时间结束",
+            },
+        }
+    )
+
+    # 语音配置
+    config_groups["语音配置"].update(
+        {
+            "TTS_API_URL": {
+                "value": config.media.text_to_speech.tts_api_url,
+                "description": "语音服务API地址",
+            },
+            "VOICE_DIR": {
+                "value": config.media.text_to_speech.voice_dir,
+                "description": "语音文件目录",
+            },
+        }
+    )
+
+    # Prompt配置
+    config_groups["Prompt配置"].update(
+        {
+            "MAX_GROUPS": {
+                "value": config.behavior.context.max_groups,
+                "description": "最大的上下文轮数",
+            },
+            "PROMPT_NAME": {
+                "value": config.behavior.context.prompt_path,
+                "description": "Prompt文件路径",
+            },
+            "EMOJI_DIR": {
+                "value": config.media.emoji.dir,
+                "description": "表情包存放目录",
+            },
+        }
+    )
+
     return config_groups
 
-def save_config(new_config):
+
+def save_config(new_config: Dict[str, Any]) -> bool:
     """保存新的配置到文件"""
-    config_content = get_config_with_comments()
-    
-    # 更新配置内容
-    for key, value in new_config.items():
-        # 处理不同类型的值
-        if isinstance(value, str):
-            value_str = f"'{value}'"
-        elif isinstance(value, list):
-            value_str = str(value)
-        elif isinstance(value, bool):
-            value_str = str(value).lower()  # 布尔值转换为小写字符串
-        elif isinstance(value, int):
-            value_str = str(value)  # 整数保持为字符串
-        else:
-            value_str = str(value)  # 确保其他类型的值转换为字符串
-            
-        # 使用正则表达式替换配置值
-        pattern = rf'{key}\s*=\s*[^#\n]+'
-        config_content = re.sub(pattern, f'{key} = {value_str}', config_content)
-    
-    # 保存到文件
-    config_path = os.path.join(ROOT_DIR, 'src/config/settings.py')
-    with open(config_path, 'w', encoding='utf-8') as f:
-        f.write(config_content)
-    
-    # 重新加载配置模块
-    importlib.reload(sys.modules['src.config.settings'])
-    
-    return True
+    try:
+        from src.config import (
+            UserSettings,
+            LLMSettings,
+            ImageRecognitionSettings,
+            ImageGenerationSettings,
+            TextToSpeechSettings,
+            EmojiSettings,
+            MediaSettings,
+            AutoMessageSettings,
+            QuietTimeSettings,
+            ContextSettings,
+            BehaviorSettings,
+        )
+
+        # 构建新的配置对象
+        user_settings = UserSettings(listen_list=new_config.get("LISTEN_LIST", []))
+
+        llm_settings = LLMSettings(
+            api_key=new_config.get("DEEPSEEK_API_KEY", ""),
+            base_url=new_config.get("DEEPSEEK_BASE_URL", ""),
+            model=new_config.get("MODEL", ""),
+            max_tokens=new_config.get("MAX_TOKEN", 2000),
+            temperature=float(new_config.get("TEMPERATURE", 1.1)),
+        )
+
+        media_settings = MediaSettings(
+            image_recognition=ImageRecognitionSettings(
+                api_key=new_config.get("MOONSHOT_API_KEY", ""),
+                base_url=new_config.get("MOONSHOT_BASE_URL", ""),
+                temperature=float(new_config.get("MOONSHOT_TEMPERATURE", 1.1)),
+            ),
+            image_generation=ImageGenerationSettings(
+                model=new_config.get("IMAGE_MODEL", ""),
+                temp_dir=new_config.get("TEMP_IMAGE_DIR", ""),
+            ),
+            text_to_speech=TextToSpeechSettings(
+                tts_api_url=new_config.get("TTS_API_URL", ""),
+                voice_dir=new_config.get("VOICE_DIR", ""),
+            ),
+            emoji=EmojiSettings(dir=new_config.get("EMOJI_DIR", "")),
+        )
+
+        behavior_settings = BehaviorSettings(
+            auto_message=AutoMessageSettings(
+                content=new_config.get("AUTO_MESSAGE", ""),
+                min_hours=int(new_config.get("MIN_COUNTDOWN_HOURS", 1)),
+                max_hours=int(new_config.get("MAX_COUNTDOWN_HOURS", 3)),
+            ),
+            quiet_time=QuietTimeSettings(
+                start=new_config.get("QUIET_TIME_START", ""),
+                end=new_config.get("QUIET_TIME_END", ""),
+            ),
+            context=ContextSettings(
+                max_groups=int(new_config.get("MAX_GROUPS", 15)),
+                prompt_path=new_config.get("PROMPT_NAME", ""),
+            ),
+        )
+
+        # 构建JSON结构
+        config_data = {
+            "categories": {
+                "user_settings": {
+                    "title": "用户设置",
+                    "settings": {
+                        "listen_list": {
+                            "value": user_settings.listen_list,
+                            "type": "array",
+                            "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）",
+                        }
+                    },
+                },
+                "llm_settings": {
+                    "title": "大语言模型配置",
+                    "settings": {
+                        "api_key": {
+                            "value": llm_settings.api_key,
+                            "type": "string",
+                            "description": "DeepSeek API密钥",
+                            "is_secret": True,
+                        },
+                        "base_url": {
+                            "value": llm_settings.base_url,
+                            "type": "string",
+                            "description": "DeepSeek API基础URL",
+                        },
+                        "model": {
+                            "value": llm_settings.model,
+                            "type": "string",
+                            "description": "使用的AI模型名称",
+                            "options": [
+                                "deepseek-ai/DeepSeek-V3",
+                                "Pro/deepseek-ai/DeepSeek-V3",
+                                "Pro/deepseek-ai/DeepSeek-R1",
+                            ],
+                        },
+                        "max_tokens": {
+                            "value": llm_settings.max_tokens,
+                            "type": "number",
+                            "description": "回复最大token数量",
+                        },
+                        "temperature": {
+                            "value": llm_settings.temperature,
+                            "type": "number",
+                            "description": "AI回复的温度值",
+                            "min": 0,
+                            "max": 2,
+                        },
+                    },
+                },
+                "media_settings": {
+                    "title": "媒体设置",
+                    "settings": {
+                        "image_recognition": {
+                            "api_key": {
+                                "value": media_settings.image_recognition.api_key,
+                                "type": "string",
+                                "description": "Moonshot AI API密钥（用于图片和表情包识别）",
+                                "is_secret": True,
+                            },
+                            "base_url": {
+                                "value": media_settings.image_recognition.base_url,
+                                "type": "string",
+                                "description": "Moonshot API基础URL",
+                            },
+                            "temperature": {
+                                "value": media_settings.image_recognition.temperature,
+                                "type": "number",
+                                "description": "Moonshot AI的温度值",
+                                "min": 0,
+                                "max": 2,
+                            },
+                        },
+                        "image_generation": {
+                            "model": {
+                                "value": media_settings.image_generation.model,
+                                "type": "string",
+                                "description": "图像生成模型",
+                            },
+                            "temp_dir": {
+                                "value": media_settings.image_generation.temp_dir,
+                                "type": "string",
+                                "description": "临时图片存储目录",
+                            },
+                        },
+                        "text_to_speech": {
+                            "tts_api_url": {
+                                "value": media_settings.text_to_speech.tts_api_url,
+                                "type": "string",
+                                "description": "TTS服务API地址",
+                            },
+                            "voice_dir": {
+                                "value": media_settings.text_to_speech.voice_dir,
+                                "type": "string",
+                                "description": "语音文件存储目录",
+                            },
+                        },
+                        "emoji": {
+                            "dir": {
+                                "value": media_settings.emoji.dir,
+                                "type": "string",
+                                "description": "表情包存储目录",
+                            }
+                        },
+                    },
+                },
+                "behavior_settings": {
+                    "title": "行为设置",
+                    "settings": {
+                        "auto_message": {
+                            "content": {
+                                "value": behavior_settings.auto_message.content,
+                                "type": "string",
+                                "description": "自动消息内容",
+                            },
+                            "countdown": {
+                                "min_hours": {
+                                    "value": behavior_settings.auto_message.min_hours,
+                                    "type": "number",
+                                    "description": "最小倒计时时间（小时）",
+                                },
+                                "max_hours": {
+                                    "value": behavior_settings.auto_message.max_hours,
+                                    "type": "number",
+                                    "description": "最大倒计时时间（小时）",
+                                },
+                            },
+                        },
+                        "quiet_time": {
+                            "start": {
+                                "value": behavior_settings.quiet_time.start,
+                                "type": "string",
+                                "description": "安静时间开始",
+                            },
+                            "end": {
+                                "value": behavior_settings.quiet_time.end,
+                                "type": "string",
+                                "description": "安静时间结束",
+                            },
+                        },
+                        "context": {
+                            "max_groups": {
+                                "value": behavior_settings.context.max_groups,
+                                "type": "number",
+                                "description": "最大上下文轮数",
+                            },
+                            "prompt_path": {
+                                "value": behavior_settings.context.prompt_path,
+                                "type": "string",
+                                "description": "prompt文件路径",
+                            },
+                        },
+                    },
+                },
+            }
+        }
+
+        # 保存到文件
+        config_path = os.path.join(ROOT_DIR, "config.json")
+        with open(config_path, "w", encoding="utf-8") as f:
+            json.dump(config_data, f, indent=4, ensure_ascii=False)
+
+        # 重新加载配置模块
+        importlib.reload(sys.modules["src.config"])
+
+        return True
+    except Exception as e:
+        logger.error(f"保存配置失败: {str(e)}")
+        return False
+
 
 @app.route('/')
 def index():
@@ -262,7 +499,7 @@ def main():
     
     # 检查配置文件
     print_status("检查配置文件...", "info", "⚙️")
-    if not os.path.exists(os.path.join(ROOT_DIR, 'src/config/settings.py')):
+    if not os.path.exists(os.path.join(ROOT_DIR, 'config.json')):
         print_status("错误：配置文件不存在！", "error", "❌")
         return
     print_status("配置文件检查完成", "success", "✅")
