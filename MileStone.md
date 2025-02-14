@@ -1,5 +1,5 @@
 **Github Stars 100** 2025年2月7日 <br>
-**Github Stars 300**<br>
+**Github Stars 300** 2025年2月12日 <br>
 **Github Stars 500**<br>
 **Github Stars 1000**<br>
 **Github Clones 200** 2025年2月7日 <br>
@@ -13,7 +13,7 @@
 
 **QQ交流社群200人** 2025年2月7日 <br>
 **QQ交流社群500人** 2025年2月10日 <br>
-**QQ交流社群1000人**<br>
+**QQ交流社群1000人** 2025年2月12日<br>
 **QQ交流社群2000人**<br>
 
 **Bilibili 视频浏览量10万** 2025年2月7日<br>
