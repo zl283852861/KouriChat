@@ -25,7 +25,69 @@ class ImageHandler:
         self.image_model = image_model
         self.temp_dir = os.path.join(root_dir, "data", "images", "temp")
         
-        # 确保临时目录存在
+        # 复用消息模块的AI实例
+        self.text_ai = DeepSeekAI(
+            api_key=api_key,
+            base_url=base_url,
+            model="deepseek-chat",
+            max_token=2048,
+            temperature=0.5
+        )
+        
+        # 多语言提示模板
+        self.prompt_templates = {
+            'basic': (
+                "请将以下图片描述优化为英文提示词，包含：\n"
+                "1. 主体细节（至少3个特征）\n"
+                "2. 环境背景\n"
+                "3. 艺术风格\n"
+                "4. 质量参数\n"
+                "示例格式：\"A..., ... , ... , digital art, trending on artstation\"\n"
+                "原描述：{prompt}"
+            ),
+            'creative': (
+                "你是一位专业插画师，请用英文为以下主题生成详细绘画提示词：\n"
+                "- 核心元素：{prompt}\n"
+                "- 需包含：构图指导/色彩方案/光影效果\n"
+                "- 禁止包含：水印/文字/低质量描述\n"
+                "直接返回结果"
+            )
+        }
+
+        # 质量分级参数配置
+        self.quality_profiles = {
+            'fast': {'steps': 20, 'width': 768},
+            'standard': {'steps': 28, 'width': 1024},
+            'premium': {'steps': 40, 'width': 1280}
+        }
+
+        # 通用负面提示词库（50+常见词条）
+        self.base_negative_prompts = [
+            "low quality", "blurry", "ugly", "duplicate", "poorly drawn",
+            "disfigured", "deformed", "extra limbs", "mutated hands",
+            "poor anatomy", "cloned face", "malformed limbs",
+            "missing arms", "missing legs", "extra fingers",
+            "fused fingers", "long neck", "unnatural pose",
+            "low resolution", "jpeg artifacts", "signature",
+            "watermark", "username", "text", "error",
+            "cropped", "worst quality", "normal quality",
+            "out of frame", "bad proportions", "bad shadow",
+            "unrealistic", "cartoonish", "3D render",
+            "overexposed", "underexposed", "grainy",
+            "low contrast", "bad perspective", "mutation",
+            "childish", "beginner", "amateur"
+        ]
+        
+        # 动态负面提示词生成模板
+        self.negative_prompt_template = (
+            "根据以下图片描述，生成5个英文负面提示词（用逗号分隔），避免出现：\n"
+            "- 与描述内容冲突的元素\n"
+            "- 重复通用负面词\n"
+            "描述内容：{prompt}\n"
+            "现有通用负面词：{existing_negatives}"
+        )
+        # 提示词扩展触发条件
+        self.prompt_extend_threshold = 30  # 字符数阈值
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def is_random_image_request(self, message: str) -> bool:
