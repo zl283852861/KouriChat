@@ -27,6 +27,7 @@ from services.ai.deepseek import DeepSeekAI
 from utils.cleanup import cleanup_pycache, CleanupUtils
 from utils.logger import LoggerConfig
 from colorama import init, Fore, Style
+from config import config
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -176,7 +177,7 @@ class ChatBot:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
 
 # 读取提示文件
-file_path = os.path.join(root_dir, "data", "avatars", "ATRI", "ATRI.md")
+file_path = os.path.join(root_dir, config.behavior.context.prompt_path)
 with open(file_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
 

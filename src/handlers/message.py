@@ -19,6 +19,7 @@ import random
 import os
 from services.ai.deepseek import DeepSeekAI
 from handlers.memory import MemoryHandler
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -84,8 +85,8 @@ class MessageHandler:
         # 查询相关记忆
         memories = self.memory_handler.get_relevant_memories(message)
 
-        # 更新ATRI.md
-        prompt_path = os.path.join(self.root_dir, "data", "avatars", "ATRI", "ATRI.md")
+        # 更新prompt文件
+        prompt_path = os.path.join(self.root_dir, config.behavior.context.prompt_path)
         with open(prompt_path, "r+", encoding="utf-8") as f:
             content = f.read()
             if "#记忆" in content:
