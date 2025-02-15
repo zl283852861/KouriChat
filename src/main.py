@@ -98,8 +98,8 @@ class ChatBot:
                 content = re.sub(f'@{self.robot_name}\u2005', '', content).strip()
                 logger.info(f"移除@后的消息内容: {content}")
                 if original_content == content:
-                    logger.info("未检测到@机器人，跳过处理")
-                    return
+                    logger.info("未检测到@机器人，但是继续处理")
+                    
             
             if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
                 logger.info(f"检测到图片消息: {content}")
@@ -346,8 +346,8 @@ def message_listener():
                         if who == msg.sender:
 
                             chat_bot.handle_wxauto_message(msg, msg.sender) # 处理私聊信息
-                        elif ROBOT_WX_NAME != '' and bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)): 
-                            # 修改：在群聊被@时，传入群聊ID(who)作为回复目标
+                        elif ROBOT_WX_NAME != '' and (bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)) or bool(re.search(f'{ROBOT_WX_NAME}\u2005', msg.content))): 
+                            # 修改：在群聊被@时或者被叫名字，传入群聊ID(who)作为回复目标
                             chat_bot.handle_wxauto_message(msg, who, is_group=True) 
                         else:
                             logger.debug(f"非需要处理消息，可能是群聊非@消息: {content}")   

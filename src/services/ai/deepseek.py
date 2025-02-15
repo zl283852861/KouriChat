@@ -187,6 +187,7 @@ class DeepSeekAI:
             return False
 
         return True
+
     def get_response(self, message: str, user_id: str, system_prompt: str) -> str:
         """
         完整请求处理流程
@@ -260,3 +261,31 @@ class DeepSeekAI:
             "total_tokens": usage.get("total_tokens", 0),
             "estimated_cost": (usage.get("total_tokens", 0) / 1000) * 0.02  # 示例计价
         }
+
+    def chat(self, messages: list, **kwargs) -> str:
+        """
+        发送聊天请求并获取回复
+        
+        Args:
+            messages: 消息列表，每个消息是包含 role 和 content 的字典
+            **kwargs: 额外的参数配置
+            
+        Returns:
+            str: AI的回复内容
+        """
+        try:
+            response = self.client.chat.completions.create(
+                model=self.config["model"],
+                messages=messages,
+                temperature=kwargs.get('temperature', self.config["temperature"]),
+                max_tokens=self.config["max_token"]
+            )
+            
+            if not self._validate_response(response.model_dump()):
+                raise ValueError("Invalid API response structure")
+                
+            return response.choices[0].message.content
+            
+        except Exception as e:
+            logger.error(f"Chat completion failed: {str(e)}")
+            return ""

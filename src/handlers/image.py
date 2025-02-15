@@ -26,13 +26,14 @@ class ImageHandler:
         self.image_model = image_model
         self.temp_dir = os.path.join(root_dir, "data", "images", "temp")
         
-        # 复用消息模块的AI实例
+        # 复用消息模块的AI实例(使用正确的模型名称)
         self.text_ai = DeepSeekAI(
             api_key=api_key,
             base_url=base_url,
-            model="deepseek-chat",
+            model="deepseek-ai/DeepSeek-V3",  # 修改为默认免费模型
             max_token=2048,
-            temperature=0.5
+            temperature=0.5,
+            max_groups=15
         )
         
         # 多语言提示模板

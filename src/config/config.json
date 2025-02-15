@@ -5,7 +5,7 @@
             "settings": {
                 "listen_list": {
                     "value": [
-                        "hllqkb"
+                        ""
                     ],
                     "type": "array",
                     "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）"
@@ -16,7 +16,7 @@
             "title": "大语言模型配置",
             "settings": {
                 "api_key": {
-                    "value": "sk-",
+                    "value": "",
                     "type": "string",
                     "description": "DeepSeek API密钥",
                     "is_secret": true
@@ -55,7 +55,7 @@
             "settings": {
                 "image_recognition": {
                     "api_key": {
-                        "value": "sk-",
+                        "value": "",
                         "type": "string",
                         "description": "Moonshot AI API密钥（用于图片和表情包识别）",
                         "is_secret": true
@@ -140,7 +140,7 @@
                         "description": "最大上下文轮数"
                     },
                     "avatar_dir": {
-                        "value": "data/avatars/ATRI",
+                        "value": "data/avatars/MONO",
                         "type": "string",
                         "description": "人设目录（自动包含 avatar.md 和 emojis 目录）"
                     }
