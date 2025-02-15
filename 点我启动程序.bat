@@ -1,158 +1,172 @@
 @echo off
-REM è®¾ç½®ä»£ç é¡µä¸º GBK
+REM ÉèÖÃ´úÂëÒ³Îª GBK
 chcp 936 >nul
-title My Dream Moments å¯åŠ¨å™¨
+title My Dream Moments Æô¶¯Æ÷
 
 cls
 echo ====================================
-echo        My Dream Moments å¯åŠ¨å™¨
+echo        My Dream Moments Æô¶¯Æ÷
 echo ====================================
 echo.
-echo â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
-echo â•‘      My Dream Moments - AI Chat   â•‘
-echo â•‘      Created with Heart by umaru  â•‘
-echo â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+echo ¨X¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨[
+echo ¨U      My Dream Moments - AI Chat   ¨U
+echo ¨U      Created with Heart by umaru  ¨U
+echo ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨a
 echo.
 
-REM åˆ›å»ºæ¡Œé¢å¿«æ·æ–¹å¼
+REM ´´½¨×ÀÃæ¿ì½Ý·½Ê½
 set "SCRIPT_PATH=%~f0"
 set "DESKTOP_PATH=%USERPROFILE%\Desktop"
 set "SHORTCUT_PATH=%DESKTOP_PATH%\My Dream Moments.lnk"
 
 dir "%SHORTCUT_PATH%" >nul 2>nul
 if errorlevel 1 (
-    choice /c yn /m "æ˜¯å¦è¦åœ¨æ¡Œé¢åˆ›å»ºå¿«æ·æ–¹å¼"
+    choice /c yn /m "ÊÇ·ñÒªÔÚ×ÀÃæ´´½¨¿ì½Ý·½Ê½"
     if errorlevel 2 goto SKIP_SHORTCUT
     if errorlevel 1 (
-        echo æ­£åœ¨åˆ›å»ºæ¡Œé¢å¿«æ·æ–¹å¼...
+        echo ÕýÔÚ´´½¨×ÀÃæ¿ì½Ý·½Ê½...
         powershell "$WS = New-Object -ComObject WScript.Shell; $SC = $WS.CreateShortcut('%SHORTCUT_PATH%'); $SC.TargetPath = '%SCRIPT_PATH%'; $SC.WorkingDirectory = '%~dp0'; $SC.Save()"
-        echo å¿«æ·æ–¹å¼åˆ›å»ºå®Œæˆï¼
+        echo ¿ì½Ý·½Ê½´´½¨Íê³É£¡
         echo.
     )
 )
 :SKIP_SHORTCUT
 
-REM è®¾ç½®çŽ¯å¢ƒå˜é‡ä»¥æ”¯æŒä¸­æ–‡è·¯å¾„
+REM ÉèÖÃ»·¾³±äÁ¿ÒÔÖ§³ÖÖÐÎÄÂ·¾¶
 set PYTHONIOENCODING=utf8
 set JAVA_TOOL_OPTIONS=-Dfile.encoding=UTF-8
 
-REM æ£€æŸ¥è·¯å¾„æ˜¯å¦åŒ…å«ä¸­æ–‡
-echo %CD% | findstr /R /C:"[^\x00-\x7F]" >nul
-if not errorlevel 1 (
-    echo [è­¦å‘Š] å½“å‰è·¯å¾„åŒ…å«ä¸­æ–‡å­—ç¬¦ï¼Œå¯èƒ½ä¼šå¯¼è‡´é—®é¢˜ï¼
-    echo å½“å‰è·¯å¾„: %CD%
-    echo å»ºè®®å°†ç¨‹åºç§»åŠ¨åˆ°çº¯è‹±æ–‡è·¯å¾„ä¸‹è¿è¡Œã€‚
-    echo.
-    choice /c yn /m "æ˜¯å¦ç»§ç»­è¿è¡Œ"
-    if errorlevel 2 exit /b 1
-)
-
-REM æ£€æŸ¥ Python çŽ¯å¢ƒ
+REM ¼ì²é Python »·¾³
 where python >nul 2>nul
 if errorlevel 1 (
-    echo [é”™è¯¯] æœªæ£€æµ‹åˆ° Python çŽ¯å¢ƒï¼
-    echo è¯·å®‰è£… Python å¹¶ç¡®ä¿å°†å…¶æ·»åŠ åˆ°ç³»ç»ŸçŽ¯å¢ƒå˜é‡ä¸­ã€‚
-    echo æŒ‰ä»»æ„é”®é€€å‡º...
+    echo [´íÎó] Î´¼ì²âµ½ Python »·¾³£¡
+    echo Çë°²×° Python ²¢È·±£½«ÆäÌí¼Óµ½ÏµÍ³»·¾³±äÁ¿ÖÐ¡£
+    echo °´ÈÎÒâ¼üÍË³ö...
     pause >nul
     exit /b 1
 )
 
-REM æ£€æŸ¥ Python ç‰ˆæœ¬
+REM ¼ì²é Python °æ±¾
 python --version | findstr "3." >nul
 if errorlevel 1 (
-    echo [é”™è¯¯] Python ç‰ˆæœ¬ä¸å…¼å®¹ï¼
-    echo è¯·å®‰è£… Python 3.x ç‰ˆæœ¬ã€‚
-    echo æŒ‰ä»»æ„é”®é€€å‡º...
+    echo [´íÎó] Python °æ±¾²»¼æÈÝ£¡
+    echo Çë°²×° Python 3.x °æ±¾¡£
+    echo °´ÈÎÒâ¼üÍË³ö...
     pause >nul
     exit /b 1
 )
 
-echo æ­£åœ¨æ£€æŸ¥å¿…è¦çš„Pythonæ¨¡å—...
+echo ÕýÔÚ¼ì²é±ØÒªµÄPythonÄ£¿é...
 python -c "import pyautogui" 2>nul
 if errorlevel 1 (
-    echo æ­£åœ¨å®‰è£… pyautogui æ¨¡å—...
+    echo ÕýÔÚ°²×° pyautogui Ä£¿é...
     pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --trusted-host mirrors.aliyun.com pyautogui -i http://mirrors.aliyun.com/pypi/simple/
 )
 
 python -c "import streamlit" 2>nul
 if errorlevel 1 (
-    echo æ­£åœ¨å®‰è£… streamlit æ¨¡å—...
+    echo ÕýÔÚ°²×° streamlit Ä£¿é...
     pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --trusted-host mirrors.aliyun.com streamlit -i http://mirrors.aliyun.com/pypi/simple/
 )
 
 python -c "import sqlalchemy" 2>nul
 if errorlevel 1 (
-    echo æ­£åœ¨å®‰è£… sqlalchemy æ¨¡å—...
+    echo ÕýÔÚ°²×° sqlalchemy Ä£¿é...
     pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org --trusted-host mirrors.aliyun.com sqlalchemy -i http://mirrors.aliyun.com/pypi/simple/
 )
 
-REM ä¿®æ”¹ pip å®‰è£…å‘½ä»¤ï¼Œæ·»åŠ ä¿¡ä»»å‚æ•°
-:install_modules
-echo æ­£åœ¨æ£€æŸ¥å¿…è¦çš„ Python æ¨¡å—...
-set modules=pyautogui streamlit sqlalchemy
-for %%m in (%modules%) do (
-    python -c "import %%m" 2>nul
+REM ÐÞ¸ÄÒÀÀµ°²×°²¿·Ö
+echo ÕýÔÚ¼ì²é²¢°²×°±ØÒªµÄÒÀÀµ...
+if exist "requirements.txt" (
+    echo [°²×°] ÕýÔÚ´Ó requirements.txt °²×°ÒÀÀµ...
+    pip install --no-warn-script-location --disable-pip-version-check ^
+        --trusted-host pypi.org ^
+        --trusted-host files.pythonhosted.org ^
+        --trusted-host mirrors.aliyun.com ^
+        -r requirements.txt -i http://mirrors.aliyun.com/pypi/simple/
     if errorlevel 1 (
-        echo æ­£åœ¨å®‰è£… %%m æ¨¡å—...
-        pip install --no-warn-script-location --disable-pip-version-check ^
-            --trusted-host pypi.org ^
-            --trusted-host files.pythonhosted.org ^
-            --trusted-host mirrors.aliyun.com ^
-            %%m -i http://mirrors.aliyun.com/pypi/simple/
-        if errorlevel 1 (
-            echo [é”™è¯¯] %%m æ¨¡å—å®‰è£…å¤±è´¥ï¼
-            echo è¯·ä»¥ç®¡ç†å‘˜èº«ä»½è¿è¡Œæˆ–æ‰‹åŠ¨å®‰è£…è¯¥æ¨¡å—ã€‚
-            choice /c yn /m "æ˜¯å¦ç»§ç»­è¿è¡Œ"
-            if errorlevel 2 exit /b 1
-        )
+        echo [´íÎó] ÒÀÀµ°²×°Ê§°Ü£¡
+        echo Çë¼ì²éÍøÂçÁ¬½Ó»òÒÔ¹ÜÀíÔ±Éí·ÝÔËÐÐ¡£
+        choice /c yn /m "ÊÇ·ñ¼ÌÐøÔËÐÐ"
+        if errorlevel 2 exit /b 1
     )
+) else (
+    echo [´íÎó] Î´ÕÒµ½ requirements.txt ÎÄ¼þ£¡
+    echo ÇëÈ·±£¸ÃÎÄ¼þ´æÔÚÓÚµ±Ç°Ä¿Â¼¡£
+    pause
+    exit /b 1
 )
 
-echo æ¨¡å—æ£€æŸ¥å®Œæˆï¼
+echo [°²×°] ¼ì²é pip ¸üÐÂ...
+python -m pip install --upgrade pip -i http://mirrors.aliyun.com/pypi/simple/
+
+echo ÒÀÀµ°²×°Íê³É£¡
 echo.
 
-REM ä¿®æ”¹å¯åŠ¨æ–¹å¼ï¼Œä½†ä¿æŒ Python ä½¿ç”¨ UTF-8
-echo æ­£åœ¨å¯åŠ¨é…ç½®ç•Œé¢...
+REM ÐÞ¸ÄÆô¶¯·½Ê½
+echo ÕýÔÚÆô¶¯ÅäÖÃ½çÃæ...
 if not exist "run_config_web.py" (
-    echo [é”™è¯¯] æœªæ‰¾åˆ° run_config_web.py æ–‡ä»¶ï¼
-    echo è¯·ç¡®ä¿è¯¥æ–‡ä»¶å­˜åœ¨äºŽå½“å‰ç›®å½•ã€‚
+    echo [´íÎó] Î´ÕÒµ½ run_config_web.py ÎÄ¼þ£¡
+    echo ÇëÈ·±£¸ÃÎÄ¼þ´æÔÚÓÚµ±Ç°Ä¿Â¼¡£
     pause
     exit /b 1
 )
 
-REM å¯åŠ¨ Python è„šæœ¬æ—¶è®¾ç½® UTF-8
+REM ¼ì²é8501¶Ë¿ÚÊÇ·ñ±»Õ¼ÓÃ
+netstat -ano | findstr ":8501" >nul
+if not errorlevel 1 (
+    echo [¾¯¸æ] ¶Ë¿Ú8501ÒÑ±»Õ¼ÓÃ£¬ÕýÔÚ³¢ÊÔ¹Ø±Õ...
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8501"') do (
+        taskkill /f /pid %%a >nul 2>nul
+    )
+    timeout /t 2 /nobreak >nul
+)
+
+REM ÐÞ¸ÄÆô¶¯·½Ê½
+echo ÕýÔÚÆô¶¯·þÎñ...
 start http://localhost:8501/
-start /b cmd /c "set PYTHONIOENCODING=utf8 && python run_config_web.py"
+timeout /t 2 /nobreak >nul
+
+REM Ê¹ÓÃµ¥¶ÀµÄ´°¿ÚÆô¶¯Python³ÌÐò£¬ÕâÑù¿ÉÒÔ¿´µ½´íÎóÐÅÏ¢
+start "My Dream Moments Config" cmd /c "python run_config_web.py && pause"
+timeout /t 5 /nobreak >nul
+
+REM ¼ì²éPython½ø³ÌÊÇ·ñÕýÔÚÔËÐÐ
+tasklist | findstr "python.exe" >nul
 if errorlevel 1 (
-    echo [é”™è¯¯] é…ç½®ç•Œé¢å¯åŠ¨å¤±è´¥ï¼
-    echo è¯·æ£€æŸ¥ run_config_web.py æ˜¯å¦æœ‰è¯­æ³•é”™è¯¯ã€‚
+    echo [´íÎó] Æô¶¯Ê§°Ü£¡Python½ø³ÌÎ´ÔËÐÐ¡£
+    echo Çë¼ì²éÒÔÏÂ¼¸µã£º
+    echo 1. PythonÊÇ·ñÕýÈ·°²×°
+    echo 2. ÊÇ·ñÒÔ¹ÜÀíÔ±Éí·ÝÔËÐÐ
+    echo 3. ·À»ðÇ½ÊÇ·ñ×èÖ¹ÁË³ÌÐòÔËÐÐ
     pause
     exit /b 1
 )
-
-echo æ­£åœ¨ç­‰å¾…é…ç½®ç•Œé¢å¯åŠ¨...
-timeout /t 5 /nobreak >nul
 
 :check_config
 echo.
-echo æ˜¯å¦å·²å®Œæˆé…ç½®ä¿®æ”¹ï¼Ÿ(Y/N)
-set /p CONFIG_DONE=": "
-if /i "%CONFIG_DONE%"=="Y" (
-    taskkill /f /im python.exe >nul 2>nul
+echo ====================================
+echo ÇëÔÚÅäÖÃÍê³Éºó¼ÌÐø£º
+echo ------------------------------------
+echo Y = Íê³ÉÅäÖÃ£¬Æô¶¯Ö÷³ÌÐò
+echo N = ¼ÌÐøµÈ´ýÅäÖÃ
+echo ====================================
+echo.
+choice /c YN /n /m "ÊÇ·ñÒÑÍê³ÉÅäÖÃ£¿ÇëÊäÈë(Y/N): "
+if errorlevel 2 goto check_config
+if errorlevel 1 (
+    taskkill /f /im "python.exe" >nul 2>nul
     echo.
-    echo é…ç½®å®Œæˆï¼Œæ­£åœ¨å¯åŠ¨æœºå™¨äºº...
-    cmd /c "set PYTHONIOENCODING=utf8 && python run.py"
+    echo ÅäÖÃÍê³É£¬ÕýÔÚÆô¶¯»úÆ÷ÈË...
+    
+    REM Ê¹ÓÃÐÂµÄcmd´°¿ÚÆô¶¯£¬ÕâÑù¿ÉÒÔ¿´µ½´íÎóÐÅÏ¢
+    start "My Dream Moments" cmd /c "python run.py && pause"
     if errorlevel 1 (
-        echo [31m[é”™è¯¯][0m æœºå™¨äººå¯åŠ¨å¤±è´¥ï¼
-        echo è¯·ç¡®ä¿ run.py æ–‡ä»¶å­˜åœ¨ä¸”æ— è¯­æ³•é”™è¯¯ã€‚
+        echo [´íÎó] »úÆ÷ÈËÆô¶¯Ê§°Ü£¡
+        echo ÇëÈ·±£ run.py ÎÄ¼þ´æÔÚÇÒÎÞÓï·¨´íÎó¡£
         pause
         exit /b 1
     )
-) else if /i "%CONFIG_DONE%"=="N" (
-    goto check_config
-) else (
-    echo æ— æ•ˆçš„è¾“å…¥ï¼Œè¯·è¾“å…¥ Y æˆ– N
-    goto check_config
 )
 
 pause
