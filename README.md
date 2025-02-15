@@ -133,61 +133,57 @@
 结构说明：
 
 ```python
-My-Dream-Moments-WeChat-wxauto/
-├── src/
-│   ├── __init__.py
-│   ├── main.py                # 主程序入口
-│   ├── config/               
-│   │   ├── __init__.py
-│   │   └── settings.py        # 配置文件
-│   ├── handlers/
-│   │   ├── __init__.py 
-│   │   ├── message_handler.py # 消息处理
-│   │   ├── file_handler.py    # 文件处理
-│   │   └── event_handler.py   # 事件处理
-│   ├── services/
-│   │   ├── __init__.py
-│   │   ├── ai/
-│   │   │   ├── __init__.py
-│   │   │   └── openai_service.py  # OpenAI服务
-│   │   ├── wechat_service.py      # 微信服务
-│   │   └── db_service.py          # 数据库服务
-│   ├── utils/
-│   │   ├── __init__.py
-│   │   ├── logger.py          # 日志工具
-│   │   └── helper.py          # 辅助工具
-│   ├── webui/                 # Web界面
-│   │   ├── __init__.py
-│   │   ├── app.py            # Flask应用
-│   │   ├── routes/
-│   │   │   ├── __init__.py
-│   │   │   └── api.py
-│   │   ├── static/
-│   │   │   ├── css/
-│   │   │   ├── js/
-│   │   │   └── images/
-│   │   └── templates/
-│   │       └── index.html
-│   ├── autoupdate/           # 自动更新
-│   │   ├── __init__.py
-│   │   └── updater.py
-│   └── wxauto文件/            # 微信自动化核心文件
-│       └── wxauto.py
-├── logs/                     # 日志目录
-│   ├── error.log
-│   └── info.log
-├── data/                     # 数据目录
-│   ├── database/
-│   │   └── mydream.db
-│   ├── images/              # 图片存储
-│   └── cache/               # 缓存文件
-├── requirements.txt          # 项目依赖
-├── run.py                    # 运行脚本
-├── run_config_web.py         # Web配置运行脚本
-├── test.py                   # 测试文件
-├── README.md                 # 中文文档
-├── README_EN.md             # 英文文档
-└── LICENSE                  # 开源许可证
+My-Dream-Moments/
+├── data/                           # 数据存储目录
+├── logs/                           # 日志目录
+├── src/                            # 源代码主目录
+│   ├── autoupdate/                # 自动更新相关
+│   │   └── updater.py            # 更新器实现
+│   │
+│   ├── config/                    # 配置文件目录
+│   │   ├── config.json           # JSON配置文件
+│   │   ├── settings.py           # 设置模块
+│   │   └── __init__.py           # 配置初始化
+│   │
+│   ├── handlers/                  # 处理器目录
+│   │   ├── emoji.py              # 表情处理
+│   │   ├── image.py              # 图片处理
+│   │   ├── memory.py             # 内存处理
+│   │   ├── message.py            # 消息处理
+│   │   └── voice.py              # 语音处理
+│   │
+│   ├── services/                  # 服务层目录
+│   │   ├── ai/                   # AI服务目录
+│   │   └── database.py           # 数据库服务
+│   │
+│   ├── utils/                     # 工具函数目录
+│   │   ├── cleanup.py            # 清理工具
+│   │   └── logger.py             # 日志工具
+│   │
+│   ├── webui/                     # Web界面相关
+│   │   ├── background_image/     # 背景图片目录
+│   │   ├── routes/               # 路由目录
+│   │   └── templates/            # 模板目录
+│   │       ├── config.html       # 配置页面
+│   │       └── config_item.html  # 配置项模板
+│   │
+│   ├── main.py                    # 核心业务逻辑
+│   └── __init__.py                # 包初始化文件
+│
+├── .git/                           # Git版本控制目录
+├── .gitignore                     # Git忽略配置
+├── LICENSE                        # 开源许可证
+├── MileStone.md                  # 项目里程碑
+├── README.md                     # 中文说明文档
+├── README_EN.md                  # 英文说明文档
+├── SponsorList.md                # 赞助者名单
+├── Thanks.md                     # 致谢文档
+├── a点我启动程序.bat               # Windows启动脚本
+├── requirements.txt              # 依赖包列表
+├── run.py                        # 主程序入口
+├── run_config_web.py             # Web配置界面入口
+├── test.py                       # 测试文件
+└── version.json                  # 版本信息配置
 ```
 
 
