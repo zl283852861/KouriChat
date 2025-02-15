@@ -11,9 +11,10 @@ import os
 import logging
 import requests
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List, Tuple
 import re
 import time
+from services.ai.deepseek import DeepSeekAI
 
 logger = logging.getLogger(__name__)
 
@@ -86,8 +87,10 @@ class ImageHandler:
             "描述内容：{prompt}\n"
             "现有通用负面词：{existing_negatives}"
         )
+
         # 提示词扩展触发条件
         self.prompt_extend_threshold = 30  # 字符数阈值
+
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def is_random_image_request(self, message: str) -> bool:
@@ -197,27 +200,147 @@ class ImageHandler:
         
         return False
 
-    def generate_image(self, prompt: str) -> Optional[str]:
-        """调用API生成图片，保存到临时目录并返回路径"""
+    def _expand_prompt(self, prompt: str) -> str:
+        """使用AI模型扩展简短提示词"""
         try:
-            logger.info(f"开始生成图片，提示词: {prompt}")
+            if len(prompt) >= 30:  # 长度足够则不扩展
+                return prompt
+                
+            response = self.text_ai.chat(
+                messages=[{"role": "user", "content": self.prompt_templates['basic'].format(prompt=prompt)}],
+                temperature=0.7
+            )
+            return response.strip() or prompt
+        except Exception as e:
+            logger.error(f"提示词扩展失败: {str(e)}")
+            return prompt
+
+    def _translate_prompt(self, prompt: str) -> str:
+        """简单中译英处理（实际可接入翻译API）"""
+        # 简易替换常见中文词汇
+        translations = {
+            "女孩": "girl",
+            "男孩": "boy",
+            "风景": "landscape",
+            "赛博朋克": "cyberpunk",
+            "卡通": "cartoon style",
+            "写实": "photorealistic",
+        }
+        for cn, en in translations.items():
+            prompt = prompt.replace(cn, en)
+        return prompt
+
+    def _generate_dynamic_negatives(self, prompt: str) -> List[str]:
+        """生成动态负面提示词"""
+        try:
+            # 获取现有通用负面词前10个作为示例
+            existing_samples = ', '.join(self.base_negative_prompts[:10])
+            
+            response = self.text_ai.chat([{
+                "role": "user",
+                "content": self.negative_prompt_template.format(
+                    prompt=prompt,
+                    existing_negatives=existing_samples
+                )
+            }])
+            
+            # 解析响应并去重
+            generated = [n.strip().lower() for n in response.split(',')]
+            return list(set(generated))
+        except Exception as e:
+            logger.error(f"动态负面词生成失败: {str(e)}")
+            return []
+
+    def _build_final_negatives(self, prompt: str) -> str:
+        """构建最终负面提示词"""
+        # 始终包含基础负面词
+        final_negatives = set(self.base_negative_prompts)
+        
+        # 当提示词简短时触发动态生成
+        if len(prompt) <= self.prompt_extend_threshold:
+            dynamic_negatives = self._generate_dynamic_negatives(prompt)
+            final_negatives.update(dynamic_negatives)
+        
+        return ', '.join(final_negatives)
+
+    def _optimize_prompt(self, prompt: str) -> Tuple[str, str]:
+        """多阶段提示词优化"""
+        try:
+            # 第一阶段：基础优化
+            stage1 = self.text_ai.chat([{
+                "role": "user",
+                "content": self.prompt_templates['basic'].format(prompt=prompt)
+            }])
+            
+            # 第二阶段：创意增强
+            stage2 = self.text_ai.chat([{
+                "role": "user",
+                "content": self.prompt_templates['creative'].format(prompt=prompt)
+            }])
+            
+            # 混合策略：取两次优化的关键要素
+            final_prompt = f"{stage1}, {stage2.split(',')[-1]}"
+            return final_prompt, "multi-step"
+            
+        except Exception as e:
+            logger.error(f"提示词优化失败: {str(e)}")
+            return prompt, "raw"
+
+    def _select_quality_profile(self, prompt: str) -> dict:
+        """根据提示词复杂度选择质量配置"""
+        word_count = len(prompt.split())
+        if word_count > 30:
+            return self.quality_profiles['premium']
+        elif word_count > 15:
+            return self.quality_profiles['standard']
+        return self.quality_profiles['fast']
+
+    def generate_image(self, prompt: str) -> Optional[str]:
+        """整合版图像生成方法"""
+        try:
+            # 自动扩展短提示词
+            if len(prompt) <= self.prompt_extend_threshold:
+                prompt = self._expand_prompt(prompt)
+            
+            # 多阶段提示词优化
+            optimized_prompt, strategy = self._optimize_prompt(prompt)
+            logger.info(f"优化策略: {strategy}, 优化后提示词: {optimized_prompt}")
+            
+            # 构建负面提示词
+            negative_prompt = self._build_final_negatives(optimized_prompt)
+            logger.info(f"最终负面提示词: {negative_prompt}")
+            
+            # 质量配置选择
+            quality_config = self._select_quality_profile(optimized_prompt)
+            logger.info(f"质量配置: {quality_config}")
+            
+            # 构建请求参数
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json"
             }
             
-            data = {
+            payload = {
                 "model": self.image_model,
-                "prompt": prompt,
+                "prompt": f"masterpiece, best quality, {optimized_prompt}",
+                "negative_prompt": negative_prompt,
+                "steps": quality_config['steps'],
+                "width": quality_config['width'],
+                "height": quality_config['width'],  # 保持方形比例
+                "guidance_scale": 7.5,
+                "seed": int(time.time() % 1000)  # 添加随机种子
             }
             
+            # 调用生成API
             response = requests.post(
                 f"{self.base_url}/images/generations",
                 headers=headers,
-                json=data
+                json=payload,
+                timeout=45
             )
             response.raise_for_status()
             
+            # 结果处理
             result = response.json()
             if "data" in result and len(result["data"]) > 0:
                 img_url = result["data"][0]["url"]
@@ -249,4 +372,4 @@ class ImageHandler:
                     except Exception as e:
                         logger.error(f"清理文件失败 {file_path}: {str(e)}")
         except Exception as e:
-            logger.error(f"清理临时目录失败: {str(e)}") 
+            logger.error(f"清理临时目录失败: {str(e)}")
