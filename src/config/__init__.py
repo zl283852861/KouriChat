@@ -35,15 +35,10 @@ class TextToSpeechSettings:
     voice_dir: str
 
 @dataclass
-class EmojiSettings:
-    dir: str
-
-@dataclass
 class MediaSettings:
     image_recognition: ImageRecognitionSettings
     image_generation: ImageGenerationSettings
     text_to_speech: TextToSpeechSettings
-    emoji: EmojiSettings
 
 @dataclass
 class AutoMessageSettings:
@@ -59,7 +54,7 @@ class QuietTimeSettings:
 @dataclass
 class ContextSettings:
     max_groups: int
-    prompt_path: str
+    avatar_dir: str  # 人设目录路径，prompt文件和表情包目录都将基于此路径
 
 @dataclass
 class BehaviorSettings:
@@ -144,9 +139,6 @@ class Config:
                 text_to_speech=TextToSpeechSettings(
                     tts_api_url=media_data['text_to_speech']['tts_api_url']['value'],
                     voice_dir=media_data['text_to_speech']['voice_dir']['value']
-                ),
-                emoji=EmojiSettings(
-                    dir=media_data['emoji']['dir']['value']
                 )
             )
             
@@ -164,7 +156,7 @@ class Config:
                 ),
                 context=ContextSettings(
                     max_groups=behavior_data['context']['max_groups']['value'],
-                    prompt_path=behavior_data['context']['prompt_path']['value']
+                    avatar_dir=behavior_data['context']['avatar_dir']['value']
                 )
             )
             
@@ -188,8 +180,6 @@ MOONSHOT_TEMPERATURE = config.media.image_recognition.temperature
 IMAGE_MODEL = config.media.image_generation.model
 TEMP_IMAGE_DIR = config.media.image_generation.temp_dir
 MAX_GROUPS = config.behavior.context.max_groups
-PROMPT_NAME = config.behavior.context.prompt_path
-EMOJI_DIR = config.media.emoji.dir
 TTS_API_URL = config.media.text_to_speech.tts_api_url
 VOICE_DIR = config.media.text_to_speech.voice_dir
 AUTO_MESSAGE = config.behavior.auto_message.content
