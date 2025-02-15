@@ -7,8 +7,6 @@
 - 文件管理
 """
 
-# 提取表情包处理相关代码 
-
 import os
 import random
 import logging
@@ -18,13 +16,14 @@ import pyautogui
 import time
 from wxauto import WeChat
 from typing import Tuple, Optional
+from config import config
 
 logger = logging.getLogger(__name__)
 
 class EmojiHandler:
     def __init__(self, root_dir):
         self.root_dir = root_dir
-        self.emoji_dir = os.path.join(root_dir, "data", "avatars", "ATRI", "emojis")
+        self.emoji_dir = os.path.join(root_dir, config.behavior.context.avatar_dir, "emojis")
         self.screenshot_dir = os.path.join(root_dir, 'screenshot')
         
         # 情感分类映射（情感目录名: 关键词列表）

@@ -16,7 +16,7 @@ import importlib
 import json
 from colorama import init, Fore, Style
 from werkzeug.utils import secure_filename
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 # 初始化日志记录器
 logger = logging.getLogger(__name__)
@@ -52,6 +52,23 @@ def print_status(message: str, status: str = "info", emoji: str = ""):
     color = colors.get(status, Fore.WHITE)
     print(f"{color}{emoji} {message}{Style.RESET_ALL}")
 
+
+def get_available_avatars() -> List[str]:
+    """获取可用的人设目录列表"""
+    avatar_base_dir = os.path.join(ROOT_DIR, "data/avatars")
+    if not os.path.exists(avatar_base_dir):
+        return []
+    
+    # 获取所有包含 avatar.md 和 emojis 目录的有效人设目录
+    avatars = []
+    for item in os.listdir(avatar_base_dir):
+        avatar_dir = os.path.join(avatar_base_dir, item)
+        if os.path.isdir(avatar_dir):
+            if os.path.exists(os.path.join(avatar_dir, "avatar.md")) and \
+               os.path.exists(os.path.join(avatar_dir, "emojis")):
+                avatars.append(f"data/avatars/{item}")
+    
+    return avatars
 
 def parse_config_groups() -> Dict[str, Dict[str, Any]]:
     """解析配置文件，将配置项按组分类"""
@@ -163,20 +180,19 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
     )
 
     # Prompt配置
+    available_avatars = get_available_avatars()
     config_groups["Prompt配置"].update(
         {
             "MAX_GROUPS": {
                 "value": config.behavior.context.max_groups,
                 "description": "最大的上下文轮数",
             },
-            "PROMPT_NAME": {
-                "value": config.behavior.context.prompt_path,
-                "description": "Prompt文件路径",
-            },
-            "EMOJI_DIR": {
-                "value": config.media.emoji.dir,
-                "description": "表情包存放目录",
-            },
+            "AVATAR_DIR": {
+                "value": config.behavior.context.avatar_dir,
+                "description": "人设目录（自动包含 avatar.md 和 emojis 目录）",
+                "options": available_avatars,
+                "type": "select"
+            }
         }
     )
 
@@ -192,7 +208,6 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             ImageRecognitionSettings,
             ImageGenerationSettings,
             TextToSpeechSettings,
-            EmojiSettings,
             MediaSettings,
             AutoMessageSettings,
             QuietTimeSettings,
@@ -225,8 +240,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             text_to_speech=TextToSpeechSettings(
                 tts_api_url=new_config.get("TTS_API_URL", ""),
                 voice_dir=new_config.get("VOICE_DIR", ""),
-            ),
-            emoji=EmojiSettings(dir=new_config.get("EMOJI_DIR", "")),
+            )
         )
 
         behavior_settings = BehaviorSettings(
@@ -241,7 +255,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             ),
             context=ContextSettings(
                 max_groups=int(new_config.get("MAX_GROUPS", 15)),
-                prompt_path=new_config.get("PROMPT_NAME", ""),
+                avatar_dir=new_config.get("AVATAR_DIR", ""),
             ),
         )
 
@@ -342,14 +356,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                                 "type": "string",
                                 "description": "语音文件存储目录",
                             },
-                        },
-                        "emoji": {
-                            "dir": {
-                                "value": media_settings.emoji.dir,
-                                "type": "string",
-                                "description": "表情包存储目录",
-                            }
-                        },
+                        }
                     },
                 },
                 "behavior_settings": {
@@ -392,10 +399,10 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                                 "type": "number",
                                 "description": "最大上下文轮数",
                             },
-                            "prompt_path": {
-                                "value": behavior_settings.context.prompt_path,
+                            "avatar_dir": {
+                                "value": behavior_settings.context.avatar_dir,
                                 "type": "string",
-                                "description": "prompt文件路径",
+                                "description": "人设目录（自动包含 avatar.md 和 emojis 目录）",
                             },
                         },
                     },

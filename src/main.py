@@ -8,13 +8,7 @@ import time
 import os
 import shutil
 from services.database import Session, ChatMessage
-from config import (
-    DEEPSEEK_API_KEY, MAX_TOKEN, TEMPERATURE, MODEL, DEEPSEEK_BASE_URL, LISTEN_LIST,
-    IMAGE_MODEL, TEMP_IMAGE_DIR, MAX_GROUPS, PROMPT_NAME, EMOJI_DIR, TTS_API_URL, VOICE_DIR,
-    MOONSHOT_API_KEY, MOONSHOT_BASE_URL, MOONSHOT_TEMPERATURE,
-    AUTO_MESSAGE, MIN_COUNTDOWN_HOURS, MAX_COUNTDOWN_HOURS,
-    QUIET_TIME_START, QUIET_TIME_END
-)
+from config import config
 from wxauto import WeChat
 import re
 import pyautogui
@@ -27,7 +21,6 @@ from services.ai.deepseek import DeepSeekAI
 from utils.cleanup import cleanup_pycache, CleanupUtils
 from utils.logger import LoggerConfig
 from colorama import init, Fore, Style
-from config import config
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -35,7 +28,7 @@ root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # 配置日志
 logger_config = LoggerConfig(root_dir)
 logger = logger_config.setup_logger('main')
-listen_list = LISTEN_LIST
+listen_list = config.user.listen_list
 queue_lock = threading.Lock()  # 队列访问锁
 user_queues = {}  # 用户消息队列管理
 chat_contexts = {}  # 存储上下文
@@ -177,26 +170,27 @@ class ChatBot:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
 
 # 读取提示文件
-file_path = os.path.join(root_dir, config.behavior.context.prompt_path)
-with open(file_path, "r", encoding="utf-8") as file:
+avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+prompt_path = os.path.join(avatar_dir, "avatar.md")
+with open(prompt_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
 
 # 创建全局实例
 emoji_handler = EmojiHandler(root_dir)
 image_handler = ImageHandler(
     root_dir=root_dir,
-    api_key=DEEPSEEK_API_KEY,
-    base_url=DEEPSEEK_BASE_URL,
-    image_model=IMAGE_MODEL
+    api_key=config.llm.api_key,
+    base_url=config.llm.base_url,
+    image_model=config.media.image_generation.model
 )
 voice_handler = VoiceHandler(
     root_dir=root_dir,
-    tts_api_url=TTS_API_URL
+    tts_api_url=config.media.text_to_speech.tts_api_url
 )
 moonshot_ai = MoonShotAI(
-    api_key=MOONSHOT_API_KEY,
-    base_url=MOONSHOT_BASE_URL,
-    temperature=MOONSHOT_TEMPERATURE
+    api_key=config.media.image_recognition.api_key,
+    base_url=config.media.image_recognition.base_url,
+    temperature=config.media.image_recognition.temperature
 )
 
 # 获取机器人名称
@@ -206,12 +200,12 @@ logger.info(f"获取到机器人名称: {ROBOT_WX_NAME}")
 
 message_handler = MessageHandler(
     root_dir=root_dir,
-    api_key=DEEPSEEK_API_KEY,
-    base_url=DEEPSEEK_BASE_URL,
-    model=MODEL,
-    max_token=MAX_TOKEN,
-    temperature=TEMPERATURE,
-    max_groups=MAX_GROUPS,
+    api_key=config.llm.api_key,
+    base_url=config.llm.base_url,
+    model=config.llm.model,
+    max_token=config.llm.max_tokens,
+    temperature=config.llm.temperature,
+    max_groups=config.behavior.context.max_groups,
     robot_name=ROBOT_WX_NAME,  # 使用动态获取的机器人名称
     prompt_content=prompt_content,
     image_handler=image_handler,
@@ -221,7 +215,7 @@ message_handler = MessageHandler(
 chat_bot = ChatBot(message_handler, moonshot_ai)
 
 # 设置监听列表
-listen_list = LISTEN_LIST
+listen_list = config.user.listen_list
 
 # 循环添加监听对象
 for i in listen_list:
@@ -248,8 +242,8 @@ def is_quiet_time() -> bool:
     """检查当前是否在安静时间段内"""
     try:
         current_time = datetime.now().time()
-        quiet_start = datetime.strptime(QUIET_TIME_START, "%H:%M").time()
-        quiet_end = datetime.strptime(QUIET_TIME_END, "%H:%M").time()
+        quiet_start = datetime.strptime(config.behavior.quiet_time.start, "%H:%M").time()
+        quiet_end = datetime.strptime(config.behavior.quiet_time.end, "%H:%M").time()
         
         if quiet_start <= quiet_end:
             # 如果安静时间不跨天
@@ -264,8 +258,8 @@ def is_quiet_time() -> bool:
 def get_random_countdown_time():
     """获取随机倒计时时间"""
     return random.randint(
-        MIN_COUNTDOWN_HOURS * 3600,
-        MAX_COUNTDOWN_HOURS * 3600
+        config.behavior.auto_message.min_hours * 3600,
+        config.behavior.auto_message.max_hours * 3600
     )
 
 def auto_send_message():
@@ -277,11 +271,11 @@ def auto_send_message():
         
     if listen_list:
         user_id = random.choice(listen_list)
-        logger.info(f"自动发送消息到 {user_id}: {AUTO_MESSAGE}")
+        logger.info(f"自动发送消息到 {user_id}: {config.behavior.auto_message.content}")
         try:
             message_handler.add_to_queue(
                 chat_id=user_id,
-                content=AUTO_MESSAGE,
+                content=config.behavior.auto_message.content,
                 sender_name="System",
                 username="System",
                 is_group=False

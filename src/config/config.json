@@ -70,7 +70,7 @@
                         "type": "number",
                         "description": "Moonshot AI的温度值",
                         "min": 0,
-                        "max": 1
+                        "max": 2
                     }
                 },
                 "image_generation": {
@@ -95,13 +95,6 @@
                         "value": "data/voices",
                         "type": "string",
                         "description": "语音文件存储目录"
-                    }
-                },
-                "emoji": {
-                    "dir": {
-                        "value": "data/avatars/ATRI/emoji",
-                        "type": "string",
-                        "description": "表情包存储目录"
                     }
                 }
             }
@@ -146,10 +139,10 @@
                         "type": "number",
                         "description": "最大上下文轮数"
                     },
-                    "prompt_path": {
-                        "value": "data/avatars/ATRI/ATRI.md",
+                    "avatar_dir": {
+                        "value": "data/avatars/ATRI",
                         "type": "string",
-                        "description": "prompt文件路径"
+                        "description": "人设目录（自动包含 avatar.md 和 emojis 目录）"
                     }
                 }
             }

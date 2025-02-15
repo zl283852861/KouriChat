@@ -86,7 +86,7 @@ class MessageHandler:
         memories = self.memory_handler.get_relevant_memories(message)
 
         # 更新prompt文件
-        prompt_path = os.path.join(self.root_dir, config.behavior.context.prompt_path)
+        prompt_path = os.path.join(self.root_dir, config.behavior.context.avatar_dir, "avatar.md")
         with open(prompt_path, "r+", encoding="utf-8") as f:
             content = f.read()
             if "#记忆" in content:
