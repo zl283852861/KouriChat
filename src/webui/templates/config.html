@@ -93,11 +93,36 @@
             border-radius: 0.75rem;
             border: 1px solid rgba(255, 255, 255, 0.1);
         }
+        .form-check-label {
+            margin-top: 0;
+        }
 
         /* 人设选择下拉栏样式 */
         select[name="AVATAR_DIR"] {
             max-height: 300px;
             overflow-y: auto;
+        }
+
+
+        .navbar .form-check.form-switch {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            margin: 0;
+        }
+
+
+        .navbar .form-check-label {
+            display: flex;
+            align-items: center;
+            margin: 0 0 0 8px;
+            line-height: 1;
+        }
+
+
+        .navbar .form-check-input {
+            margin: 0;
+            vertical-align: middle;
         }
     </style>
 </head>
@@ -421,6 +446,31 @@
             })
             .catch(error => console.error('Error:', error));
         });
+
+        function updateTemperature(key, value) {
+            const displayElement = document.getElementById(key + '_display');
+            if (displayElement) {
+                displayElement.classList.add('updating');
+                displayElement.textContent = parseFloat(value).toFixed(1);
+
+                setTimeout(() => {
+                    displayElement.classList.remove('updating');
+                }, 300);
+            }
+        }
+
+        function updateDeepseekUrl(value) {
+            const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
+            const registerLink = document.getElementById('register_link');
+            
+            if (value === 'siliconflow') {
+                baseUrlInput.value = 'https://api.siliconflow.cn/v1/';
+                registerLink.href = 'https://www.siliconflow.cn';
+            } else {
+                baseUrlInput.value = 'https://api.deepseek.com/v1';
+                registerLink.href = 'https://platform.deepseek.com';
+            }
+        }
     </script>
 </body>
 </html>
