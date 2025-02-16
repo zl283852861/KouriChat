@@ -201,25 +201,6 @@ class MessageHandler:
                     self.wx.SendMsg(msg=reply, who=chat_id)
                     return
 
-            # 检查是否需要发送表情包
-            elif self.emoji_handler.is_emoji_request(merged_message):
-                logger.info("检测到表情包请求")
-                print("表情包请求")
-                emoji_path = self.emoji_handler.get_emotion_emoji(merged_message)
-                if emoji_path:
-                    try:
-                        self.wx.SendFiles(filepath=emoji_path, who=chat_id)
-                        logger.info(f"附加情感表情包: {emoji_path}")
-                        reply = "给主人发送了一个表情包哦~"
-                    except Exception as e:
-                        logger.error(f"发送表情包失败: {str(e)}")
-                        reply = "抱歉主人，表情包发送失败了..."
-                    
-                    if is_group:
-                        reply = f"@{sender_name} {reply}"
-                    self.wx.SendMsg(msg=reply, who=chat_id)
-                    return
-
             # 处理普通文本回复
             else:
                 logger.info("处理普通文本回复")
@@ -237,6 +218,7 @@ class MessageHandler:
                 if is_group:
                     reply = f"@{sender_name} {reply}"
 
+                # 发送文本回复
                 if '\\' in reply:
                     parts = [p.strip() for p in reply.split('\\') if p.strip()]
                     for part in parts:
@@ -244,6 +226,45 @@ class MessageHandler:
                         time.sleep(random.randint(2, 4))
                 else:
                     self.wx.SendMsg(msg=reply, who=chat_id)
+
+                # 检查回复中是否包含情感关键词并发送表情包
+                print("\n检查情感关键词...")
+                logger.info("开始检查AI回复的情感关键词")
+                emotion_detected = False
+
+                try:
+                    if not hasattr(self.emoji_handler, 'emotion_map'):
+                        logger.error("emoji_handler 缺少 emotion_map 属性")
+                        return
+                        
+                    for emotion, keywords in self.emoji_handler.emotion_map.items():
+                        if not keywords:  # 跳过空的关键词列表（如 neutral）
+                            continue
+                            
+                        if any(keyword in reply for keyword in keywords):
+                            emotion_detected = True
+                            print(f"检测到情感: {emotion}")
+                            logger.info(f"在回复中检测到情感: {emotion}")
+                            
+                            emoji_path = self.emoji_handler.get_emotion_emoji(reply)
+                            if emoji_path:
+                                try:
+                                    print(f"发送情感表情包: {emoji_path}")
+                                    self.wx.SendFiles(filepath=emoji_path, who=chat_id)
+                                    logger.info(f"已发送情感表情包: {emoji_path}")
+                                except Exception as e:
+                                    logger.error(f"发送表情包失败: {str(e)}")
+                            else:
+                                logger.warning(f"未找到对应情感 {emotion} 的表情包")
+                            break
+
+                    if not emotion_detected:
+                        print("未检测到明显情感")
+                        logger.info("未在回复中检测到明显情感")
+                        
+                except Exception as e:
+                    logger.error(f"情感检测过程发生错误: {str(e)}")
+                    print(f"情感检测失败: {str(e)}")
 
                 # 异步保存消息记录
                 threading.Thread(target=self.save_message, 
