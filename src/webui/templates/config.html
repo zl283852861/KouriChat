@@ -275,10 +275,17 @@
         }
 
         function processFormValue(config, key, value) {
+            // 添加调试日志
+            console.log(`Processing ${key}: ${value} (type: ${typeof value})`);
+            
             if (key === 'LISTEN_LIST') {
                 config[key] = value.split(',').map(item => item.trim());
             } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
                 config[key] = value.toLowerCase() === 'true';
+            } else if (key === 'MIN_COUNTDOWN_HOURS' || key === 'MAX_COUNTDOWN_HOURS') {
+                // 特殊处理倒计时时间
+                config[key] = parseFloat(value) || 0;
+                console.log(`Processed ${key} to: ${config[key]} (type: ${typeof config[key]})`);
             } else if (!isNaN(value) && value !== '') {
                 config[key] = Number(value);
             } else {
@@ -298,32 +305,82 @@
         }
 
         // 添加新函数
-        function addToList(key) {
+        function addToListFromSelect(key, value) {
+            if (value === 'add_new') {
+                document.getElementById('new_input_' + key).style.display = 'flex';
+                setTimeout(() => {
+                    document.querySelector(`select[onchange*="${key}"]`).value = '';
+                }, 100);
+                return;
+            }
+            
+            if (value) {
+                const targetElement = document.getElementById(key);
+                const currentValues = targetElement.value ? targetElement.value.split(',') : [];
+                if (!currentValues.includes(value)) {
+                    currentValues.push(value);
+                    targetElement.value = currentValues.join(',');
+                    
+                    // 添加到用户列表显示
+                    const userListElement = document.getElementById('selected_users_' + key);
+                    const userDiv = document.createElement('div');
+                    userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    userDiv.innerHTML = `
+                        ${value}
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('${key}', '${value}')">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    `;
+                    userListElement.appendChild(userDiv);
+                }
+            }
+        }
+
+        function addNewUser(key) {
             const inputElement = document.getElementById('input_' + key);
-            const targetElement = document.getElementById(key);
             const newValue = inputElement.value.trim();
             
             if (newValue) {
+                const targetElement = document.getElementById(key);
                 const currentValues = targetElement.value ? targetElement.value.split(',') : [];
                 if (!currentValues.includes(newValue)) {
                     currentValues.push(newValue);
                     targetElement.value = currentValues.join(',');
+                    
+                    // 添加到用户列表显示
+                    const userListElement = document.getElementById('selected_users_' + key);
+                    const userDiv = document.createElement('div');
+                    userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    userDiv.innerHTML = `
+                        ${newValue}
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('${key}', '${newValue}')">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    `;
+                    userListElement.appendChild(userDiv);
+                    
+                    // 清空输入框
+                    inputElement.value = '';
                 }
-                inputElement.value = ''; // 清空输入框
             }
         }
 
-        // 添加移除函数
-        function removeFromList(key) {
-            const removeElement = document.getElementById('remove_input_' + key);
+        function removeUser(key, userToRemove) {
             const targetElement = document.getElementById(key);
-            const valueToRemove = removeElement.value.trim();
+            const userListElement = document.getElementById('selected_users_' + key);
             
-            if (valueToRemove) {
-                let currentValues = targetElement.value ? targetElement.value.split(',') : [];
-                currentValues = currentValues.filter(item => item.trim() !== valueToRemove);
-                targetElement.value = currentValues.join(',');
-                removeElement.value = ''; // 清空输入框
+            // 更新隐藏的input值
+            let currentValues = targetElement.value ? targetElement.value.split(',') : [];
+            currentValues = currentValues.filter(user => user !== userToRemove);
+            targetElement.value = currentValues.join(',');
+            
+            // 从显示列表中移除
+            const userElements = userListElement.getElementsByClassName('list-group-item');
+            for (let element of userElements) {
+                if (element.textContent.trim() === userToRemove) {
+                    element.remove();
+                    break;
+                }
             }
         }
 

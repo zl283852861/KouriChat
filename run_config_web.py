@@ -216,6 +216,32 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             config
         )
 
+        # 添加调试日志
+        logger.debug(f"处理倒计时配置:")
+        logger.debug(f"MIN_COUNTDOWN_HOURS: {new_config.get('MIN_COUNTDOWN_HOURS')} ({type(new_config.get('MIN_COUNTDOWN_HOURS'))})")
+        logger.debug(f"MAX_COUNTDOWN_HOURS: {new_config.get('MAX_COUNTDOWN_HOURS')} ({type(new_config.get('MAX_COUNTDOWN_HOURS'))})")
+        
+        behavior_settings = BehaviorSettings(
+            auto_message=AutoMessageSettings(
+                content=new_config.get("AUTO_MESSAGE", ""),
+                min_hours=float(new_config.get("MIN_COUNTDOWN_HOURS", 1)),
+                max_hours=float(new_config.get("MAX_COUNTDOWN_HOURS", 3)),
+            ),
+            quiet_time=QuietTimeSettings(
+                start=new_config.get("QUIET_TIME_START", ""),
+                end=new_config.get("QUIET_TIME_END", ""),
+            ),
+            context=ContextSettings(
+                max_groups=int(new_config.get("MAX_GROUPS", 15)),
+                avatar_dir=new_config.get("AVATAR_DIR", ""),
+            ),
+        )
+        
+        # 再次检查转换后的值
+        logger.debug(f"转换后的值:")
+        logger.debug(f"min_hours: {behavior_settings.auto_message.min_hours} ({type(behavior_settings.auto_message.min_hours)})")
+        logger.debug(f"max_hours: {behavior_settings.auto_message.max_hours} ({type(behavior_settings.auto_message.max_hours)})")
+        
         # 构建新的配置对象
         user_settings = UserSettings(listen_list=new_config.get("LISTEN_LIST", []))
 
@@ -241,22 +267,6 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                 tts_api_url=new_config.get("TTS_API_URL", ""),
                 voice_dir=new_config.get("VOICE_DIR", ""),
             )
-        )
-
-        behavior_settings = BehaviorSettings(
-            auto_message=AutoMessageSettings(
-                content=new_config.get("AUTO_MESSAGE", ""),
-                min_hours=int(new_config.get("MIN_COUNTDOWN_HOURS", 1)),
-                max_hours=int(new_config.get("MAX_COUNTDOWN_HOURS", 3)),
-            ),
-            quiet_time=QuietTimeSettings(
-                start=new_config.get("QUIET_TIME_START", ""),
-                end=new_config.get("QUIET_TIME_END", ""),
-            ),
-            context=ContextSettings(
-                max_groups=int(new_config.get("MAX_GROUPS", 15)),
-                avatar_dir=new_config.get("AVATAR_DIR", ""),
-            ),
         )
 
         # 构建JSON结构
@@ -434,10 +444,16 @@ def save():
     """保存配置"""
     try:
         new_config = request.json
+        # 添加调试日志
+        logger.debug(f"接收到的配置数据: {new_config}")
+        logger.debug(f"MIN_COUNTDOWN_HOURS type: {type(new_config.get('MIN_COUNTDOWN_HOURS'))}")
+        logger.debug(f"MIN_COUNTDOWN_HOURS value: {new_config.get('MIN_COUNTDOWN_HOURS')}")
+        
         if save_config(new_config):
             return jsonify({"status": "success", "message": "配置已保存"})
         return jsonify({"status": "error", "message": "保存失败"})
     except Exception as e:
+        logger.error(f"保存失败: {str(e)}")
         return jsonify({"status": "error", "message": f"保存失败: {str(e)}"})
 
 # 添加上传处理路由
