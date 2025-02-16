@@ -73,26 +73,33 @@
         id="{{ key }}" name="{{ key }}" 
         value="{{ config.value }}">
         <!--防呆设计，作用是防止有人输入了不该输入的值导致的配置错误
-        MAX_TOKEN：只能输入正整数。
-        TEMPERATURE：只能输入0-2之间的整数或小数，小数只保留1位小数。并添加了滑块设计（觉得有点多余可以删掉）
+        MAX_TOKEN,MAX_GROUPS：只能输入正整数。
+        TEMPERATURE,MOONSHOT_TEMPERATURE：只能输入0-2之间的整数或小数，小数只保留1位小数。并添加了滑块设计（觉得有点多余可以删掉）
+        QUIET_TIME_START','QUIET_TIME_END:手动选择时间。
         -->
-        {% elif key == 'MAX_TOKEN' %}
+{% elif key in ['MAX_TOKEN','MAX_GROUPS'] %}
     <input type="number" class="form-control" 
         id="{{ key }}" name="{{ key }}" 
         value="{{ config.value }}"
         min="1" step="1">
 
-        {% elif key == 'TEMPERATURE' %}
+{% elif key in ['TEMPERATURE','MOONSHOT_TEMPERATURE'] %}
     <input type="range" class="form-range mb-2" 
-        id="{{ key }}_slider" 
-        min="0" max="2" step="0.1" 
-        value="{{ config.value }}"
-        oninput="document.getElementById('{{ key }}').value = this.value">
+            id="{{ key }}_slider" 
+            min="0" max="2" step="0.1" 
+            value="{{ config.value }}"
+            oninput="document.getElementById('{{ key }}').value = this.value">
     <input type="number" class="form-control" 
-        id="{{ key }}" name="{{ key }}" 
-        value="{{ config.value }}"
-        min="0" max="2" step="0.1"
-        oninput="document.getElementById('{{ key }}_slider').value = this.value">
+            id="{{ key }}" name="{{ key }}" 
+            value="{{ config.value }}"
+            min="0" max="2" step="0.1"
+            oninput="document.getElementById('{{ key }}_slider').value = this.value">
+
+{% elif key in ['QUIET_TIME_START','QUIET_TIME_END'] %}
+    <input type="time" class="form-control" 
+            id="{{ key }}" name="{{ key }}" 
+            value="{{ config.value }}"
+            min="00:00" max="23:59" step="60">
         <!--新添代码结束-->
 {% else %}
     <input type="text" class="form-control" 
