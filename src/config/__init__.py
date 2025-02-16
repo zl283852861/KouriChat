@@ -43,8 +43,8 @@ class MediaSettings:
 @dataclass
 class AutoMessageSettings:
     content: str
-    min_hours: int
-    max_hours: int
+    min_hours: float
+    max_hours: float
 
 @dataclass
 class QuietTimeSettings:

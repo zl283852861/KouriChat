@@ -7,29 +7,37 @@
     {{ config.description }}
 </label>
 {% if key == 'LISTEN_LIST' %}
-    <div class="input-group mb-2">
-        <input type="text" class="form-control" 
-            id="input_{{ key }}" 
-            placeholder="请输入要监听的值">
-        <button class="btn btn-primary" type="button" 
-            onclick="addToList('{{ key }}')">
-            <i class="bi bi-plus-lg"></i>
-        </button>
-    </div>
-    <div class="input-group mb-2">
-        <input type="text" class="form-control" 
-            id="remove_input_{{ key }}" 
-            placeholder="请输入要移除的值">
-        <button class="btn btn-danger" type="button" 
-            onclick="removeFromList('{{ key }}')">
-            <i class="bi bi-dash-lg"></i>
-        </button>
+    <div class="mb-2">
+        <div class="input-group mb-2">
+            <input type="text" class="form-control" 
+                id="input_{{ key }}" 
+                placeholder="请输入要监听的用户">
+            <button class="btn btn-primary" type="button" 
+                onclick="addNewUser('{{ key }}')">
+                <i class="bi bi-plus-lg"></i>
+            </button>
+        </div>
+        <div id="selected_users_{{ key }}" class="list-group">
+            {% if config.value %}
+                {% for user in config.value %}
+                    {% if user %}
+                        <div class="list-group-item d-flex justify-content-between align-items-center">
+                            {{ user }}
+                            <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('{{ key }}', '{{ user }}')">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        </div>
     </div>
     <input type="text" class="form-control" 
         id="{{ key }}" name="{{ key }}" 
         value="{{ config.value|join(',') }}"
         placeholder="多个值用英文逗号分隔"
-        readonly>
+        readonly
+        style="display: none;">
 {% elif key == 'DEEPSEEK_BASE_URL' %}
     <select class="form-select mb-2" onchange="document.getElementById('DEEPSEEK_BASE_URL').value = this.value === 'siliconflow' ? 'https://api.siliconflow.cn/v1/' : 'https://api.deepseek.com/v1'">
         <option value="siliconflow" {% if config.value == 'https://api.siliconflow.cn/v1/' %}selected{% endif %}>硅基流动</option>
@@ -72,6 +80,15 @@
     <input type="text" class="form-control" 
         id="{{ key }}" name="{{ key }}" 
         value="{{ config.value }}">
+{% elif config.type == "number" %}
+    <input type="number" 
+           class="form-control" 
+           id="{{ key }}" 
+           name="{{ key }}" 
+           value="{{ config.value }}"
+           step="0.1"  {# 允许输入小数 #}
+           {% if config.min is defined %}min="{{ config.min }}"{% endif %}
+           {% if config.max is defined %}max="{{ config.max }}"{% endif %}>
 {% else %}
     <input type="text" class="form-control" 
         id="{{ key }}" name="{{ key }}" 
