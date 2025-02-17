@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 class MessageHandler:
     def __init__(self, root_dir, api_key, base_url, model, max_token, temperature, 
-                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler):
+                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler):
         self.root_dir = root_dir
         self.api_key = api_key
         self.model = model
@@ -57,11 +57,7 @@ class MessageHandler:
         self.image_handler = image_handler
         self.emoji_handler = emoji_handler
         self.voice_handler = voice_handler
-
-        self.memory_handler = MemoryHandler(
-            root_dir=root_dir,
-            api_endpoint="https://api.siliconflow.cn/v1/"  # 替换为实际API地址
-        )
+        self.memory_handler = memory_handler
 
     def save_message(self, sender_id: str, sender_name: str, message: str, reply: str):
         """保存聊天记录到数据库和短期记忆"""
@@ -76,29 +72,50 @@ class MessageHandler:
             session.add(chat_message)
             session.commit()
             session.close()
-            self.memory_handler.add_to_short_memory(message, reply)
+            # 新增短期记忆保存
+            self.memory_handler.add_short_memory(message, reply)
         except Exception as e:
             print(f"保存消息失败: {str(e)}")
 
     def get_api_response(self, message: str, user_id: str) -> str:
         """获取 API 回复（含记忆增强）"""
-        # 查询相关记忆
-        memories = self.memory_handler.get_relevant_memories(message)
+        prompt_path = os.path.join(self.root_dir, "data", "avatars", "ATRI", "avatar.md")
+        original_content = ""
 
-        # 更新prompt文件
-        prompt_path = os.path.join(self.root_dir, config.behavior.context.avatar_dir, "avatar.md")
-        with open(prompt_path, "r+", encoding="utf-8") as f:
-            content = f.read()
-            if "#记忆" in content:
-                memory_section = "\n".join([m["content"] for m in memories])
-                new_content = content.replace("#记忆", f"#记忆\n{memory_section}")
-                f.seek(0)
-                f.write(new_content)
-            f.seek(0)
-            full_prompt = f.read()
+        try:
+            # 步骤1：读取原始提示内容
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                original_content = f.read()
+                logger.debug(f"原始提示文件大小: {len(original_content)} bytes")
 
-        # 调用原有API
-        return self.deepseek.get_response(message, user_id, full_prompt)
+            # 步骤2：获取相关记忆并构造临时提示
+            relevant_memories = self.memory_handler.get_relevant_memories(message)
+            memory_prompt = "\n# 动态记忆注入\n" + "\n".join(relevant_memories) if relevant_memories else ""
+            logger.debug(f"注入记忆条数: {len(relevant_memories)}")
+
+            # 步骤3：写入临时记忆
+            with open(prompt_path, "w", encoding="utf-8") as f:
+                f.write(f"{original_content}\n{memory_prompt}")
+
+            # 步骤4：确保文件内容已刷新
+            with open(prompt_path, "r", encoding="utf-8") as f:
+                full_prompt = f.read()
+                logger.debug(f"临时提示内容样例:\n{full_prompt[:200]}...")  # 显示前200字符
+
+            # 调用API
+            return self.deepseek.get_response(message, user_id, full_prompt)
+
+        except Exception as e:
+            logger.error(f"动态记忆注入失败: {str(e)}")
+            return self.deepseek.get_response(message, user_id, original_content)  # 降级处理
+
+        finally:
+            # 步骤5：恢复原始内容（无论是否出错）
+            try:
+                with open(prompt_path, "w", encoding="utf-8") as f:
+                    f.write(original_content)
+            except Exception as restore_error:
+                logger.error(f"恢复提示文件失败: {str(restore_error)}")
 
     def process_messages(self, chat_id: str):
         """处理消息队列中的消息"""

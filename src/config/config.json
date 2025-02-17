@@ -16,7 +16,7 @@
             "title": "大语言模型配置",
             "settings": {
                 "api_key": {
-                    "value": "",
+                    "value": "sk-",
                     "type": "string",
                     "description": "DeepSeek API密钥",
                     "is_secret": true
