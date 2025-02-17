@@ -79,7 +79,8 @@ class MessageHandler:
 
     def get_api_response(self, message: str, user_id: str) -> str:
         """获取 API 回复（含记忆增强）"""
-        prompt_path = os.path.join(self.root_dir, "data", "avatars", "ATRI", "avatar.md")
+        avatar_dir = os.path.join(self.root_dir, config.behavior.context.avatar_dir)
+        prompt_path = os.path.join(avatar_dir, "avatar.md")
         original_content = ""
 
         try:

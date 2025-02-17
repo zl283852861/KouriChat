@@ -502,11 +502,12 @@ def main():
             os.makedirs(memory_dir)
             print_status(f"创建记忆目录: {memory_dir}", "success", "✅")
 
-        atri_path = os.path.join(root_dir, "data", "avatars", "ATRI", "ATRI.md")
-        if not os.path.exists(atri_path):
-            with open(atri_path, "w", encoding="utf-8") as f:
+        avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+        prompt_path = os.path.join(avatar_dir, "avatar.md")
+        if not os.path.exists(prompt_path):
+            with open(prompt_path, "w", encoding="utf-8") as f:
                 f.write("# 核心人格\n[默认内容]")
-            print_status(f"创建ATRI提示文件", "warning", "⚠️")
+            print_status(f"创建人设提示文件", "warning", "⚠️")
         # 启动消息监听线程
         print_status("启动消息监听线程...", "info", "📡")
         listener_thread = threading.Thread(target=message_listener)
