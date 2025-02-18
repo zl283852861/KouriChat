@@ -22,6 +22,10 @@ from src.handlers.memory import MemoryHandler
 from utils.cleanup import cleanup_pycache, CleanupUtils
 from utils.logger import LoggerConfig
 from colorama import init, Fore, Style
+import signal
+import psutil
+import atexit
+from flask import jsonify
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -268,10 +272,10 @@ def is_quiet_time() -> bool:
 
 def get_random_countdown_time():
     """获取随机倒计时时间"""
-    return random.randint(
-        config.behavior.auto_message.min_hours * 3600,
-        config.behavior.auto_message.max_hours * 3600
-    )
+    # 将小时转换为秒，并确保是整数
+    min_seconds = int(config.behavior.auto_message.min_hours * 3600)
+    max_seconds = int(config.behavior.auto_message.max_hours * 3600)
+    return random.randint(min_seconds, max_seconds)
 
 def auto_send_message():
     """自动发送消息"""
@@ -446,6 +450,70 @@ def print_status(message: str, status: str = "info", emoji: str = ""):
     }
     color = colors.get(status, Fore.WHITE)
     print(f"{color}{emoji} {message}{Style.RESET_ALL}")
+
+def stop_bot_process():
+    """停止机器人进程及其所有子进程"""
+    try:
+        if bot_process:
+            # 获取进程组
+            parent = psutil.Process(bot_process.pid)
+            children = parent.children(recursive=True)
+            
+            # 终止子进程
+            for child in children:
+                try:
+                    child.terminate()
+                except:
+                    try:
+                        child.kill()
+                    except:
+                        pass
+            
+            # 终止主进程
+            bot_process.terminate()
+            
+            # 等待进程结束
+            gone, alive = psutil.wait_procs(children + [parent], timeout=3)
+            
+            # 强制结束仍在运行的进程
+            for p in alive:
+                try:
+                    p.kill()
+                except:
+                    pass
+            
+            return True
+    except Exception as e:
+        logger.error(f"停止机器人进程失败: {str(e)}")
+        return False
+
+@app.route('/stop_bot')
+def stop_bot():
+    """停止机器人"""
+    global bot_process
+    try:
+        if bot_process:
+            if stop_bot_process():
+                bot_process = None
+                return jsonify({
+                    'status': 'success',
+                    'message': '机器人已停止'
+                })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'message': '停止机器人失败'
+                })
+        return jsonify({
+            'status': 'error',
+            'message': '机器人未在运行'
+        })
+    except Exception as e:
+        logger.error(f"停止机器人失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
 
 def main():
     listener_thread = None  # 在函数开始时定义线程变量
