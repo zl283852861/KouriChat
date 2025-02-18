@@ -1355,6 +1355,15 @@ def install_dependencies():
             'message': str(e)
         })
 
+@app.route('/favicon.ico')
+def favicon():
+    """提供网站图标"""
+    return send_from_directory(
+        os.path.join(app.root_path, 'src/webui/static'),
+        'mom.ico',
+        mimetype='image/vnd.microsoft.icon'
+    )
+
 def main():
     """主函数"""
     from src.config import config
