@@ -1,12 +1,4 @@
 @echo off 
-if not "%OS%"=="Windows_NT" exit
-title WindosActive
-
-echo 当前目录：%cd%
-echo 变量扩充: %~dp0
-cd /D %~dp0
-echo 更改后的目录：%cd%
-pause
 REM 设置代码页为 GBK
 chcp 936 >nul
 title My Dream Moments 启动器
