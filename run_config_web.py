@@ -29,6 +29,8 @@ from logging.config import dictConfig
 import shutil
 import signal
 import atexit
+import socket
+import webbrowser
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -1351,9 +1353,25 @@ if sys.platform.startswith('win'):
 # 注册退出处理
 atexit.register(cleanup_processes)
 
+def open_browser(port):
+    """在新线程中打开浏览器"""
+    def _open_browser():
+        # 等待服务器启动
+        time.sleep(1.5)
+        # 优先使用 localhost
+        url = f"http://localhost:{port}"
+        webbrowser.open(url)
+    
+    # 创建新线程来打开浏览器
+    threading.Thread(target=_open_browser, daemon=True).start()
+
 def main():
     """主函数"""
     from src.config import config
+    
+    # 设置系统编码为 UTF-8 (不清除控制台输出)
+    if sys.platform.startswith('win'):
+        os.system("@chcp 65001 >nul")  # 使用 >nul 来隐藏输出而不清屏
     
     print("\n" + "="*50)
     print_status("配置管理系统启动中...", "info", "🚀")
@@ -1388,20 +1406,46 @@ def main():
     cli = sys.modules['flask.cli']
     cli.show_server_banner = lambda *x: None  # 禁用 Flask 启动横幅
     
+    host = '0.0.0.0'
+    port = 8501
+    
     print_status("正在启动Web服务...", "info", "🌐")
     print("-"*50)
     print_status("配置管理系统已就绪！", "success", "✨")
-    print_status("请访问: http://localhost:8501", "info", "🔗")
+    
+    # 获取本机所有IP地址
+    def get_ip_addresses():
+        ip_list = []
+        try:
+            # 获取主机名
+            hostname = socket.gethostname()
+            # 获取本机IP地址列表
+            addresses = socket.getaddrinfo(hostname, None)
+            
+            for addr in addresses:
+                ip = addr[4][0]
+                # 只获取IPv4地址且不是回环地址
+                if '.' in ip and ip != '127.0.0.1':
+                    ip_list.append(ip)
+        except:
+            pass
+        return ip_list
+
+    # 显示所有可用的访问地址
+    ip_addresses = get_ip_addresses()
+    print_status("可通过以下地址访问:", "info", "🔗")
+    print(f"  Local:   http://localhost:{port}")
+    print(f"  Local:   http://127.0.0.1:{port}")
+    for ip in ip_addresses:
+        print(f"  Network: http://{ip}:{port}")
     print("="*50 + "\n")
     
-    # 设置系统编码为 UTF-8
-    if sys.platform.startswith('win'):
-        import subprocess
-        subprocess.run(['chcp', '65001'], shell=True)
+    # 启动浏览器
+    open_browser(port)
     
     app.run(
-        host='0.0.0.0', 
-        port=8501, 
+        host=host, 
+        port=port, 
         debug=True,
         use_reloader=False  # 禁用重载器以避免创建多余的进程
     )
