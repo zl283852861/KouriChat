@@ -25,7 +25,10 @@ from colorama import init, Fore, Style
 import signal
 import psutil
 import atexit
-from flask import jsonify
+from flask import Flask, jsonify
+
+# 初始化Flask应用
+app = Flask(__name__)
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
