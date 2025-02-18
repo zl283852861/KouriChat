@@ -145,6 +145,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             "MAX_TOKEN": {
                 "value": config.llm.max_tokens,
                 "description": "回复最大token数",
+                "type": "number",
             },
             "TEMPERATURE": {
                 "value": config.llm.temperature,

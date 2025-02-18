@@ -28,18 +28,26 @@
             --card-border: rgba(255, 255, 255, 0.1);
             --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
         }
-
+        html,body{
+            hight:100%;
+            margin: 0;
+        }
         body {
             background: var(--background-color);
             background-image: linear-gradient(to bottom right, 
                 rgba(255, 255, 255, 0.1), 
                 rgba(255, 255, 255, 0));  /* 添加微妙的渐变效果 */
             color: var(--text-color);
+            background-size:cover;
+            background-position:center center;
+            background-attachment:fixed;
+            background-repeat:no-repeat; /* 改背景图片为平铺以及比例不变*/
             transition: background 0.3s, color 0.3s;
         }
 
         .config-section {
             background: var(--card-bg);
+            -webkit-backdrop-filter: blur(5px);
             backdrop-filter: blur(5px);
             border-radius: 1rem;
             border: 1px solid var(--card-border);
@@ -176,7 +184,7 @@
         }
 
         /* 响应式布局 */
-        @media (max-width: 768px) {
+        @media (max-width: 700px) {
             .config-section {
                 padding: 1rem;
             }
@@ -201,6 +209,59 @@
 
         .password-toggle:hover {
             opacity: 1;
+        }
+
+        /* 修改左右两栏的间距 */
+        @media (min-width: 768px) {
+            .col-md-6.pe-md-2 {
+                padding-right: 1.5rem !important;  /* 增加右边距 */
+            }
+            
+            .col-md-6.ps-md-2 {
+                padding-left: 1.5rem !important;   /* 增加左边距 */
+            }
+        }
+
+        /* 修改响应式布局下的间距 */
+        @media (max-width: 767px) {
+            .col-md-6 {
+                margin-bottom: 2rem;  /* 增加上下间距 */
+            }
+            
+            .config-section {
+                margin-bottom: 0;  /* 移除原有的底部间距 */
+            }
+            
+            /* 为了让背景更好地显示，增加内容区域的内边距 */
+            main.container-fluid {
+                padding: 2rem 1rem;  /* 调整移动端的内边距 */
+            }
+            
+            /* 为底部保存按钮留出空间 */
+            main.container-fluid {
+                padding-bottom: 5rem;  /* 底部留出更多空间 */
+            }
+        }
+
+        /* 优化桌面端布局 */
+        @media (min-width: 768px) {
+            .col-md-6.pe-md-2 {
+                padding-right: 1.5rem !important;
+            }
+            
+            .col-md-6.ps-md-2 {
+                padding-left: 1.5rem !important;
+            }
+            
+            main.container-fluid {
+                padding: 2rem;
+                padding-bottom: 5rem;  /* 为底部保存按钮留出空间 */
+            }
+        }
+
+        /* 修改主容器的内边距 */
+        main.container-fluid {
+            padding: 2rem;  /* 增加整体内边距 */
         }
     </style>
     <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
