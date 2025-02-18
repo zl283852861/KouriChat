@@ -26,9 +26,20 @@ import signal
 import psutil
 import atexit
 from flask import jsonify,Flask
+
 app = Flask(__name__)
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# 检查并初始化配置文件
+config_path = os.path.join(root_dir, 'src', 'config', 'config.json')
+config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
+
+if not os.path.exists(config_path) and os.path.exists(config_template_path):
+    logger = logging.getLogger('main')
+    logger.info("配置文件不存在，正在从模板创建...")
+    shutil.copy2(config_template_path, config_path)
+    logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 配置日志
 logger_config = LoggerConfig(root_dir)
