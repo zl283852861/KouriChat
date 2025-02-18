@@ -2,7 +2,7 @@ import os
 import logging
 from typing import List
 from services.ai.deepseek import DeepSeekAI
-from datetime import datetime, time
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
