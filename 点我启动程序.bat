@@ -1,4 +1,4 @@
-@echo off
+@echo off 
 REM 设置代码页为 GBK
 chcp 936 >nul
 title My Dream Moments 启动器
