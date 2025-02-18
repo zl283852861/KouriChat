@@ -37,9 +37,6 @@
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     
-    <!-- Umami Analytics -->
-    <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
-    
     <!-- 添加结构化数据 -->
     <script type="application/ld+json">
     {
@@ -585,6 +582,52 @@
                             <span id="downloadSpeed" class="text-danger">0 KB/s</span>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <div class="glass-panel">
+                <div class="d-flex justify-content-between align-items-center mb-4">
+                    <h4 class="mb-0">
+                        <i class="bi bi-boxes me-2"></i>依赖管理
+                    </h4>
+                    <button class="btn btn-glass text-primary" onclick="checkAndInstallDependencies()">
+                        <i class="bi bi-download me-1"></i>安装依赖
+                    </button>
+                </div>
+                
+                <div id="dependencyStatus" class="alert d-none">
+                    <div class="d-flex align-items-center">
+                        <div class="spinner-border spinner-border-sm me-2" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                        <span id="dependencyStatusText">正在检查依赖...</span>
+                    </div>
+                </div>
+                
+                <div class="info-card">
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">Python版本</span>
+                        <span id="pythonVersion" class="badge bg-primary">
+                            <i class="bi bi-question-circle me-1"></i>检查中...
+                        </span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center mb-2">
+                        <span class="text-muted">pip状态</span>
+                        <span id="pipStatus" class="badge bg-secondary">
+                            <i class="bi bi-question-circle me-1"></i>检查中...
+                        </span>
+                    </div>
+                    <div class="d-flex justify-content-between align-items-center">
+                        <span class="text-muted">依赖状态</span>
+                        <span id="depsStatus" class="badge bg-secondary">
+                            <i class="bi bi-question-circle me-1"></i>检查中...
+                        </span>
+                    </div>
+                </div>
+                
+                <div id="missingDeps" class="mt-3 d-none">
+                    <small class="text-muted">缺失的依赖项：</small>
+                    <div class="missing-deps-list mt-2"></div>
                 </div>
             </div>
 
@@ -1350,6 +1393,174 @@
                 scrollToBottom();
             });
         }
+
+        // 添加防抖函数
+        function debounce(func, wait) {
+            let timeout;
+            return function executedFunction(...args) {
+                const later = () => {
+                    clearTimeout(timeout);
+                    func(...args);
+                };
+                clearTimeout(timeout);
+                timeout = setTimeout(later, wait);
+            };
+        }
+
+        // 添加检查状态标志
+        let isCheckingDependencies = false;
+
+        function checkAndInstallDependencies() {
+            // 如果正在检查中，则返回
+            if (isCheckingDependencies) {
+                return;
+            }
+            
+            isCheckingDependencies = true;
+            const statusDiv = document.getElementById('dependencyStatus');
+            const statusText = document.getElementById('dependencyStatusText');
+            const spinnerDiv = statusDiv.querySelector('.spinner-border');
+            
+            statusDiv.classList.remove('d-none', 'alert-danger', 'alert-success', 'alert-warning');
+            statusDiv.classList.add('alert-info');
+            statusText.textContent = '正在检查依赖...';
+            spinnerDiv.classList.remove('d-none');
+            
+            fetch('/check_dependencies')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 更新Python版本
+                        document.getElementById('pythonVersion').innerHTML = 
+                            `<i class="bi bi-filetype-py me-1"></i>${data.python_version}`;
+                        
+                        // 更新pip状态
+                        document.getElementById('pipStatus').innerHTML = data.has_pip ? 
+                            '<i class="bi bi-check-circle-fill text-success"></i> 已安装' : 
+                            '<i class="bi bi-x-circle-fill text-danger"></i> 未安装';
+                        document.getElementById('pipStatus').className = 
+                            `badge ${data.has_pip ? 'bg-success' : 'bg-danger'}`;
+                        
+                        // 更新依赖状态
+                        const depsStatusEl = document.getElementById('depsStatus');
+                        const missingDepsDiv = document.getElementById('missingDeps');
+                        const missingDepsList = missingDepsDiv.querySelector('.missing-deps-list');
+                        
+                        switch(data.dependencies_status) {
+                            case 'complete':
+                                depsStatusEl.innerHTML = '<i class="bi bi-check-circle-fill"></i> 已完成';
+                                depsStatusEl.className = 'badge bg-success';
+                                missingDepsDiv.classList.add('d-none');
+                                spinnerDiv.classList.add('d-none');
+                                statusDiv.classList.add('d-none');
+                                break;
+                            case 'incomplete':
+                                depsStatusEl.innerHTML = '<i class="bi bi-exclamation-circle-fill"></i> 不完整';
+                                depsStatusEl.className = 'badge bg-warning';
+                                missingDepsDiv.classList.remove('d-none');
+                                missingDepsList.innerHTML = data.missing_dependencies.map(dep => 
+                                    `<span class="badge bg-warning me-2 mb-2"><i class="bi bi-box me-1"></i>${dep}</span>`
+                                ).join('');
+                                break;
+                            case 'error':
+                                depsStatusEl.innerHTML = '<i class="bi bi-x-circle-fill"></i> 检查失败';
+                                depsStatusEl.className = 'badge bg-danger';
+                                missingDepsDiv.classList.add('d-none');
+                                break;
+                            default:
+                                depsStatusEl.innerHTML = '<i class="bi bi-question-circle-fill"></i> 未知';
+                                depsStatusEl.className = 'badge bg-secondary';
+                                missingDepsDiv.classList.add('d-none');
+                        }
+                        
+                        // 如果是首次运行或依赖不完整，显示提示
+                        if (data.is_first_run || data.dependencies_status === 'incomplete') {
+                            statusDiv.classList.remove('d-none', 'alert-info');
+                            statusDiv.classList.add('alert-warning');
+                            spinnerDiv.classList.add('d-none');
+                            statusText.innerHTML = `
+                                <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                                ${data.is_first_run ? '首次运行，' : ''}
+                                ${data.dependencies_status === 'incomplete' ? '依赖不完整，' : ''}
+                                建议安装依赖
+                            `;
+                            
+                            // 如果用户确认安装
+                            if (confirm('检测到缺失的依赖项，是否现在安装？')) {
+                                spinnerDiv.classList.remove('d-none');
+                                statusText.textContent = '正在安装依赖...';
+                                return fetch('/install_dependencies');
+                            } else {
+                                isCheckingDependencies = false;
+                            }
+                        } else {
+                            isCheckingDependencies = false;
+                        }
+                    } else {
+                        throw new Error(data.message);
+                    }
+                })
+                .then(response => {
+                    if (response) return response.json();
+                })
+                .then(data => {
+                    if (data) {
+                        if (data.status === 'success') {
+                            statusDiv.classList.remove('alert-info', 'alert-warning');
+                            statusDiv.classList.add('alert-success');
+                            spinnerDiv.classList.add('d-none');
+                            statusText.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>依赖安装成功！';
+                            
+                            // 在日志区域显示详细输出
+                            const logsElement = document.querySelector('.logs');
+                            if (logsElement) {
+                                const logLine = document.createElement('div');
+                                logLine.className = 'log-line';
+                                logLine.innerHTML = `<span class="command-output">${data.output}</span>`;
+                                logsElement.appendChild(logLine);
+                                scrollToBottom();
+                            }
+                            
+                            // 延迟后重新检查一次状态
+                            setTimeout(() => {
+                                isCheckingDependencies = false;
+                                checkAndInstallDependencies();
+                            }, 2000);
+                        } else {
+                            throw new Error(data.message || '安装失败');
+                        }
+                    }
+                    isCheckingDependencies = false;
+                })
+                .catch(error => {
+                    statusDiv.classList.remove('alert-info');
+                    statusDiv.classList.add('alert-danger');
+                    spinnerDiv.classList.add('d-none');
+                    statusText.innerHTML = `<i class="bi bi-x-circle-fill me-2"></i>错误: ${error.message}`;
+                    
+                    // 在日志区域显示错误
+                    const logsElement = document.querySelector('.logs');
+                    if (logsElement) {
+                        const logLine = document.createElement('div');
+                        logLine.className = 'log-line';
+                        logLine.innerHTML = `<span class="command-error">依赖安装失败: ${error.message}</span>`;
+                        logsElement.appendChild(logLine);
+                        scrollToBottom();
+                    }
+                    isCheckingDependencies = false;
+                });
+        }
+
+        // 使用防抖包装检查函数
+        const debouncedCheckDependencies = debounce(checkAndInstallDependencies, 1000);
+
+        // 页面加载时检查依赖
+        document.addEventListener('DOMContentLoaded', function() {
+            // 只在首次运行或未检查过依赖时执行检查
+            if (!localStorage.getItem('dependenciesChecked')) {
+                debouncedCheckDependencies();
+            }
+        });
     </script>
 </body>
 </html> 

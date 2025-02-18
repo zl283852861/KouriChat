@@ -26,6 +26,7 @@ import time
 from queue import Queue
 import datetime
 from logging.config import dictConfig
+import shutil
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -1174,6 +1175,184 @@ type - 显示文件内容
         return jsonify({
             'status': 'error',
             'error': f'执行命令失败: {str(e)}'
+        })
+
+@app.route('/check_dependencies')
+def check_dependencies():
+    """检查Python和pip环境"""
+    try:
+        # 检查Python版本
+        python_version = sys.version.split()[0]
+        
+        # 检查pip是否安装
+        pip_path = shutil.which('pip')
+        has_pip = pip_path is not None
+        
+        # 检查.lock文件
+        lock_file = os.path.join(ROOT_DIR, '.dependencies.lock')
+        is_first_run = not os.path.exists(lock_file)
+        
+        # 检查requirements.txt是否存在
+        requirements_path = os.path.join(ROOT_DIR, 'requirements.txt')
+        has_requirements = os.path.exists(requirements_path)
+        
+        # 如果requirements.txt存在，检查是否所有依赖都已安装
+        dependencies_status = "unknown"
+        missing_deps = []
+        if has_requirements and has_pip:
+            try:
+                # 获取已安装的包列表
+                process = subprocess.Popen(
+                    [sys.executable, '-m', 'pip', 'list'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                stdout, stderr = process.communicate()
+                # 解析pip list的输出
+                installed_packages = set()
+                for line in stdout.split('\n')[2:]:  # 跳过头两行
+                    if line.strip():
+                        package_name = line.split()[0].lower()
+                        installed_packages.add(package_name)
+                
+                logger.debug(f"已安装的包: {installed_packages}")
+                
+                # 读取requirements.txt
+                with open(requirements_path, 'r', encoding='utf-8') as f:
+                    required_packages = set()
+                    for line in f:
+                        line = line.strip()
+                        if line and not line.startswith('#'):
+                            # 处理各种格式的包名
+                            if '~=' in line:
+                                pkg = line.split('~=')[0]
+                            elif '>=' in line:
+                                pkg = line.split('>=')[0]
+                            elif '==' in line:
+                                pkg = line.split('==')[0]
+                            elif '<=' in line:
+                                pkg = line.split('<=')[0]
+                            elif '>' in line:
+                                pkg = line.split('>')[0]
+                            elif '<' in line:
+                                pkg = line.split('<')[0]
+                            else:
+                                pkg = line
+                            pkg = pkg.strip().lower()
+                            # 特殊处理某些包名
+                            if pkg == 'wxauto':
+                                pkg = 'wxauto'  # 不再转换为wxauto-py
+                            required_packages.add(pkg)
+                
+                logger.debug(f"需要的包: {required_packages}")
+                
+                # 检查缺失的依赖
+                missing_deps = []
+                for pkg in required_packages:
+                    if pkg not in installed_packages:
+                        # 对于wxauto包特殊处理
+                        if pkg == 'wxauto' and 'wxauto-py' in installed_packages:
+                            continue
+                        missing_deps.append(pkg)
+                
+                logger.debug(f"缺失的包: {missing_deps}")
+                
+                # 如果所有依赖都已安装，则创建lock文件
+                if not missing_deps:
+                    with open(lock_file, 'w') as f:
+                        f.write(datetime.datetime.now().isoformat())
+                    is_first_run = False
+                
+                dependencies_status = "complete" if not missing_deps else "incomplete"
+            except Exception as e:
+                logger.error(f"检查依赖时出错: {str(e)}")
+                dependencies_status = "error"
+        else:
+            dependencies_status = "complete" if not has_requirements else "incomplete"
+        
+        return jsonify({
+            'status': 'success',
+            'python_version': python_version,
+            'has_pip': has_pip,
+            'is_first_run': is_first_run,
+            'has_requirements': has_requirements,
+            'dependencies_status': dependencies_status,
+            'missing_dependencies': missing_deps
+        })
+    except Exception as e:
+        logger.error(f"依赖检查失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/install_dependencies')
+def install_dependencies():
+    """安装依赖"""
+    try:
+        output = []
+        
+        # 如果没有pip，先安装pip
+        pip_path = shutil.which('pip')
+        if not pip_path:
+            output.append("正在安装pip...")
+            process = subprocess.Popen(
+                [sys.executable, '-m', 'ensurepip'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                universal_newlines=True
+            )
+            stdout, stderr = process.communicate()
+            output.append(stdout if stdout else stderr)
+            
+            if process.returncode != 0:
+                return jsonify({
+                    'status': 'error',
+                    'output': '\n'.join(output),
+                    'message': '安装pip失败'
+                })
+        
+        # 安装依赖
+        output.append("正在安装依赖...")
+        requirements_path = os.path.join(ROOT_DIR, 'requirements.txt')
+        
+        if not os.path.exists(requirements_path):
+            return jsonify({
+                'status': 'error',
+                'message': '找不到requirements.txt文件'
+            })
+            
+        process = subprocess.Popen(
+            [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            universal_newlines=True
+        )
+        stdout, stderr = process.communicate()
+        output.append(stdout if stdout else stderr)
+        
+        if process.returncode == 0:
+            # 创建.lock文件
+            lock_file = os.path.join(ROOT_DIR, '.dependencies.lock')
+            with open(lock_file, 'w') as f:
+                f.write(datetime.datetime.now().isoformat())
+                
+            return jsonify({
+                'status': 'success',
+                'output': '\n'.join(output)
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'output': '\n'.join(output),
+                'message': '安装依赖失败'
+            })
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
         })
 
 def main():
