@@ -27,6 +27,11 @@ from queue import Queue
 import datetime
 from logging.config import dictConfig
 
+# 在文件开头添加全局变量声明
+bot_process = None
+bot_start_time = None
+bot_logs = Queue(maxsize=1000)
+
 # 配置日志
 dictConfig({
     'version': 1,
@@ -78,11 +83,6 @@ app.config['UPLOAD_FOLDER'] = os.path.join(ROOT_DIR, 'src/webui/background_image
 
 # 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-
-# 添加全局变量存储日志
-bot_logs = Queue(maxsize=1000)  # 限制最大日志数量
-bot_process = None
-bot_start_time = None
 
 def print_status(message: str, status: str = "info", emoji: str = ""):
     """打印带颜色和表情的状态消息"""
@@ -625,19 +625,61 @@ def system_info():
 @app.route('/check_update')
 def check_update():
     """检查更新"""
-    updater = Updater()
-    update_info = updater.check_for_updates()
-    return jsonify(update_info if update_info else {'has_update': False})
+    try:
+        updater = Updater()
+        update_info = updater.check_for_updates()
+        
+        if update_info and update_info.get('has_update'):
+            # 将更新信息添加到日志
+            timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+            bot_logs.put(f"[{timestamp}] 发现新版本: {update_info['version']}")
+            bot_logs.put(f"[{timestamp}] 更新说明: {update_info['description']}")
+            bot_logs.put(f"[{timestamp}] 更新时间: {update_info['last_update']}")
+            
+            return jsonify(update_info)
+        else:
+            timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+            bot_logs.put(f"[{timestamp}] 当前已是最新版本")
+            return jsonify({'has_update': False})
+            
+    except Exception as e:
+        logger.error(f"检查更新失败: {str(e)}")
+        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+        bot_logs.put(f"[{timestamp}] 检查更新失败: {str(e)}")
+        return jsonify({'has_update': False, 'error': str(e)})
 
 @app.route('/do_update')
 def do_update():
     """执行更新"""
-    updater = Updater()
-    success = updater.update()
-    return jsonify({
-        'status': 'success' if success else 'error',
-        'message': '更新成功，请重启程序' if success else '更新失败'
-    })
+    try:
+        updater = Updater()
+        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+        
+        # 开始更新
+        bot_logs.put(f"[{timestamp}] 开始执行更新...")
+        success = updater.update()
+        
+        if success:
+            bot_logs.put(f"[{timestamp}] 更新成功，请重启程序")
+            return jsonify({
+                'status': 'success',
+                'message': '更新成功，请重启程序'
+            })
+        else:
+            bot_logs.put(f"[{timestamp}] 更新失败")
+            return jsonify({
+                'status': 'error',
+                'message': '更新失败'
+            })
+            
+    except Exception as e:
+        logger.error(f"执行更新失败: {str(e)}")
+        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+        bot_logs.put(f"[{timestamp}] 更新失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'更新失败: {str(e)}'
+        })
 
 @app.route('/start_bot')
 def start_bot():
@@ -860,6 +902,282 @@ def get_user_info():
 def serve_static(filename):
     """提供静态文件服务"""
     return send_from_directory(app.static_folder, filename)
+
+@app.route('/execute_command', methods=['POST'])
+def execute_command():
+    """执行控制台命令"""
+    try:
+        command = request.json.get('command', '').strip()
+        global bot_process, bot_start_time
+        
+        # 处理内置命令
+        if command.lower() == 'help':
+            return jsonify({
+                'status': 'success',
+                'output': '''可用命令:
+help - 显示帮助信息
+clear - 清空日志
+status - 显示系统状态
+version - 显示版本信息
+memory - 显示内存使用情况
+start - 启动机器人
+stop - 停止机器人
+restart - 重启机器人
+
+支持所有CMD命令，例如:
+dir - 显示目录内容
+cd - 切换目录
+echo - 显示消息
+type - 显示文件内容
+等...'''
+            })
+            
+        elif command.lower() == 'clear':
+            # 清空日志队列
+            while not bot_logs.empty():
+                bot_logs.get()
+            return jsonify({
+                'status': 'success',
+                'output': '',  # 返回空输出，让前端清空日志
+                'clear': True  # 添加标记，告诉前端需要清空日志
+            })
+            
+        elif command.lower() == 'status':
+            if bot_process and bot_process.poll() is None:
+                uptime = '0分钟'
+                if bot_start_time:
+                    delta = datetime.datetime.now() - bot_start_time
+                    total_seconds = int(delta.total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    seconds = total_seconds % 60
+                    if hours > 0:
+                        uptime = f"{hours}小时{minutes}分钟{seconds}秒"
+                    elif minutes > 0:
+                        uptime = f"{minutes}分钟{seconds}秒"
+                    else:
+                        uptime = f"{seconds}秒"
+                return jsonify({
+                    'status': 'success',
+                    'output': f'机器人状态: 运行中\n运行时间: {uptime}'
+                })
+            else:
+                return jsonify({
+                    'status': 'success',
+                    'output': '机器人状态: 已停止'
+                })
+            
+        elif command.lower() == 'version':
+            return jsonify({
+                'status': 'success',
+                'output': 'My Dream Moments v1.3.1'
+            })
+            
+        elif command.lower() == 'memory':
+            memory = psutil.virtual_memory()
+            return jsonify({
+                'status': 'success',
+                'output': f'内存使用: {memory.percent}% ({memory.used/1024/1024/1024:.1f}GB/{memory.total/1024/1024/1024:.1f}GB)'
+            })
+            
+        elif command.lower() == 'start':
+            if bot_process and bot_process.poll() is None:
+                return jsonify({
+                    'status': 'error',
+                    'error': '机器人已在运行中'
+                })
+            
+            # 清空之前的日志
+            while not bot_logs.empty():
+                bot_logs.get()
+            
+            # 设置环境变量
+            env = os.environ.copy()
+            env['PYTHONIOENCODING'] = 'utf-8'
+            
+            # 创建新的进程组
+            if sys.platform.startswith('win'):
+                CREATE_NEW_PROCESS_GROUP = 0x00000200
+                DETACHED_PROCESS = 0x00000008
+                creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+            else:
+                creationflags = 0
+            
+            # 启动进程
+            bot_process = subprocess.Popen(
+                [sys.executable, 'run.py'],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                universal_newlines=True,
+                bufsize=1,
+                env=env,
+                encoding='utf-8',
+                errors='replace',
+                creationflags=creationflags if sys.platform.startswith('win') else 0,
+                preexec_fn=os.setsid if not sys.platform.startswith('win') else None
+            )
+            
+            # 记录启动时间
+            bot_start_time = datetime.datetime.now()
+            
+            return jsonify({
+                'status': 'success',
+                'output': '机器人启动成功'
+            })
+            
+        elif command.lower() == 'stop':
+            if bot_process and bot_process.poll() is None:
+                try:
+                    # 首先尝试正常终止进程
+                    bot_process.terminate()
+                    
+                    # 等待进程结束
+                    try:
+                        bot_process.wait(timeout=5)  # 等待最多5秒
+                    except subprocess.TimeoutExpired:
+                        # 如果超时，强制结束进程
+                        bot_process.kill()
+                        bot_process.wait()
+                    
+                    # 确保所有子进程都被终止
+                    if sys.platform.startswith('win'):
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)], 
+                                     capture_output=True)
+                    else:
+                        import signal
+                        os.killpg(os.getpgid(bot_process.pid), signal.SIGTERM)
+                    
+                    # 清理进程对象
+                    bot_process = None
+                    bot_start_time = None
+                    
+                    return jsonify({
+                        'status': 'success',
+                        'output': '机器人已停止'
+                    })
+                except Exception as e:
+                    return jsonify({
+                        'status': 'error',
+                        'error': f'停止失败: {str(e)}'
+                    })
+            else:
+                return jsonify({
+                    'status': 'error',
+                    'error': '机器人未在运行'
+                })
+            
+        elif command.lower() == 'restart':
+            # 先停止
+            if bot_process and bot_process.poll() is None:
+                try:
+                    bot_process.terminate()
+                    try:
+                        bot_process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        bot_process.kill()
+                        bot_process.wait()
+                    
+                    if sys.platform.startswith('win'):
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)], 
+                                     capture_output=True)
+                    else:
+                        import signal
+                        os.killpg(os.getpgid(bot_process.pid), signal.SIGTERM)
+                except Exception as e:
+                    return jsonify({
+                        'status': 'error',
+                        'error': f'重启失败: {str(e)}'
+                    })
+            
+            time.sleep(2)  # 等待进程完全停止
+            
+            # 然后重新启动
+            try:
+                # 清空日志
+                while not bot_logs.empty():
+                    bot_logs.get()
+                
+                env = os.environ.copy()
+                env['PYTHONIOENCODING'] = 'utf-8'
+                
+                if sys.platform.startswith('win'):
+                    CREATE_NEW_PROCESS_GROUP = 0x00000200
+                    DETACHED_PROCESS = 0x00000008
+                    creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+                else:
+                    creationflags = 0
+                
+                bot_process = subprocess.Popen(
+                    [sys.executable, 'run.py'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    universal_newlines=True,
+                    bufsize=1,
+                    env=env,
+                    encoding='utf-8',
+                    errors='replace',
+                    creationflags=creationflags if sys.platform.startswith('win') else 0,
+                    preexec_fn=os.setsid if not sys.platform.startswith('win') else None
+                )
+                
+                bot_start_time = datetime.datetime.now()
+                
+                return jsonify({
+                    'status': 'success',
+                    'output': '机器人已重启'
+                })
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'error': f'重启失败: {str(e)}'
+                })
+            
+        # 执行CMD命令
+        else:
+            try:
+                # 使用subprocess执行命令并捕获输出
+                process = subprocess.Popen(
+                    command,
+                    shell=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    encoding='utf-8',
+                    errors='replace'
+                )
+                
+                # 获取命令输出
+                stdout, stderr = process.communicate(timeout=30)
+                
+                # 如果有错误输出
+                if stderr:
+                    return jsonify({
+                        'status': 'error',
+                        'error': stderr
+                    })
+                    
+                # 返回命令执行结果
+                return jsonify({
+                    'status': 'success',
+                    'output': stdout or '命令执行成功，无输出'
+                })
+                
+            except subprocess.TimeoutExpired:
+                process.kill()
+                return jsonify({
+                    'status': 'error',
+                    'error': '命令执行超时'
+                })
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'error': f'执行命令失败: {str(e)}'
+                })
+            
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'error': f'执行命令失败: {str(e)}'
+        })
 
 def main():
     """主函数"""

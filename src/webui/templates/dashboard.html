@@ -407,6 +407,47 @@
             width: 100%;
             height: 100%;
         }
+
+        /* 控制台输入区域样式 */
+        .console-input-area {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 0.5rem;
+            overflow: hidden;
+        }
+
+        .console-input-area .input-group {
+            background: transparent;
+        }
+
+        .console-input-area .form-control {
+            background: transparent;
+            color: var(--text-color);
+            font-family: 'Consolas', monospace;
+        }
+
+        .console-input-area .form-control:focus {
+            box-shadow: none;
+            background: transparent;
+        }
+
+        .console-input-area .input-group-text {
+            color: var(--text-color);
+        }
+
+        /* 命令输出样式 */
+        .command-input {
+            color: #0d6efd;
+            font-weight: 500;
+        }
+
+        .command-output {
+            color: #198754;
+        }
+
+        .command-error {
+            color: #dc3545;
+        }
     </style>
 </head>
 <body>
@@ -587,7 +628,7 @@
                 <!-- 日志显示区域 -->
                 <div class="bot-logs mt-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
-                        <h6 class="mb-0">运行日志</h6>
+                        <h6 class="mb-0">控制台</h6>
                         <div>
                             <button class="btn btn-glass me-2" onclick="scrollToBottom()">
                                 <i class="bi bi-arrow-down me-1"></i>滚动到底部
@@ -599,6 +640,19 @@
                     </div>
                     <div id="logContainer" class="log-container">
                         <div class="logs"></div>
+                    </div>
+                    <!-- 添加控制台输入区域 -->
+                    <div class="console-input-area mt-3">
+                        <div class="input-group">
+                            <span class="input-group-text bg-transparent border-0">
+                                <i class="bi bi-terminal"></i>
+                            </span>
+                            <input type="text" 
+                                   class="form-control border-0" 
+                                   id="consoleInput" 
+                                   placeholder="输入指令并按Enter发送..."
+                                   onkeydown="handleConsoleInput(event)">
+                        </div>
                     </div>
                 </div>
             </div>
@@ -997,18 +1051,46 @@
 
         // 检查更新
         function checkUpdate() {
-            document.getElementById('updateStatus').style.display = 'block';
+            // 显示加载状态
+            const loadingStatus = document.getElementById('botLoadingStatus');
+            const loadingText = document.getElementById('botLoadingText');
+            if (loadingStatus && loadingText) {
+                loadingStatus.classList.remove('d-none');
+                loadingText.textContent = '正在检查更新...';
+            }
+
             fetch('/check_update')
                 .then(response => response.json())
                 .then(data => {
                     if (data.has_update) {
                         if (confirm(`发现新版本 ${data.version}\n\n${data.description}\n\n是否现在更新？`)) {
+                            // 更新加载状态
+                            if (loadingText) {
+                                loadingText.textContent = '正在更新...';
+                            }
                             return fetch('/do_update');
                         }
                     } else {
                         showToast('当前已是最新版本', 'info');
                     }
-                    document.getElementById('updateStatus').style.display = 'none';
+                })
+                .then(response => {
+                    if (response) return response.json();
+                })
+                .then(data => {
+                    if (data) {
+                        showToast(data.message, data.status === 'success' ? 'success' : 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error('更新失败:', error);
+                    showToast('更新失败: ' + error, 'error');
+                })
+                .finally(() => {
+                    // 隐藏加载状态
+                    if (loadingStatus) {
+                        loadingStatus.classList.add('d-none');
+                    }
                 });
         }
 
@@ -1147,6 +1229,94 @@
                 });
             }
         });
+
+        // 添加命令历史记录功能
+        let commandHistory = [];
+        let historyIndex = -1;
+
+        function handleConsoleInput(event) {
+            const input = document.getElementById('consoleInput');
+            
+            // 处理方向键上下浏览历史命令
+            if (event.key === 'ArrowUp') {
+                event.preventDefault();
+                if (historyIndex < commandHistory.length - 1) {
+                    historyIndex++;
+                    input.value = commandHistory[historyIndex];
+                }
+            } else if (event.key === 'ArrowDown') {
+                event.preventDefault();
+                if (historyIndex > -1) {
+                    historyIndex--;
+                    input.value = historyIndex >= 0 ? commandHistory[historyIndex] : '';
+                }
+            } else if (event.key === 'Enter') {
+                event.preventDefault();
+                const command = input.value.trim();
+                
+                if (command) {
+                    // 添加到历史记录
+                    commandHistory.unshift(command);
+                    historyIndex = -1;
+                    
+                    // 显示输入的命令
+                    const logsElement = document.querySelector('.logs');
+                    const commandLine = document.createElement('div');
+                    commandLine.className = 'log-line';
+                    commandLine.innerHTML = `<span class="command-input">$ ${command}</span>`;
+                    logsElement.appendChild(commandLine);
+                    
+                    // 执行命令
+                    executeCommand(command);
+                    
+                    // 清空输入框
+                    input.value = '';
+                    
+                    // 滚动到底部
+                    scrollToBottom();
+                }
+            }
+        }
+
+        function executeCommand(command) {
+            fetch('/execute_command', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ command: command })
+            })
+            .then(response => response.json())
+            .then(data => {
+                const logsElement = document.querySelector('.logs');
+                
+                // 处理清空命令
+                if (data.clear) {
+                    logsElement.innerHTML = '';
+                    return;
+                }
+                
+                const outputLine = document.createElement('div');
+                outputLine.className = 'log-line';
+                
+                if (data.status === 'success') {
+                    outputLine.innerHTML = `<span class="command-output">${data.output}</span>`;
+                } else {
+                    outputLine.innerHTML = `<span class="command-error">${data.error}</span>`;
+                }
+                
+                logsElement.appendChild(outputLine);
+                scrollToBottom();
+            })
+            .catch(error => {
+                const logsElement = document.querySelector('.logs');
+                const errorLine = document.createElement('div');
+                errorLine.className = 'log-line';
+                errorLine.innerHTML = `<span class="command-error">执行命令失败: ${error}</span>`;
+                logsElement.appendChild(errorLine);
+                scrollToBottom();
+            });
+        }
     </script>
 </body>
 </html> 
