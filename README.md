@@ -1,5 +1,3 @@
-![ATRI.jpg](data%2Fimages%2Fimg%2FATRI.jpg)
-
 有问题可加群：715616260 
 
 - 一键整合包夸克网盘：https://pan.quark.cn/s/f37d765e1404 提取码：zXpP 推荐转存，项目更新直接下载最新的代码zip。我也能有收益，感谢您的支持！
