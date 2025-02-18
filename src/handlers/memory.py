@@ -8,11 +8,10 @@ logger = logging.getLogger(__name__)
 
 
 class MemoryHandler:
-    def __init__(self, root_dir: str, api_key: str, base_url: str, model:str,max_token: int, temperature: float, max_groups: int):
-
+    def __init__(self, root_dir: str, api_key: str, base_url: str, model: str, max_token: int, temperature: float, max_groups: int):
         self.root_dir = root_dir
         self.memory_dir = os.path.join(root_dir, "data", "memory")
-        self.short_memory_path = os.path.join(self.memory_dir, "short_memory.txt.txt")
+        self.short_memory_path = os.path.join(self.memory_dir, "short_memory.txt")
         self.long_memory_buffer_path = os.path.join(self.memory_dir, "long_memory_buffer.txt")
         self.api_key = api_key
         self.base_url = base_url
@@ -22,16 +21,10 @@ class MemoryHandler:
         self.model = model
         os.makedirs(self.memory_dir, exist_ok=True)
 
-    def _get_deepseek_client(self):
-        """使用DeepSeekAI替代OpenAI客户端"""
-        return DeepSeekAI(
-            api_key=self.api_key,
-            base_url=self.base_url,
-            model=self.model,
-            max_token=self.max_token,
-            temperature=self.temperature,
-            max_groups=self.max_groups
-        )
+        # 如果长期记忆缓冲区不存在，则创建文件
+        if not os.path.exists(self.long_memory_buffer_path):
+            with open(self.long_memory_buffer_path, "w", encoding="utf-8"):
+                logger.info("长期记忆缓冲区文件不存在，已创建新文件。")
 
     def add_short_memory(self, message: str, reply: str):
         """添加短期记忆"""
@@ -88,12 +81,17 @@ class MemoryHandler:
                         logger.error("达到最大重试次数，放弃总结")
                         break
 
-
     def get_relevant_memories(self, query: str) -> List[str]:
         """获取相关记忆（增加空值检查和日志）"""
+        # 检查长期记忆缓冲区是否存在，如果不存在则尝试创建
         if not os.path.exists(self.long_memory_buffer_path):
-            logger.warning("长期记忆缓冲区不存在")
-            return []
+            logger.warning("长期记忆缓冲区不存在，尝试创建...")
+            try:
+                with open(self.long_memory_buffer_path, "w", encoding="utf-8"):
+                    logger.info("长期记忆缓冲区文件已创建。")
+            except Exception as e:
+                logger.error(f"创建长期记忆缓冲区文件失败: {str(e)}")
+                return []
 
         max_retries = 3  # 设置最大重试次数
         for retry_count in range(max_retries):
@@ -121,7 +119,6 @@ class MemoryHandler:
                 if response in retry_sentences:
                     if retry_count < max_retries - 1:
                         logger.warning(f"第 {retry_count + 1} 次重试：收到需要重试的响应: {response}")
-
                         continue  # 重试
                     else:
                         logger.error(f"达到最大重试次数：最后一次响应为 {response}")
