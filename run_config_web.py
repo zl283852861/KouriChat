@@ -628,25 +628,76 @@ def check_update():
     try:
         updater = Updater()
         update_info = updater.check_for_updates()
+        current_version = updater.get_current_version()
+        
+        # 格式化输出
+        output = (
+            "\n" + "="*50 + "\n"
+            f"当前版本: {current_version}\n"
+        )
         
         if update_info and update_info.get('has_update'):
-            # 将更新信息添加到日志
-            timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-            bot_logs.put(f"[{timestamp}] 发现新版本: {update_info['version']}")
-            bot_logs.put(f"[{timestamp}] 更新说明: {update_info['description']}")
-            bot_logs.put(f"[{timestamp}] 更新时间: {update_info['last_update']}")
+            output += (
+                f"最新版本: {update_info['version']}\n\n"
+                f"更新时间: {update_info.get('last_update', '未知')}\n\n"
+                "更新内容:\n"
+                f"  {update_info.get('description', '无更新说明')}\n\n"
+                + "="*50 + "\n"
+            )
             
-            return jsonify(update_info)
+            return jsonify({
+                'status': 'success',
+                'has_update': True,
+                'console_output': output,
+                'update_info': update_info
+            })
         else:
-            timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-            bot_logs.put(f"[{timestamp}] 当前已是最新版本")
-            return jsonify({'has_update': False})
+            output += (
+                "检查结果: 当前已是最新版本\n"
+                + "="*50 + "\n"
+            )
+            
+            return jsonify({
+                'status': 'success',
+                'has_update': False,
+                'console_output': output
+            })
             
     except Exception as e:
-        logger.error(f"检查更新失败: {str(e)}")
-        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-        bot_logs.put(f"[{timestamp}] 检查更新失败: {str(e)}")
-        return jsonify({'has_update': False, 'error': str(e)})
+        error_output = (
+            "\n" + "="*50 + "\n"
+            "检查更新失败!\n"
+            f"错误信息: {str(e)}\n"
+            + "="*50 + "\n"
+        )
+        return jsonify({
+            'status': 'error',
+            'has_update': False,
+            'console_output': error_output
+        })
+
+@app.route('/confirm_update', methods=['POST'])
+def confirm_update():
+    """确认是否更新"""
+    try:
+        choice = request.json.get('choice', '').lower()
+        if choice in ('y', 'yes'):
+            return jsonify({
+                'status': 'success',
+                'confirmed': True,
+                'console_output': '开始执行更新...'
+            })
+        else:
+            return jsonify({
+                'status': 'success',
+                'confirmed': False,
+                'console_output': '用户取消更新'
+            })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'console_output': f'处理输入失败: {str(e)}'
+        })
 
 @app.route('/do_update')
 def do_update():

@@ -1051,46 +1051,102 @@
 
         // 检查更新
         function checkUpdate() {
-            // 显示加载状态
-            const loadingStatus = document.getElementById('botLoadingStatus');
-            const loadingText = document.getElementById('botLoadingText');
-            if (loadingStatus && loadingText) {
-                loadingStatus.classList.remove('d-none');
-                loadingText.textContent = '正在检查更新...';
-            }
-
+            const logsElement = document.querySelector('.logs');
+            
+            // 添加检查更新的命令显示
+            const commandLine = document.createElement('div');
+            commandLine.className = 'log-line';
+            commandLine.innerHTML = `<span class="command-input">$ check update</span>`;
+            logsElement.appendChild(commandLine);
+            
             fetch('/check_update')
                 .then(response => response.json())
                 .then(data => {
+                    // 显示检查结果
+                    const outputLine = document.createElement('div');
+                    outputLine.className = 'log-line';
+                    outputLine.innerHTML = `<span class="command-output">${data.console_output}</span>`;
+                    logsElement.appendChild(outputLine);
+                    
                     if (data.has_update) {
-                        if (confirm(`发现新版本 ${data.version}\n\n${data.description}\n\n是否现在更新？`)) {
-                            // 更新加载状态
-                            if (loadingText) {
-                                loadingText.textContent = '正在更新...';
+                        // 创建输入提示
+                        const promptLine = document.createElement('div');
+                        promptLine.className = 'log-line';
+                        promptLine.innerHTML = `<span class="command-input">是否现在更新? (y/n): </span>`;
+                        logsElement.appendChild(promptLine);
+                        
+                        // 等待用户输入
+                        const input = document.getElementById('consoleInput');
+                        input.focus();
+                        
+                        // 临时修改输入处理
+                        const originalHandler = input.onkeydown;
+                        input.onkeydown = function(event) {
+                            if (event.key === 'Enter') {
+                                event.preventDefault();
+                                const choice = input.value.trim().toLowerCase();
+                                input.value = '';
+                                
+                                // 显示用户输入
+                                const inputLine = document.createElement('div');
+                                inputLine.className = 'log-line';
+                                inputLine.innerHTML = `<span class="command-output">${choice}</span>`;
+                                logsElement.appendChild(inputLine);
+                                
+                                // 发送用户选择
+                                fetch('/confirm_update', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({ choice: choice })
+                                })
+                                .then(response => response.json())
+                                .then(result => {
+                                    // 显示确认结果
+                                    const resultLine = document.createElement('div');
+                                    resultLine.className = 'log-line';
+                                    resultLine.innerHTML = `<span class="command-output">${result.console_output}</span>`;
+                                    logsElement.appendChild(resultLine);
+                                    
+                                    if (result.confirmed) {
+                                        // 执行更新
+                                        return fetch('/do_update');
+                                    }
+                                })
+                                .then(response => {
+                                    if (response) return response.json();
+                                })
+                                .then(updateResult => {
+                                    if (updateResult) {
+                                        // 显示更新结果
+                                        const updateLine = document.createElement('div');
+                                        updateLine.className = 'log-line';
+                                        updateLine.innerHTML = `<span class="command-${updateResult.status}">${updateResult.message}</span>`;
+                                        logsElement.appendChild(updateLine);
+                                    }
+                                })
+                                .catch(error => {
+                                    const errorLine = document.createElement('div');
+                                    errorLine.className = 'log-line';
+                                    errorLine.innerHTML = `<span class="command-error">更新失败: ${error}</span>`;
+                                    logsElement.appendChild(errorLine);
+                                })
+                                .finally(() => {
+                                    // 恢复原始输入处理
+                                    input.onkeydown = originalHandler;
+                                });
                             }
-                            return fetch('/do_update');
-                        }
-                    } else {
-                        showToast('当前已是最新版本', 'info');
+                        };
                     }
-                })
-                .then(response => {
-                    if (response) return response.json();
-                })
-                .then(data => {
-                    if (data) {
-                        showToast(data.message, data.status === 'success' ? 'success' : 'error');
-                    }
+                    scrollToBottom();
                 })
                 .catch(error => {
-                    console.error('更新失败:', error);
-                    showToast('更新失败: ' + error, 'error');
-                })
-                .finally(() => {
-                    // 隐藏加载状态
-                    if (loadingStatus) {
-                        loadingStatus.classList.add('d-none');
-                    }
+                    const errorLine = document.createElement('div');
+                    errorLine.className = 'log-line';
+                    errorLine.innerHTML = `<span class="command-error">检查更新失败: ${error}</span>`;
+                    logsElement.appendChild(errorLine);
+                    scrollToBottom();
                 });
         }
 
