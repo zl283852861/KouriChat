@@ -1,5 +1,5 @@
 <label class="form-label">
-    <span class="badge badge-info rounded-pill" 
+    <span class="badge badge-info rounded-pill me-2" 
         data-bs-toggle="tooltip" 
         title="{{ key }}">
         <i class="bi bi-info-circle"></i>
@@ -94,7 +94,116 @@
         id="{{ key }}" name="{{ key }}" 
         value="{{ config.value }}">
 {% elif config.type == "number" %}
-    {% if key == 'TEMPERATURE' %}
+    {% if key == 'MAX_TOKEN' %}
+        <style>
+            .token-slider {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 100%;
+                height: 8px;
+                border-radius: 4px;
+                background: #e2e8f0;
+                outline: none;
+                transition: all 0.3s ease;
+            }
+            
+            .token-slider::-webkit-slider-thumb {
+                -webkit-appearance: none;
+                appearance: none;
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: #fff;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                box-shadow: 0 0 4px rgba(0,0,0,0.2);
+                border: 2px solid #0d6efd;
+            }
+            
+            .token-slider::-moz-range-track {
+                background: #e2e8f0;
+                height: 8px;
+                border-radius: 4px;
+            }
+            
+            .token-slider::-moz-range-thumb {
+                width: 20px;
+                height: 20px;
+                border-radius: 50%;
+                background: #fff;
+                cursor: pointer;
+                transition: all 0.3s ease;
+                box-shadow: 0 0 4px rgba(0,0,0,0.2);
+                border: 2px solid #0d6efd;
+            }
+            
+            .token-slider::-webkit-slider-thumb:hover {
+                background: #f8f9fa;
+                box-shadow: 0 0 8px rgba(13,110,253,0.5);
+                transform: scale(1.1);
+            }
+            
+            .token-slider:active {
+                opacity: 0.8;
+            }
+            
+            .token-value {
+                transition: all 0.2s ease;
+            }
+            .token-value.updating {
+                color: #0d6efd;
+                transform: scale(1.1);
+            }
+        </style>
+        
+        <div class="mb-3">
+            <div class="d-flex justify-content-between align-items-center">
+                <span>当前值: <strong id="{{ key }}_display" class="token-value">{{ config.value }}</strong></span>
+            </div>
+            <input type="range" 
+                class="token-slider" 
+                id="{{ key }}_slider" 
+                min="50"
+                max="5000"
+                step="5"
+                value="{{ config.value }}"
+                oninput="updateToken('{{ key }}', this.value)"
+                style="cursor: pointer;"
+                title="最大token数滑动条">
+            <div class="d-flex justify-content-between" style="color: #6c757d; font-size: 0.875rem;">
+                <span>50</span>
+                <span>5000</span>
+            </div>
+            <!-- 隐藏的实际提交值输入框 -->
+            <input type="hidden" 
+                id="{{ key }}" 
+                name="{{ key }}" 
+                value="{{ config.value }}">
+        </div>
+
+        <script>
+            function updateToken(key, value) {
+                // 将字符串转换为整数
+                const numValue = parseInt(value);
+                
+                // 更新显示值
+                const displayElement = document.getElementById(key + '_display');
+                if (displayElement) {
+                    displayElement.classList.add('updating');
+                    displayElement.textContent = numValue;
+                    setTimeout(() => {
+                        displayElement.classList.remove('updating');
+                    }, 300);
+                }
+                
+                // 更新隐藏的实际提交值
+                const inputElement = document.getElementById(key);
+                if (inputElement) {
+                    inputElement.value = numValue;
+                }
+            }
+        </script>
+    {% elif key == 'TEMPERATURE' %}
         <style>
             .temperature-slider {
                 -webkit-appearance: none;
@@ -102,11 +211,29 @@
                 width: 100%;
                 height: 8px;
                 border-radius: 4px;
-                background: linear-gradient(to right, #3498db 0%, #e74c3c 100%);
+                background: linear-gradient(to right, 
+                    #3498db 0%,
+                    #3498db 60%,
+                    #9b59b6 70%,
+                    #e74c3c 80%,
+                    #e74c3c 100%       /* 添加百分比, 让颜色更均匀 */
+                );
                 outline: none;
                 transition: all 0.3s ease;
             }
             
+            .temperature-slider::-moz-range-track {
+                background: linear-gradient(to right, 
+                    #3498db 0%,
+                    #3498db 60%,
+                    #9b59b6 70%,
+                    #e74c3c 80%,
+                    #e74c3c 100%
+                );
+                height: 8px;
+                border-radius: 4px;
+            }
+
             .temperature-slider::-webkit-slider-thumb {
                 -webkit-appearance: none;
                 appearance: none;
@@ -129,12 +256,6 @@
                 transition: all 0.3s ease;
                 box-shadow: 0 0 4px rgba(0,0,0,0.2);
                 border: 2px solid #0d6efd;
-            }
-            
-            .temperature-slider::-moz-range-track {
-                background: linear-gradient(to right, #3498db 0%, #e74c3c 100%);
-                height: 8px;
-                border-radius: 4px;
             }
             
             .temperature-slider::-webkit-slider-thumb:hover {
@@ -169,23 +290,55 @@
         
         <div class="mb-3">
             <div class="d-flex justify-content-between align-items-center">
-                <span>当前值: <strong id="{{ key }}_display" class="temperature-value">{{ config.value }}</strong></span>
+                <span>当前值: <strong id="{{ key }}_display" class="temperature-value">{{ "%.1f"|format(config.value) }}</strong></span>
             </div>
             <input type="range" 
                 class="temperature-slider" 
-                id="{{ key }}" 
-                name="{{ key }}"
-                min="0.8"
-                max="1.6"
-                step="0.1"
+                id="{{ key }}_slider" 
+                min="0.00"
+                max="1.70"
+                step="0.01"
                 value="{{ config.value }}"
                 oninput="updateTemperature('{{ key }}', this.value)"
-                style="cursor: pointer;">
+                style="cursor: pointer;"
+                title="温度参数滑动条">
             <div class="d-flex justify-content-between slider-labels">
-                <span class="low">0.8</span>
-                <span class="high">1.6</span>
+                <span class="low">0.0</span>
+                <span class="high">1.7</span>
             </div>
+            <!-- 隐藏的实际提交值输入框 -->
+            <input type="hidden" 
+                id="{{ key }}" 
+                name="{{ key }}" 
+                value="{{ "%.1f"|format(config.value) }}">
         </div>
+
+        <script>
+            // 动画不好加，这样更精细，让滑动条更加丝滑
+            function updateTemperature(key, value) {
+                // 将字符串转换为数字并保留更多小数位用于计算
+                const numValue = parseFloat(value);
+                
+                // 显示时四舍五入到一位小数，避免小数位数太多
+                const displayValue = Math.round(numValue * 10) / 10;
+                
+                // 更新显示值
+                const displayElement = document.getElementById(key + '_display');
+                if (displayElement) {
+                    displayElement.classList.add('updating');
+                    displayElement.textContent = displayValue.toFixed(1);
+                    setTimeout(() => {
+                        displayElement.classList.remove('updating');
+                    }, 300);
+                }
+                
+                // 更新隐藏的实际提交值，实际提交的值也是四舍五入的
+                const inputElement = document.getElementById(key);
+                if (inputElement) {
+                    inputElement.value = displayValue.toFixed(1);
+                }
+            }
+        </script>
     {% else %}
         <input type="number" 
             class="form-control" 
