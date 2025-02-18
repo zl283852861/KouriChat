@@ -2,7 +2,8 @@ import os
 import logging
 from typing import List
 from services.ai.deepseek import DeepSeekAI
-from datetime import datetime
+from datetime import datetime, time
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,25 +47,47 @@ class MemoryHandler:
         with open(self.short_memory_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
-        if len(lines) >= 2:  # 15组对话
-            try:
-                deepseek = self._get_deepseek_client()
-                summary = deepseek.get_response(
-                    message="".join(lines[-30:]),
-                    user_id="system",
-                    system_prompt="请将以下对话记录总结为最重要的3条长期记忆，用中文简要表述："
-                )
-                logger.debug(f"总结结果:\n{summary}")
+        if len(lines) >= 30:  # 15组对话
+            max_retries = 3  # 最大重试次数
+            retries = 0
+            while retries < max_retries:
+                try:
+                    deepseek = self._get_deepseek_client()
+                    summary = deepseek.get_response(
+                        message="".join(lines[-30:]),
+                        user_id="system",
+                        system_prompt="请将以下对话记录总结为最重要的3条长期记忆，用中文简要表述："
+                    )
+                    logger.debug(f"总结结果:\n{summary}")
 
-                with open(self.long_memory_buffer_path, "a", encoding="utf-8") as f:
-                    f.write(f"总结时间: {datetime.now()}\n")
-                    f.write(summary + "\n\n")
+                    # 检查是否需要重试
+                    retry_sentences = [
+                        "好像有些小状况，请再试一次吧～",
+                        "信号好像不太稳定呢（皱眉）",
+                        "思考被打断了，请再说一次好吗？"
+                    ]
+                    if summary in retry_sentences:
+                        logger.warning(f"收到需要重试的总结结果: {summary}")
+                        retries += 1
 
-                # 清空短期记忆
-                open(self.short_memory_path, "w").close()
+                        continue
 
-            except Exception as e:
-                logger.error(f"记忆总结失败: {str(e)}")
+                    # 如果不需要重试，写入长期记忆缓冲区
+                    with open(self.long_memory_buffer_path, "a", encoding="utf-8") as f:
+                        f.write(f"总结时间: {datetime.now()}\n")
+                        f.write(summary + "\n\n")
+
+                    # 清空短期记忆
+                    open(self.short_memory_path, "w").close()
+                    break  # 成功后退出循环
+
+                except Exception as e:
+                    logger.error(f"记忆总结失败: {str(e)}")
+                    retries += 1
+                    if retries >= max_retries:
+                        logger.error("达到最大重试次数，放弃总结")
+                        break
+
 
     def get_relevant_memories(self, query: str) -> List[str]:
         """获取相关记忆（增加空值检查和日志）"""
@@ -72,23 +95,47 @@ class MemoryHandler:
             logger.warning("长期记忆缓冲区不存在")
             return []
 
-        try:
-            with open(self.long_memory_buffer_path, "r", encoding="utf-8") as f:
-                memories = [line.strip() for line in f if line.strip()]
+        max_retries = 3  # 设置最大重试次数
+        for retry_count in range(max_retries):
+            try:
+                with open(self.long_memory_buffer_path, "r", encoding="utf-8") as f:
+                    memories = [line.strip() for line in f if line.strip()]
 
-            if not memories:
-                logger.debug("长期记忆缓冲区为空")
+                if not memories:
+                    logger.debug("长期记忆缓冲区为空")
+                    return []
+
+                deepseek = self._get_deepseek_client()
+                response = deepseek.get_response(
+                    message="\n".join(memories[-20:]),
+                    user_id="retrieval",
+                    system_prompt=f"请从以下记忆中找到与'{query}'最相关的条目，按相关性排序返回最多3条:"
+                )
+
+                # 检查是否需要重试
+                retry_sentences = [
+                    "好像有些小状况，请再试一次吧～",
+                    "信号好像不太稳定呢（皱眉）",
+                    "思考被打断了，请再说一次好吗？"
+                ]
+                if response in retry_sentences:
+                    if retry_count < max_retries - 1:
+                        logger.warning(f"第 {retry_count + 1} 次重试：收到需要重试的响应: {response}")
+
+                        continue  # 重试
+                    else:
+                        logger.error(f"达到最大重试次数：最后一次响应为 {response}")
+                        return []
+                else:
+                    # 返回处理后的响应
+                    return [line.strip() for line in response.split("\n") if line.strip()]
+
+            except Exception as e:
+                logger.error(f"第 {retry_count + 1} 次尝试失败: {str(e)}")
+                if retry_count < max_retries - 1:
+                    continue
+                else:
+                    logger.error(f"达到最大重试次数: {str(e)}")
                 return []
 
-            # 调用API时增加超时和重试机制
-            deepseek = self._get_deepseek_client()
-            response = deepseek.get_response(
-                message="\n".join(memories[-20:]),
-                user_id="retrieval",
-                system_prompt=f"请从以下记忆中找到与'{query}'最相关的条目，按相关性排序返回最多3条:"
-            )
-            return [line.strip() for line in response.split("\n") if line.strip()]
-
-        except Exception as e:
-            logger.error(f"记忆检索失败: {str(e)}")
-            return []
+        return []
