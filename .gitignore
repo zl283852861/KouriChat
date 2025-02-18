@@ -5,6 +5,9 @@ data/
 *.sqlite3
 wxauto文件/
 
+# Config files
+src/config/config.json
+
 # Logs
 logs/
 *.log
