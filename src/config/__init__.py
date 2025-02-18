@@ -1,6 +1,7 @@
 import os
 import json
 import logging
+import shutil
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -80,6 +81,11 @@ class Config:
         """返回配置文件完整路径"""
         return os.path.join(self.config_dir, 'config.json')
     
+    @property
+    def config_template_path(self) -> str:
+        """返回配置模板文件完整路径"""
+        return os.path.join(self.config_dir, 'config.json.template')
+    
     def save_config(self, config_data: dict) -> bool:
         """保存配置到文件
         
@@ -100,8 +106,15 @@ class Config:
     def load_config(self) -> None:
         """加载配置文件"""
         try:
+            # 如果配置文件不存在但模板存在，则从模板创建
+            if not os.path.exists(self.config_path) and os.path.exists(self.config_template_path):
+                logger.info("配置文件不存在，正在从模板创建...")
+                shutil.copy2(self.config_template_path, self.config_path)
+                logger.info(f"已从模板创建配置文件: {self.config_path}")
+            
+            # 如果配置文件仍然不存在，说明模板也不存在
             if not os.path.exists(self.config_path):
-                raise FileNotFoundError(f"配置文件不存在: {self.config_path}")
+                raise FileNotFoundError(f"配置文件不存在，且未找到模板文件: {self.config_template_path}")
                 
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 data = json.load(f)
