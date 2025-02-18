@@ -56,8 +56,40 @@ class Updater:
             logger.error(f"读取版本文件失败: {str(e)}")
         return '0.0.0'
 
-    def check_for_updates(self) -> Optional[Dict[str, Any]]:
-        """检查GitHub更新"""
+    def format_version_info(self, current_version: str, update_info: dict = None) -> str:
+        """格式化版本信息输出"""
+        output = (
+            "\n" + "="*50 + "\n"
+            f"当前版本: {current_version}\n"
+        )
+        
+        if update_info:
+            output += (
+                f"最新版本: {update_info['version']}\n\n"
+                f"更新时间: {update_info.get('last_update', '未知')}\n\n"
+                "更新内容:\n"
+                f"  {update_info.get('description', '无更新说明')}\n"
+                + "="*50 + "\n\n"
+                "是否现在更新? (y/n): "  # 添加更新提示
+            )
+        else:
+            output += (
+                "检查结果: 当前已是最新版本\n"
+                + "="*50 + "\n"
+            )
+            
+        return output
+
+    def format_update_progress(self, step: str, success: bool = True, details: str = "") -> str:
+        """格式化更新进度输出"""
+        status = "✓" if success else "✗"
+        output = f"[{status}] {step}"
+        if details:
+            output += f": {details}"
+        return output
+
+    def check_for_updates(self) -> dict:
+        """检查更新"""
         try:
             # 设置请求头和SSL验证
             headers = {
@@ -115,16 +147,20 @@ class Updater:
                     release_info = response.json()
                     download_url = release_info['zipball_url']
                 
+                # 返回更新信息和格式化的输出
                 return {
+                    'has_update': True,
                     'version': latest_version,
                     'download_url': download_url,
                     'description': remote_version_info.get('description', '无更新说明'),
                     'last_update': remote_version_info.get('last_update', ''),
-                    'has_update': True
+                    'output': self.format_version_info(current_version, remote_version_info)
                 }
                 
-            logger.info(f"当前版本 {current_version} 已是最新")
-            return None
+            return {
+                'has_update': False,
+                'output': self.format_version_info(current_version)
+            }
             
         except requests.exceptions.SSLError as ssl_err:
             logger.warning(f"SSL验证失败，尝试禁用验证: {str(ssl_err)}")
@@ -133,9 +169,13 @@ class Updater:
             
         except Exception as e:
             logger.error(f"检查更新失败: {str(e)}")
-            return None
+            return {
+                'has_update': False,
+                'error': str(e),
+                'output': f"检查更新失败: {str(e)}"
+            }
 
-    def _check_updates_without_ssl(self, headers: Dict[str, str]) -> Optional[Dict[str, Any]]:
+    def _check_updates_without_ssl(self, headers: Dict[str, str]) -> dict:
         """不使用SSL验证的更新检查"""
         try:
             # 获取远程 version.json 文件内容
@@ -187,20 +227,28 @@ class Updater:
                     release_info = response.json()
                     download_url = release_info['zipball_url']
                 
+                # 返回更新信息和格式化的输出
                 return {
+                    'has_update': True,
                     'version': latest_version,
                     'download_url': download_url,
                     'description': remote_version_info.get('description', '无更新说明'),
                     'last_update': remote_version_info.get('last_update', ''),
-                    'has_update': True
+                    'output': self.format_version_info(current_version, remote_version_info)
                 }
                 
-            logger.info(f"当前版本 {current_version} 已是最新")
-            return None
+            return {
+                'has_update': False,
+                'output': self.format_version_info(current_version)
+            }
             
         except Exception as e:
             logger.error(f"检查更新失败: {str(e)}")
-            return None
+            return {
+                'has_update': False,
+                'error': str(e),
+                'output': f"检查更新失败: {str(e)}"
+            }
 
     def download_update(self, download_url: str) -> bool:
         """下载GitHub更新包"""
@@ -307,26 +355,9 @@ class Updater:
         except Exception as e:
             logger.error(f"清理临时文件失败: {str(e)}")
 
-    def prompt_update(self, update_info: Dict[str, Any]) -> bool:
+    def prompt_update(self, update_info: dict) -> bool:
         """提示用户是否更新"""
-        print("\n" + "="*50)
-        print("发现新版本!")
-        print("="*50)
-        print(f"当前版本: {self.get_current_version()}")
-        print(f"最新版本: {update_info['version']}")
-        
-        # 显示更新时间（使用远程仓库的更新时间）
-        last_update = update_info.get('last_update', '未知')
-        print(f"\n更新时间: {last_update}")
-        
-        # 显示更新说明
-        print("\n更新内容:")
-        description = update_info.get('description', '无更新说明')
-        # 如果描述太长，进行分段显示
-        for line in description.split('\n'):
-            print(f"  {line.strip()}")
-        
-        print("\n" + "="*50)
+        print(self.format_version_info(self.get_current_version(), update_info))
         
         while True:
             choice = input("\n是否现在更新? (y/n): ").lower().strip()
@@ -336,38 +367,70 @@ class Updater:
                 return False
             print("请输入 y 或 n")
 
-    def update(self) -> bool:
-        """执行更新流程"""
-        logger.info("开始检查GitHub更新...")
-        
+    def update(self, callback=None) -> dict:
+        """执行更新"""
         try:
+            progress = []
+            def log_progress(step, success=True, details=""):
+                msg = self.format_update_progress(step, success, details)
+                progress.append(msg)
+                if callback:
+                    callback(msg)
+
             # 检查更新
+            log_progress("开始检查GitHub更新...")
             update_info = self.check_for_updates()
-            if not update_info:
-                logger.info("当前已是最新版本")
-                return True
+            if not update_info['has_update']:
+                log_progress("检查更新", True, "当前已是最新版本")
+                return {
+                    'success': True,
+                    'output': '\n'.join(progress)
+                }
             
             # 提示用户是否更新
+            log_progress("提示用户是否更新...")
             if not self.prompt_update(update_info):
-                logger.info("用户取消更新")
-                return True
+                log_progress("提示用户是否更新", True, "用户取消更新")
+                return {
+                    'success': True,
+                    'output': '\n'.join(progress)
+                }
                 
-            logger.info(f"开始更新到版本: {update_info['version']}")
+            log_progress(f"开始更新到版本: {update_info['version']}")
             
             # 下载更新
+            log_progress("开始下载更新...")
             if not self.download_update(update_info['download_url']):
-                return False
+                log_progress("下载更新", False, "下载失败")
+                return {
+                    'success': False,
+                    'output': '\n'.join(progress)
+                }
+            log_progress("下载更新", True, "下载完成")
                 
             # 备份当前版本
+            log_progress("开始备份当前版本...")
             if not self.backup_current_version():
-                return False
+                log_progress("备份当前版本", False, "备份失败")
+                return {
+                    'success': False,
+                    'output': '\n'.join(progress)
+                }
+            log_progress("备份当前版本", True, "备份完成")
                 
             # 应用更新
+            log_progress("开始应用更新...")
             if not self.apply_update():
-                logger.error("更新失败，正在恢复...")
+                log_progress("应用更新", False, "更新失败")
+                # 尝试恢复
+                log_progress("正在恢复之前的版本...")
                 if not self.restore_from_backup():
-                    logger.error("恢复失败！请手动处理")
-                return False
+                    log_progress("恢复备份", False, "恢复失败！请手动处理")
+                return {
+                    'success': False,
+                    'output': '\n'.join(progress)
+                }
+            log_progress("应用更新", True, "更新成功")
                 
             # 更新版本文件
             with open(self.version_file, 'w', encoding='utf-8') as f:
@@ -377,14 +440,23 @@ class Updater:
                     'description': update_info.get('description', '')
                 }, f, indent=4, ensure_ascii=False)
                 
-            logger.info("更新成功！请重启程序以应用更新。")
-            return True
-            
-        except Exception as e:
-            logger.error(f"更新过程中出现错误: {str(e)}")
-            return False
-        finally:
+            # 清理
             self.cleanup()
+            log_progress("清理临时文件", True)
+            log_progress("更新完成", True, "请重启程序以应用更新")
+
+            return {
+                'success': True,
+                'output': '\n'.join(progress)
+            }
+
+        except Exception as e:
+            logger.error(f"更新失败: {str(e)}")
+            return {
+                'success': False,
+                'error': str(e),
+                'output': f"更新失败: {str(e)}"
+            }
 
 def check_and_update():
     """检查并执行更新"""
@@ -401,7 +473,7 @@ if __name__ == "__main__":
     
     try:
         result = check_and_update()
-        if result:
+        if result['success']:
             input("\n按回车键退出...")  # 等待用户确认后退出
         else:
             input("\n更新失败，按回车键退出...")

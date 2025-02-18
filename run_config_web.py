@@ -627,53 +627,20 @@ def check_update():
     """检查更新"""
     try:
         updater = Updater()
-        update_info = updater.check_for_updates()
-        current_version = updater.get_current_version()
+        result = updater.check_for_updates()
         
-        # 格式化输出
-        output = (
-            "\n" + "="*50 + "\n"
-            f"当前版本: {current_version}\n"
-        )
-        
-        if update_info and update_info.get('has_update'):
-            output += (
-                f"最新版本: {update_info['version']}\n\n"
-                f"更新时间: {update_info.get('last_update', '未知')}\n\n"
-                "更新内容:\n"
-                f"  {update_info.get('description', '无更新说明')}\n\n"
-                + "="*50 + "\n"
-            )
-            
-            return jsonify({
-                'status': 'success',
-                'has_update': True,
-                'console_output': output,
-                'update_info': update_info
-            })
-        else:
-            output += (
-                "检查结果: 当前已是最新版本\n"
-                + "="*50 + "\n"
-            )
-            
-            return jsonify({
-                'status': 'success',
-                'has_update': False,
-                'console_output': output
-            })
-            
+        return jsonify({
+            'status': 'success',
+            'has_update': result.get('has_update', False),
+            'console_output': result['output'],
+            'update_info': result if result.get('has_update') else None,
+            'wait_input': result.get('has_update', False)
+        })
     except Exception as e:
-        error_output = (
-            "\n" + "="*50 + "\n"
-            "检查更新失败!\n"
-            f"错误信息: {str(e)}\n"
-            + "="*50 + "\n"
-        )
         return jsonify({
             'status': 'error',
             'has_update': False,
-            'console_output': error_output
+            'console_output': f'检查更新失败: {str(e)}'
         })
 
 @app.route('/confirm_update', methods=['POST'])
@@ -682,54 +649,22 @@ def confirm_update():
     try:
         choice = request.json.get('choice', '').lower()
         if choice in ('y', 'yes'):
+            updater = Updater()
+            result = updater.update()
+            
             return jsonify({
-                'status': 'success',
-                'confirmed': True,
-                'console_output': '开始执行更新...'
+                'status': 'success' if result['success'] else 'error',
+                'console_output': result['output']
             })
         else:
             return jsonify({
                 'status': 'success',
-                'confirmed': False,
                 'console_output': '用户取消更新'
             })
     except Exception as e:
         return jsonify({
             'status': 'error',
-            'console_output': f'处理输入失败: {str(e)}'
-        })
-
-@app.route('/do_update')
-def do_update():
-    """执行更新"""
-    try:
-        updater = Updater()
-        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-        
-        # 开始更新
-        bot_logs.put(f"[{timestamp}] 开始执行更新...")
-        success = updater.update()
-        
-        if success:
-            bot_logs.put(f"[{timestamp}] 更新成功，请重启程序")
-            return jsonify({
-                'status': 'success',
-                'message': '更新成功，请重启程序'
-            })
-        else:
-            bot_logs.put(f"[{timestamp}] 更新失败")
-            return jsonify({
-                'status': 'error',
-                'message': '更新失败'
-            })
-            
-    except Exception as e:
-        logger.error(f"执行更新失败: {str(e)}")
-        timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-        bot_logs.put(f"[{timestamp}] 更新失败: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': f'更新失败: {str(e)}'
+            'console_output': f'更新失败: {str(e)}'
         })
 
 @app.route('/start_bot')
