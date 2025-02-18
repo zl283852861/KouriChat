@@ -45,11 +45,11 @@ dictConfig({
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'default',
-            'level': 'INFO'
+            'level': 'DEBUG'
         }
     },
     'root': {
-        'level': 'INFO',
+        'level': 'DEBUG',
         'handlers': ['console']
     },
     'loggers': {
@@ -148,11 +148,11 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                 "type": "number",
             },
             "TEMPERATURE": {
-                "value": config.llm.temperature,
+                "value": float(config.llm.temperature),  # 确保是浮点数
                 "type": "number",
                 "description": "温度参数",
-                "min": 0.8,
-                "max": 1.6
+                "min": 0.0,
+                "max": 1.7
             },
         }
     )
@@ -266,42 +266,30 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             config
         )
 
-        # 添加调试日志
-        logger.debug(f"处理倒计时配置:")
-        logger.debug(f"MIN_COUNTDOWN_HOURS: {new_config.get('MIN_COUNTDOWN_HOURS')} ({type(new_config.get('MIN_COUNTDOWN_HOURS'))})")
-        logger.debug(f"MAX_COUNTDOWN_HOURS: {new_config.get('MAX_COUNTDOWN_HOURS')} ({type(new_config.get('MAX_COUNTDOWN_HOURS'))})")
-        
-        behavior_settings = BehaviorSettings(
-            auto_message=AutoMessageSettings(
-                content=new_config.get("AUTO_MESSAGE", ""),
-                min_hours=float(new_config.get("MIN_COUNTDOWN_HOURS", 1)),
-                max_hours=float(new_config.get("MAX_COUNTDOWN_HOURS", 3)),
-            ),
-            quiet_time=QuietTimeSettings(
-                start=new_config.get("QUIET_TIME_START", ""),
-                end=new_config.get("QUIET_TIME_END", ""),
-            ),
-            context=ContextSettings(
-                max_groups=int(new_config.get("MAX_GROUPS", 15)),
-                avatar_dir=new_config.get("AVATAR_DIR", ""),
-            ),
+        # 添加调试日志，查看接收到的所有参数
+        logger.debug("接收到的所有配置参数:")
+        for key, value in new_config.items():
+            logger.debug(f"{key}: {value} (类型: {type(value)})")
+
+        # 特别关注温度参数
+        temperature = new_config.get("TEMPERATURE")
+        logger.debug(f"温度参数: {temperature} (类型: {type(temperature)})")
+
+        # 构建所有新的配置对象
+        user_settings = UserSettings(
+            listen_list=new_config.get("LISTEN_LIST", [])
         )
-        
-        # 再次检查转换后的值
-        logger.debug(f"转换后的值:")
-        logger.debug(f"min_hours: {behavior_settings.auto_message.min_hours} ({type(behavior_settings.auto_message.min_hours)})")
-        logger.debug(f"max_hours: {behavior_settings.auto_message.max_hours} ({type(behavior_settings.auto_message.max_hours)})")
-        
-        # 构建新的配置对象
-        user_settings = UserSettings(listen_list=new_config.get("LISTEN_LIST", []))
 
         llm_settings = LLMSettings(
             api_key=new_config.get("DEEPSEEK_API_KEY", ""),
             base_url=new_config.get("DEEPSEEK_BASE_URL", ""),
             model=new_config.get("MODEL", ""),
-            max_tokens=new_config.get("MAX_TOKEN", 2000),
-            temperature=float(new_config.get("TEMPERATURE", 1.1)),
+            max_tokens=int(new_config.get("MAX_TOKEN", 2000)),
+            temperature=float(new_config.get("TEMPERATURE", 1.1))  # 改回 TEMPERATURE
         )
+
+        # 记录转换后的温度值
+        logger.debug(f"LLM设置中的温度值: {llm_settings.temperature}")
 
         media_settings = MediaSettings(
             image_recognition=ImageRecognitionSettings(
@@ -317,6 +305,22 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                 tts_api_url=new_config.get("TTS_API_URL", ""),
                 voice_dir=new_config.get("VOICE_DIR", ""),
             )
+        )
+
+        behavior_settings = BehaviorSettings(
+            auto_message=AutoMessageSettings(
+                content=new_config.get("AUTO_MESSAGE", ""),
+                min_hours=float(new_config.get("MIN_COUNTDOWN_HOURS", 1)),
+                max_hours=float(new_config.get("MAX_COUNTDOWN_HOURS", 3)),
+            ),
+            quiet_time=QuietTimeSettings(
+                start=new_config.get("QUIET_TIME_START", ""),
+                end=new_config.get("QUIET_TIME_END", ""),
+            ),
+            context=ContextSettings(
+                max_groups=int(new_config.get("MAX_GROUPS", 15)),
+                avatar_dir=new_config.get("AVATAR_DIR", ""),
+            ),
         )
 
         # 构建JSON结构
@@ -362,11 +366,11 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                             "description": "回复最大token数量",
                         },
                         "temperature": {
-                            "value": llm_settings.temperature,
+                            "value": float(llm_settings.temperature),
                             "type": "number",
                             "description": "AI回复的温度值",
-                            "min": 0,
-                            "max": 2,
+                            "min": 0.0,
+                            "max": 1.7
                         },
                     },
                 },
@@ -470,14 +474,21 @@ def save_config(new_config: Dict[str, Any]) -> bool:
             }
         }
 
+        # 在保存前记录最终的温度配置
+        final_temp = config_data["categories"]["llm_settings"]["settings"]["temperature"]["value"]
+        logger.debug(f"最终保存到JSON的温度值: {final_temp} (类型: {type(final_temp)})")
+
         # 使用 Config 类的方法保存配置
         if not config.save_config(config_data):
+            logger.error("保存配置失败")
             return False
 
         # 重新加载配置模块
         importlib.reload(sys.modules["src.config"])
-
+        
+        logger.debug("配置已成功保存和重新加载")
         return True
+        
     except Exception as e:
         logger.error(f"保存配置失败: {str(e)}")
         return False

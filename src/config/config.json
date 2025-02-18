@@ -16,7 +16,7 @@
             "title": "大语言模型配置",
             "settings": {
                 "api_key": {
-                    "value": "sk-",
+                    "value": "",
                     "type": "string",
                     "description": "DeepSeek API密钥",
                     "is_secret": true
@@ -27,7 +27,7 @@
                     "description": "DeepSeek API基础URL"
                 },
                 "model": {
-                    "value": "Pro/deepseek-ai/DeepSeek-V3",
+                    "value": "deepseek-reasoner",
                     "type": "string",
                     "description": "使用的AI模型名称",
                     "options": [
@@ -42,11 +42,11 @@
                     "description": "回复最大token数量"
                 },
                 "temperature": {
-                    "value": 1.1,
+                    "value": 1.5,
                     "type": "number",
                     "description": "AI回复的温度值",
-                    "min": 0,
-                    "max": 2
+                    "min": 0.0,
+                    "max": 1.7
                 }
             }
         },
@@ -66,7 +66,7 @@
                         "description": "Moonshot API基础URL"
                     },
                     "temperature": {
-                        "value": 0.8,
+                        "value": 0.7,
                         "type": "number",
                         "description": "Moonshot AI的温度值",
                         "min": 0,
@@ -110,12 +110,12 @@
                     },
                     "countdown": {
                         "min_hours": {
-                            "value": 1,
+                            "value": 1.0,
                             "type": "number",
                             "description": "最小倒计时时间（小时）"
                         },
                         "max_hours": {
-                            "value": 3,
+                            "value": 3.0,
                             "type": "number",
                             "description": "最大倒计时时间（小时）"
                         }

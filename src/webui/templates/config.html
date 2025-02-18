@@ -16,7 +16,7 @@
             --secondary-color: #4f46e5;
             --background-color: #f0f4f8;  /* 更柔和的浅蓝灰色背景 */
             --text-color: #1e293b;
-            --card-bg: rgba(255, 255, 255, 0.9);
+            --card-bg: rgba(255, 255, 255, 0.494);
             --card-border: rgba(255, 255, 255, 0.5);
             --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
         }
@@ -24,7 +24,7 @@
         [data-bs-theme="dark"] {
             --background-color: #1a1f2e;  /* 更柔和的深色背景 */
             --text-color: #f8fafc;
-            --card-bg: rgba(30, 41, 59, 0.9);
+            --card-bg: rgba(30, 41, 59, 0.612);
             --card-border: rgba(255, 255, 255, 0.1);
             --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
         }
@@ -348,7 +348,9 @@
             <div class="container-fluid">
                 <div class="row">
                     <div class="col-12">
-                        <button type="button" class="btn btn-primary btn-lg w-100" onclick="saveAllConfig()">
+                        <button type="button" 
+                            class="btn btn-primary btn-lg w-100" 
+                            id="saveButton">
                             <i class="bi bi-save me-2"></i>保存所有设置
                         </button>
                     </div>
@@ -369,7 +371,7 @@
     </div>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script>
-        // 护眼模式切换 --
+        // 护眼模式切换
         function toggleDarkMode() {
             document.body.setAttribute('data-bs-theme', 
                 document.body.getAttribute('data-bs-theme') === 'dark' ? 'light' : 'dark');
@@ -381,48 +383,69 @@
             return new bootstrap.Tooltip(tooltipTriggerEl)
         })
 
-        function saveAllConfig() {
-            const mainForm = document.getElementById('configForm');
-            const otherForm = document.getElementById('otherConfigForm');
-            const config = {};
+        // 等待 DOM 加载完成
+        document.addEventListener('DOMContentLoaded', function() {
+            // 获取保存按钮
+            const saveButton = document.getElementById('saveButton');
             
-            // 合并两个表单的数据
-            const formData = new FormData(mainForm);
-            const otherFormData = new FormData(otherForm);
-            
-            for (let [key, value] of formData.entries()) {
-                processFormValue(config, key, value);
-            }
-            
-            for (let [key, value] of otherFormData.entries()) {
-                processFormValue(config, key, value);
-            }
-
-            // 发送保存请求
-            fetch('/save', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(config)
-            })
-            .then(response => response.json())
-            .then(data => {
-                const toast = new bootstrap.Toast(document.getElementById('saveToast'))
-                document.querySelector('.toast-body').textContent = data.message;
-                toast.show();
+            // 添加点击事件监听器
+            saveButton.addEventListener('click', function() {
+                const mainForm = document.getElementById('configForm');
+                const otherForm = document.getElementById('otherConfigForm');
+                const config = {};
                 
-                if (data.status === 'success') {
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 1500);
+                // 获取所有表单数据
+                const formData = new FormData(mainForm);
+                
+                // 调试输出所有表单数据
+                for (let [key, value] of formData.entries()) {
+                    console.log(`Form data - ${key}: ${value}`);
+                    processFormValue(config, key, value);
                 }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                showToast('保存失败：' + error, 'danger');
+                
+                if (otherForm) {
+                    const otherFormData = new FormData(otherForm);
+                    for (let [key, value] of otherFormData.entries()) {
+                        processFormValue(config, key, value);
+                    }
+                }
+
+                // 发送保存请求
+                fetch('/save', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(config)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    const toast = new bootstrap.Toast(document.getElementById('saveToast'));
+                    const toastBody = document.querySelector('.toast-body');
+                    
+                    if (data.status === 'success') {
+                        toastBody.textContent = '配置已保存';
+                        toastBody.classList.remove('text-danger');
+                        toastBody.classList.add('text-success');
+                    } else {
+                        toastBody.textContent = '保存失败：' + data.error;
+                        toastBody.classList.remove('text-success');
+                        toastBody.classList.add('text-danger');
+                    }
+                    
+                    toast.show();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    const toast = new bootstrap.Toast(document.getElementById('saveToast'));
+                    const toastBody = document.querySelector('.toast-body');
+                    toastBody.textContent = '保存失败：' + error;
+                    toastBody.classList.remove('text-success');
+                    toastBody.classList.add('text-danger');
+                    toast.show();
+                });
             });
-        }
+        });
 
         function processFormValue(config, key, value) {
             // 添加调试日志
@@ -430,28 +453,17 @@
             
             if (key === 'LISTEN_LIST') {
                 config[key] = value.split(',').map(item => item.trim());
+            } else if (key === 'TEMPERATURE') {
+                // 特殊处理温度参数
+                config[key] = parseFloat(value);
+                console.log(`Processed temperature to: ${config[key]} (type: ${typeof config[key]})`);
             } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
                 config[key] = value.toLowerCase() === 'true';
-            } else if (key === 'MIN_COUNTDOWN_HOURS' || key === 'MAX_COUNTDOWN_HOURS') {
-                // 特殊处理倒计时时间
-                config[key] = parseFloat(value) || 0;
-                console.log(`Processed ${key} to: ${config[key]} (type: ${typeof config[key]})`);
             } else if (!isNaN(value) && value !== '') {
                 config[key] = Number(value);
             } else {
                 config[key] = value;
             }
-        }
-
-        function showToast(message, type = 'info') {
-            const toastEl = document.getElementById('saveToast');
-            toastEl.querySelector('.toast-body').textContent = message;
-            toastEl.classList.remove('bg-success', 'bg-danger');
-            
-            if (type === 'success') toastEl.classList.add('bg-success');
-            if (type === 'danger') toastEl.classList.add('bg-danger');
-            
-            new bootstrap.Toast(toastEl).show();
         }
 
         // 添加新函数
