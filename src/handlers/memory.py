@@ -21,11 +21,23 @@ class MemoryHandler:
         self.model = model
         os.makedirs(self.memory_dir, exist_ok=True)
 
+
+
         # 如果长期记忆缓冲区不存在，则创建文件
         if not os.path.exists(self.long_memory_buffer_path):
             with open(self.long_memory_buffer_path, "w", encoding="utf-8"):
                 logger.info("长期记忆缓冲区文件不存在，已创建新文件。")
 
+    def _get_deepseek_client(self):
+
+        return DeepSeekAI(
+            api_key=self.api_key,
+            base_url=self.base_url,
+            model=self.model,
+            max_token=self.max_token,
+            temperature=self.temperature,
+            max_groups=self.max_groups
+        )
     def add_short_memory(self, message: str, reply: str):
         """添加短期记忆"""
         with open(self.short_memory_path, "a", encoding="utf-8") as f:
@@ -49,7 +61,7 @@ class MemoryHandler:
                     summary = deepseek.get_response(
                         message="".join(lines[-30:]),
                         user_id="system",
-                        system_prompt="请将以下对话记录总结为最重要的3条长期记忆，用中文简要表述："
+                        system_prompt="请将以下对话记录总结为最重要的几条长期记忆，总结内容应包含地点，事件，人物（如果对话记录中有的话）用中文简要表述："
                     )
                     logger.debug(f"总结结果:\n{summary}")
 
