@@ -22,8 +22,8 @@ logger = logging.getLogger(__name__)
 
 class Updater:
     # GitHub仓库信息
-    REPO_OWNER = "umaru-233"
-    REPO_NAME = "My-Dream-Moments"
+    REPO_OWNER = "KouriChat"
+    REPO_NAME = "KouriChat"
     REPO_BRANCH = "WeChat-wxauto"
     GITHUB_API = f"https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}"
     
@@ -40,10 +40,31 @@ class Updater:
         "__pycache__",  # Python缓存文件
     ]
 
+    # GitHub代理列表
+    PROXY_SERVERS = [
+        "https://ghfast.top/",
+        "https://github.moeyy.xyz/", 
+        "https://git.886.be/",
+        ""  # 空字符串表示直接使用原始GitHub地址
+    ]
+
     def __init__(self):
         self.root_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         self.temp_dir = os.path.join(self.root_dir, 'temp_update')
         self.version_file = os.path.join(self.root_dir, 'version.json')
+        self.current_proxy_index = 0  # 当前使用的代理索引
+
+    def get_proxy_url(self, original_url: str) -> str:
+        """获取当前代理URL"""
+        if self.current_proxy_index >= len(self.PROXY_SERVERS):
+            return original_url
+        proxy = self.PROXY_SERVERS[self.current_proxy_index]
+        return f"{proxy}{original_url}" if proxy else original_url
+
+    def try_next_proxy(self) -> bool:
+        """尝试切换到下一个代理"""
+        self.current_proxy_index += 1
+        return self.current_proxy_index < len(self.PROXY_SERVERS)
 
     def get_current_version(self) -> str:
         """获取当前版本号"""
@@ -90,193 +111,133 @@ class Updater:
 
     def check_for_updates(self) -> dict:
         """检查更新"""
-        try:
-            # 设置请求头和SSL验证
-            headers = {
-                'Accept': 'application/vnd.github.v3+json',
-                'User-Agent': f'{self.REPO_NAME}-UpdateChecker'
-            }
-            verify = True  # SSL验证
-            
-            # 获取远程 version.json 文件内容
-            version_url = f"https://raw.githubusercontent.com/{self.REPO_OWNER}/{self.REPO_NAME}/{self.REPO_BRANCH}/version.json"
-            response = requests.get(
-                version_url,
-                headers=headers,
-                verify=verify,
-                timeout=10
-            )
-            response.raise_for_status()
-            remote_version_info = response.json()
-            
-            current_version = self.get_current_version()
-            latest_version = remote_version_info.get('version', '0.0.0')
-            
-            # 版本比较逻辑
-            def parse_version(version: str) -> tuple:
-                # 移除版本号中的 'v' 前缀（如果有）
-                version = version.lower().strip('v')
-                try:
-                    # 尝试将版本号分割为数字列表
-                    parts = version.split('.')
-                    # 确保至少有三个部分（主版本号.次版本号.修订号）
-                    while len(parts) < 3:
-                        parts.append('0')
-                    # 转换为整数元组
-                    return tuple(map(int, parts[:3]))
-                except (ValueError, AttributeError):
-                    # 如果是 commit hash 或无法解析的版本号，返回 (0, 0, 0)
-                    return (0, 0, 0)
-
-            current_ver_tuple = parse_version(current_version)
-            latest_ver_tuple = parse_version(latest_version)
-
-            # 只有当最新版本大于当前版本时才返回更新信息
-            if latest_ver_tuple > current_ver_tuple:
-                # 获取最新release的下载地址
-                response = requests.get(
-                    f"{self.GITHUB_API}/releases/latest",
-                    headers=headers,
-                    verify=verify,
-                    timeout=10
-                )
-                if response.status_code == 404:
-                    # 如果没有release，使用分支的zip下载地址
-                    download_url = f"{self.GITHUB_API}/zipball/{self.REPO_BRANCH}"
-                else:
-                    release_info = response.json()
-                    download_url = release_info['zipball_url']
+        headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': f'{self.REPO_NAME}-UpdateChecker'
+        }
+        
+        while True:
+            try:
+                # 获取远程 version.json 文件内容
+                version_url = f"https://raw.githubusercontent.com/{self.REPO_OWNER}/{self.REPO_NAME}/{self.REPO_BRANCH}/version.json"
+                proxied_url = self.get_proxy_url(version_url)
                 
-                # 返回更新信息和格式化的输出
+                logger.info(f"正在尝试从 {proxied_url} 获取版本信息...")
+                response = requests.get(
+                    proxied_url,
+                    headers=headers,
+                    timeout=10,
+                    verify=True
+                )
+                response.raise_for_status()
+                
+                remote_version_info = response.json()
+                current_version = self.get_current_version()
+                latest_version = remote_version_info.get('version', '0.0.0')
+                
+                # 版本比较逻辑
+                def parse_version(version: str) -> tuple:
+                    # 移除版本号中的 'v' 前缀（如果有）
+                    version = version.lower().strip('v')
+                    try:
+                        # 尝试将版本号分割为数字列表
+                        parts = version.split('.')
+                        # 确保至少有三个部分（主版本号.次版本号.修订号）
+                        while len(parts) < 3:
+                            parts.append('0')
+                        # 转换为整数元组
+                        return tuple(map(int, parts[:3]))
+                    except (ValueError, AttributeError):
+                        # 如果是 commit hash 或无法解析的版本号，返回 (0, 0, 0)
+                        return (0, 0, 0)
+
+                current_ver_tuple = parse_version(current_version)
+                latest_ver_tuple = parse_version(latest_version)
+
+                # 只有当最新版本大于当前版本时才返回更新信息
+                if latest_ver_tuple > current_ver_tuple:
+                    # 获取最新release的下载地址
+                    release_url = self.get_proxy_url(f"{self.GITHUB_API}/releases/latest")
+                    response = requests.get(
+                        release_url,
+                        headers=headers,
+                        timeout=10
+                    )
+                    
+                    if response.status_code == 404:
+                        # 如果没有release，使用分支的zip下载地址
+                        download_url = f"{self.GITHUB_API}/zipball/{self.REPO_BRANCH}"
+                    else:
+                        release_info = response.json()
+                        download_url = release_info['zipball_url']
+                    
+                    # 确保下载URL也使用代理
+                    proxied_download_url = self.get_proxy_url(download_url)
+                    
+                    return {
+                        'has_update': True,
+                        'version': latest_version,
+                        'download_url': proxied_download_url,
+                        'description': remote_version_info.get('description', '无更新说明'),
+                        'last_update': remote_version_info.get('last_update', ''),
+                        'output': self.format_version_info(current_version, remote_version_info)
+                    }
+                
                 return {
-                    'has_update': True,
-                    'version': latest_version,
-                    'download_url': download_url,
-                    'description': remote_version_info.get('description', '无更新说明'),
-                    'last_update': remote_version_info.get('last_update', ''),
-                    'output': self.format_version_info(current_version, remote_version_info)
+                    'has_update': False,
+                    'output': self.format_version_info(current_version)
                 }
                 
-            return {
-                'has_update': False,
-                'output': self.format_version_info(current_version)
-            }
-            
-        except requests.exceptions.SSLError as ssl_err:
-            logger.warning(f"SSL验证失败，尝试禁用验证: {str(ssl_err)}")
-            # 禁用SSL验证重试
-            return self._check_updates_without_ssl(headers)
-            
-        except Exception as e:
-            logger.error(f"检查更新失败: {str(e)}")
-            return {
-                'has_update': False,
-                'error': str(e),
-                'output': f"检查更新失败: {str(e)}"
-            }
-
-    def _check_updates_without_ssl(self, headers: Dict[str, str]) -> dict:
-        """不使用SSL验证的更新检查"""
-        try:
-            # 获取远程 version.json 文件内容
-            version_url = f"https://raw.githubusercontent.com/{self.REPO_OWNER}/{self.REPO_NAME}/{self.REPO_BRANCH}/version.json"
-            response = requests.get(
-                version_url,
-                headers=headers,
-                verify=False,
-                timeout=10
-            )
-            response.raise_for_status()
-            remote_version_info = response.json()
-            
-            current_version = self.get_current_version()
-            latest_version = remote_version_info.get('version', '0.0.0')
-            
-            # 版本比较逻辑
-            def parse_version(version: str) -> tuple:
-                # 移除版本号中的 'v' 前缀（如果有）
-                version = version.lower().strip('v')
-                try:
-                    # 尝试将版本号分割为数字列表
-                    parts = version.split('.')
-                    # 确保至少有三个部分（主版本号.次版本号.修订号）
-                    while len(parts) < 3:
-                        parts.append('0')
-                    # 转换为整数元组
-                    return tuple(map(int, parts[:3]))
-                except (ValueError, AttributeError):
-                    # 如果是 commit hash 或无法解析的版本号，返回 (0, 0, 0)
-                    return (0, 0, 0)
-
-            current_ver_tuple = parse_version(current_version)
-            latest_ver_tuple = parse_version(latest_version)
-
-            # 只有当最新版本大于当前版本时才返回更新信息
-            if latest_ver_tuple > current_ver_tuple:
-                # 获取最新release的下载地址
-                response = requests.get(
-                    f"{self.GITHUB_API}/releases/latest",
-                    headers=headers,
-                    verify=False,
-                    timeout=10
-                )
-                if response.status_code == 404:
-                    # 如果没有release，使用分支的zip下载地址
-                    download_url = f"{self.GITHUB_API}/zipball/{self.REPO_BRANCH}"
+            except (requests.RequestException, json.JSONDecodeError) as e:
+                logger.warning(f"使用当前代理检查更新失败: {str(e)}")
+                if self.try_next_proxy():
+                    logger.info(f"正在切换到下一个代理服务器...")
+                    continue
                 else:
-                    release_info = response.json()
-                    download_url = release_info['zipball_url']
-                
-                # 返回更新信息和格式化的输出
-                return {
-                    'has_update': True,
-                    'version': latest_version,
-                    'download_url': download_url,
-                    'description': remote_version_info.get('description', '无更新说明'),
-                    'last_update': remote_version_info.get('last_update', ''),
-                    'output': self.format_version_info(current_version, remote_version_info)
-                }
-                
-            return {
-                'has_update': False,
-                'output': self.format_version_info(current_version)
-            }
-            
-        except Exception as e:
-            logger.error(f"检查更新失败: {str(e)}")
-            return {
-                'has_update': False,
-                'error': str(e),
-                'output': f"检查更新失败: {str(e)}"
-            }
+                    logger.error("所有代理服务器均已尝试失败")
+                    return {
+                        'has_update': False,
+                        'error': "检查更新失败：无法连接到更新服务器",
+                        'output': "检查更新失败：无法连接到更新服务器"
+                    }
 
     def download_update(self, download_url: str) -> bool:
-        """下载GitHub更新包"""
-        try:
-            headers = {
-                'Accept': 'application/vnd.github.v3+json',
-                'User-Agent': f'{self.REPO_NAME}-UpdateChecker'
-            }
-            response = requests.get(
-                download_url,
-                headers=headers,
-                verify=True,
-                timeout=30,
-                stream=True
-            )
-            response.raise_for_status()
-            
-            os.makedirs(self.temp_dir, exist_ok=True)
-            zip_path = os.path.join(self.temp_dir, 'update.zip')
-            
-            with open(zip_path, 'wb') as f:
-                for chunk in response.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
-            return True
-        except Exception as e:
-            logger.error(f"下载更新失败: {str(e)}")
-            return False
+        """下载更新包"""
+        headers = {
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': f'{self.REPO_NAME}-UpdateChecker'
+        }
+        
+        while True:
+            try:
+                proxied_url = self.get_proxy_url(download_url)
+                logger.info(f"正在从 {proxied_url} 下载更新...")
+                
+                response = requests.get(
+                    proxied_url,
+                    headers=headers,
+                    timeout=30,
+                    stream=True
+                )
+                response.raise_for_status()
+                
+                os.makedirs(self.temp_dir, exist_ok=True)
+                zip_path = os.path.join(self.temp_dir, 'update.zip')
+                
+                with open(zip_path, 'wb') as f:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                return True
+                
+            except requests.RequestException as e:
+                logger.warning(f"使用当前代理下载更新失败: {str(e)}")
+                if self.try_next_proxy():
+                    logger.info("正在切换到下一个代理服务器...")
+                    continue
+                else:
+                    logger.error("所有代理服务器均已尝试失败")
+                    return False
 
     def should_skip_file(self, file_path: str) -> bool:
         """检查是否应该跳过更新某个文件"""
@@ -381,7 +342,10 @@ class Updater:
             log_progress("开始检查GitHub更新...")
             update_info = self.check_for_updates()
             if not update_info['has_update']:
-                log_progress("检查更新", True, "当前已是最新版本")
+                log_progress("检查更新完成", True, "当前已是最新版本")
+                print("\n当前已是最新版本，无需更新")
+                print("按回车键继续...")
+                input()
                 return {
                     'success': True,
                     'output': '\n'.join(progress)
@@ -391,6 +355,9 @@ class Updater:
             log_progress("提示用户是否更新...")
             if not self.prompt_update(update_info):
                 log_progress("提示用户是否更新", True, "用户取消更新")
+                print("\n已取消更新")
+                print("按回车键继续...")
+                input()
                 return {
                     'success': True,
                     'output': '\n'.join(progress)

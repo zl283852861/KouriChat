@@ -1,11 +1,11 @@
-# 🌸 KouriChat - 在虚拟与现实交织处，予永恒的温柔羁绊
+# 🌸 KouriChat - 在虚拟与现实交织处，给予永恒的温柔羁绊
 
   [![GitHub Stars](https://img.shields.io/github/stars/KouriChat/KouriChat?style=for-the-badge&logo=starship&color=ff69b4)](https://github.com/KouriChat/KouriChat/stargazers)
   [![License](https://img.shields.io/badge/license-MIT-informational?style=for-the-badge)](LICENSE)
   [![Python](https://img.shields.io/badge/Python-3.11_➔_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B5B84)](https://www.python.org/downloads/)
   [![Community](https://img.shields.io/badge/QQ群-715616260-12B7F3?style=for-the-badge&logo=tencentqq)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 
-**有问题可加群**：[715616260](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)  
+
 **最新整合包**：[夸克网盘下载](https://pan.quark.cn/s/f37d765e1404)（提取码：zXpP）
 
 ---
@@ -50,6 +50,7 @@
 - 记忆整理优化（8B小模型）
 - 分布式负载均衡
 - 数学公式渲染引擎
+- OneBot协议兼容
 - [参与开发计划](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 
 ---
@@ -101,16 +102,54 @@ My-Dream-Moments/
 
 ## 💖 支持我们
 <div align="center">
-  <p>您的支持将助力项目持续进化</p>
-  <img src="data/images/img/qrcode.jpg" width="450" alt="支持二维码" style="border:3px solid #eee; border-radius:12px">
+  <!-- 项目星标 -->
+  <p>点击星星助力项目成长 ⭐️ → 
+    <a href="https://github.com/KouriChat/KouriChat">
+      <img src="https://img.shields.io/github/stars/KouriChat/KouriChat?color=ff69b4&style=flat-square" alt="GitHub Stars">
+    </a>
+  </p>
+
+  <!-- 资金用途 -->
+  <p style="margin:18px 0 10px; font-size:0.95em">
+    🎯 您的支持将用于：<br>
+    🚀 服务器费用 • 🌸 API资源 • 🛠️ 功能开发 • 💌 社区运营
+  </p>
+
+  <!-- 赞助二维码 -->
+ <img src="data/images/img/qrcode.jpg" width="450" alt="支持二维码" style="border:3px solid #eee; border-radius:12px">
+
+  <!-- 神秘计划模块 -->
+  <div style="font-size:0.88em; line-height:1.3; max-width:540px; margin:15px auto;
+              background: linear-gradient(145deg, rgba(255,105,180,0.08), rgba(156,39,176,0.05));
+              padding:10px 15px; border-radius:6px; border:1px solid rgba(255,105,180,0.15)">
+    <span style="color: #9c27b0">🔒 神秘赞助计划：</span>
+    <span style="margin-left:6px; letter-spacing:-0.5px">
+      <i class="fa fa-lock" style="color: #ff4081; margin-right:4px"></i>
+      <span style="background: linear-gradient(45deg, #ff69b4, #9c27b0); -webkit-background-clip: text; color: transparent">
+        限定数字藏品·开发者礼包·神秘周边·▮▮▮▮
+      </span>
+    </span>
+  </div>
+
+  <!-- 动态徽章 -->
+  <div style="margin:18px 0 8px">
+    <img src="https://img.shields.io/badge/已解锁成就-▮▮▮▮▮▮-ff69b4?style=flat-square&logo=starship">
+    <img src="https://img.shields.io/badge/特别鸣谢-▮▮▮▮▮▮-9c27b0?style=flat-square&logo=heart">
+  </div>
 </div>
 
 ---
 
 ## 🌐 社区互动
-- [哔哩哔哩频道](https://space.bilibili.com/209397245)
-- 技术交流群：[715616260](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o) 
-- 通过邮箱与我们联系：[yangchenglin2004@foxmail.com](mailto:yangchenglin2004@foxmail.com) 
+
+### 核心交流群
+[![主群715616260](https://img.shields.io/badge/QQ群-715616260-12B7F3?style=for-the-badge&logo=tencentqq)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
+
+### 通过其他方式联系我们
+- **开发讨论**：[功能建议 & Bug反馈](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
+- **视频教程**：[哔哩哔哩频道](https://space.bilibili.com/209397245)
+- **技术文档**：[KouriChat Wiki](https://kourichat.com/docs.html)
+- **商务合作**：[yangchenglin2004@foxmail.com](mailto:yangchenglin2004@foxmail.com)
 
 ---
 

@@ -1,3 +1,4 @@
+-i https://pypi.tuna.tsinghua.edu.cn/simple
 wechaty==0.8.19
 wechaty-puppet-service==0.8.4
 pyee==11.1.0
