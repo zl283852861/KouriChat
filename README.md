@@ -6,8 +6,8 @@
   [![Community](https://img.shields.io/badge/QQ群-715616260-12B7F3?style=for-the-badge&logo=tencentqq)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 
 
-**最新整合包**：[夸克网盘下载](https://pan.quark.cn/s/c55dd13218ea)
-**详细文档**：[项目官网](https://kourichat.com/docs/)
+**最新整合包**：[夸克网盘下载](https://pan.quark.cn/s/c55dd13218ea)<br>
+**详细文档**：[项目官网](https://kourichat.com/docs/)<br>
 **角色广场已上线！**：[角色档案馆](https://avatars.kourichat.com/#/archive)
 ---
 
