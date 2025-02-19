@@ -28,14 +28,14 @@ def print_banner():
         banner = f"""
 {Fore.CYAN}
 ╔══════════════════════════════════════════════╗
-║          My Dream Moments - AI Chat          ║
-║            Created by umaru-233              ║
+║             KouriChat - AI Chat              ║
+║          Created by KouriChat Team           ║
 ╚══════════════════════════════════════════════╝
 {Style.RESET_ALL}"""
         print(banner)
     except Exception as e:
         # 如果出现编码错误，使用简单版本
-        print("\nMy Dream Moments - AI Chat\n")
+        print("\nKouriChat - AI Chat\n")
 
 # 禁止生成__pycache__文件夹
 sys.dont_write_bytecode = True

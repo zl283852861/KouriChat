@@ -1,77 +1,77 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: ÉèÖÃ´úÂëÒ³Îª GBK
+:: ï¿½ï¿½ï¿½Ã´ï¿½ï¿½ï¿½Ò³Îª GBK
 chcp 936 >nul
-title My Dream Moments Æô¶¯Æ÷
+title KouriChat ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 
 cls
 echo ====================================
-echo        My Dream Moments Æô¶¯Æ÷
+echo        KouriChat ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 echo ====================================
 echo.
-echo ¨X¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨[
-echo ¨U      My Dream Moments - AI Chat   ¨U
-echo ¨U      Created with Heart by umaru  ¨U
-echo ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨a
+echo ï¿½Xï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½[
+echo ï¿½U      KouriChat - AI Chat   ï¿½U
+echo ï¿½U      Created with Heart by umaru  ï¿½U
+echo ï¿½^ï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½Tï¿½a
 echo.
 
-:: ¼ì²é Python ÊÇ·ñÒÑ°²×°
+:: ï¿½ï¿½ï¿½ Python ï¿½Ç·ï¿½ï¿½Ñ°ï¿½×°
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo PythonÎ´°²×°£¬ÇëÏÈ°²×°Python
+    echo PythonÎ´ï¿½ï¿½×°ï¿½ï¿½ï¿½ï¿½ï¿½È°ï¿½×°Python
     pause
     exit /b 1
 )
 
-:: ¼ì²é Python °æ±¾
+:: ï¿½ï¿½ï¿½ Python ï¿½æ±¾
 for /f "tokens=2" %%I in ('python -V 2^>^&1') do set PYTHON_VERSION=%%I
 for /f "tokens=2 delims=." %%I in ("!PYTHON_VERSION!") do set MINOR_VERSION=%%I
 if !MINOR_VERSION! GEQ 13 (
-    echo ²»Ö§³Ö Python 3.13 ¼°ÒÔÉÏ°æ±¾
-    echo µ±Ç°Python°æ±¾: !PYTHON_VERSION!
-    echo ÇëÊ¹ÓÃ Python 3.12 »ò¸üµÍ°æ±¾
+    echo ï¿½ï¿½Ö§ï¿½ï¿½ Python 3.13 ï¿½ï¿½ï¿½ï¿½ï¿½Ï°æ±¾
+    echo ï¿½ï¿½Ç°Pythonï¿½æ±¾: !PYTHON_VERSION!
+    echo ï¿½ï¿½Ê¹ï¿½ï¿½ Python 3.12 ï¿½ï¿½ï¿½ï¿½Í°æ±¾
     pause
     exit /b 1
 )
 
-:: ÉèÖÃÐéÄâ»·¾³Ä¿Â¼
+:: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â»·ï¿½ï¿½Ä¿Â¼
 set VENV_DIR=.venv
 
-:: ¼ì²éÐéÄâ»·¾³ÊÇ·ñ´æÔÚ
+:: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â»·ï¿½ï¿½ï¿½Ç·ï¿½ï¿½ï¿½ï¿½
 if not exist %VENV_DIR% (
-    echo ÕýÔÚ´´½¨ÐéÄâ»·¾³...
+    echo ï¿½ï¿½ï¿½Ú´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â»·ï¿½ï¿½...
     python -m venv %VENV_DIR%
     if errorlevel 1 (
-        echo ´´½¨ÐéÄâ»·¾³Ê§°Ü
+        echo ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â»·ï¿½ï¿½Ê§ï¿½ï¿½
         pause
         exit /b 1
     )
 )
 
-:: ¼¤»îÐéÄâ»·¾³
+:: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½â»·ï¿½ï¿½
 call %VENV_DIR%\Scripts\activate.bat
 
-:: °²×°ÒÀÀµ
+:: ï¿½ï¿½×°ï¿½ï¿½ï¿½ï¿½
 if exist requirements.txt (
-    echo ÕýÔÚ°²×°ÒÀÀµ...
+    echo ï¿½ï¿½ï¿½Ú°ï¿½×°ï¿½ï¿½ï¿½ï¿½...
     pip install -r requirements.txt
     if errorlevel 1 (
-        echo °²×°ÒÀÀµÊ§°Ü
+        echo ï¿½ï¿½×°ï¿½ï¿½ï¿½ï¿½Ê§ï¿½ï¿½
         pause
         exit /b 1
     )
 )
 
-:: ÔËÐÐ³ÌÐò
-echo ÕýÔÚÆô¶¯³ÌÐò...
+:: ï¿½ï¿½ï¿½Ð³ï¿½ï¿½ï¿½
+echo ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½...
 python run_config_web.py
 
-:: Èç¹û³ÌÐòÒì³£ÍË³ö£¬ÔÝÍ£ÏÔÊ¾´íÎóÐÅÏ¢
+:: ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ì³£ï¿½Ë³ï¿½ï¿½ï¿½ï¿½ï¿½Í£ï¿½ï¿½Ê¾ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ï¢
 if errorlevel 1 (
-    echo ³ÌÐòÔËÐÐ³ö´í
+    echo ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ð³ï¿½ï¿½ï¿½
     pause
 )
 
-:: ÍË³öÐéÄâ»·¾³
+:: ï¿½Ë³ï¿½ï¿½ï¿½ï¿½â»·ï¿½ï¿½
 deactivate

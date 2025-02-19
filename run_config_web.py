@@ -991,7 +991,7 @@ type - 显示文件内容
         elif command.lower() == 'version':
             return jsonify({
                 'status': 'success',
-                'output': 'My Dream Moments v1.3.1'
+                'output': 'KouriChat v1.3.1'
             })
             
         elif command.lower() == 'memory':

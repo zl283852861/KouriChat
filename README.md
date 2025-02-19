@@ -1,200 +1,129 @@
-有问题可加群：715616260 
+# 🌸 KouriChat - 在虚拟与现实交织处，予永恒的温柔羁绊
 
-- 一键整合包夸克网盘：https://pan.quark.cn/s/f37d765e1404 提取码：zXpP 推荐转存，项目更新直接下载最新的代码zip。我也能有收益，感谢您的支持！
-- 部署项目推荐使用Windows服务器，[雨云优惠通道注册送首月五折券](https://www.rainyun.com/MzE0MTU=_) 
-- 获取 DeepSeek API Key，[获取 API Key（15元免费额度）](https://cloud.siliconflow.cn/i/aQXU6eC5)
+  [![GitHub Stars](https://img.shields.io/github/stars/KouriChat/KouriChat?style=for-the-badge&logo=starship&color=ff69b4)](https://github.com/KouriChat/KouriChat/stargazers)
+  [![License](https://img.shields.io/badge/license-MIT-informational?style=for-the-badge)](LICENSE)
+  [![Python](https://img.shields.io/badge/Python-3.11_➔_3.12-3776AB?style=for-the-badge&logo=python&logoColor=white&labelColor=2B5B84)](https://www.python.org/downloads/)
+  [![Community](https://img.shields.io/badge/QQ群-715616260-12B7F3?style=for-the-badge&logo=tencentqq)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 
----
-
-## 简介
-
-简体中文 · [English](./README_EN.md) 
-
-- 已经更换了安全的微信自动化方案，即<code>wxauto</code>，封号可能性几乎没有，稳定性拉满
-- KouriChat 是一个基于大型语言模型（LLM）的情感陪伴程序，能够接入微信，提供更真实的情感交互体验。它解决了传统人机对话程序一问一答的死板效果，提供沉浸式角色扮演和多轮对话支持。
-- 推荐使用DeepSeek V3 模型。<br>
-- [里程碑](MileStone.md)
-- [致谢](Thanks.md)<br>
-  ![demo.png](data%2Fimages%2Fimg%2Fdemo.png)
+**有问题可加群**：[715616260](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)  
+**最新整合包**：[夸克网盘下载](https://pan.quark.cn/s/f37d765e1404)（提取码：zXpP）
 
 ---
 
-## 声明
+## 🌟 效果示例
 
-- 本项目仅用于交流学习，LLM发言不代表作者本人立场。prompt所模仿角色版权归属原作者。任何未经许可进行的限制级行为均由使用者个人承担。
+<div align="center">
+  <img src="data/images/img/demo.png" width="600" alt="演示效果">
+</div>
 
----
-
-## 已实现的功能
-
-- [x] 对接微信，沉浸式角色扮演
-- [x] 聊天分段响应，消除人机感
-- [x] 多轮对话
-- [x] 多用户支持
-- [x] 由 DeepSeek R1 利用游戏文本生成的 Prompt
-- [x] 无需联网的时间感知
-- [x] WebUI，方便不理解代码的用户配置项目
-- [x] 图像生成
-- [x] 异步请求
-- [x] 实现群聊
-- [x] 表情包
-- [x] Ai图片识别，调用kimi
-- [x] 实现R1对话
-- [x] 实现主动发消息
-- [x] 语音功能，暂时发送wav语言文件
-- [x] 完善WebUi
-- [x] 实现持久记忆
-- [x] 自动更新
-- [x] AI根据情感输出表情包
-- [x] 运行src/autoupdate/updater.py可以一键更新 
----
-
-## 待实现功能，期待您的加入
-
-- [ ] 定时任务与智能定时任务
-- [ ] 利用 8B 小模型实时生成记忆并定期整理
-- [ ] 负载均衡
-- [ ] 数学公式或者代码实现远程渲染
-- [ ] 官方文档
-- [ ] 人设web页面，各种人设和允许用户上传prompt
----
-
-
-## 如何运行项目
-
-### 1. 前期准备
-
-1. **备用手机/安卓模拟器**  
-   - 微信电脑端登录必须有一个移动设备同时登录，因此不能使用您的主要设备。
-
-2. **微信小号**  
-   - 可以登录微信电脑版即可。
-
-3. **DeepSeek API Key**  
-   - 推荐使用：[获取 API Key（15元免费额度）](https://cloud.siliconflow.cn/i/aQXU6eC5)
+### 🚀 部署推荐
+- [雨云服务器五折券](https://www.rainyun.com/MzE0MTU=_)
+- [获取DeepSeek API Key](https://cloud.siliconflow.cn/i/aQXU6eC5)（免费15元额度）
 
 ---
 
-### 2. 部署项目
+## 📜 项目声明
+ **法律与伦理准则**  
+ ▸ 本项目仅供技术研究与学习交流  
+ ▸ 禁止用于任何违法或违反道德的场景  
+ ▸ 生成内容不代表开发者立场  
+  
+ **使用须知**  
+ ▸ 角色版权归属原始创作者  
+ ▸ 使用者需对自身行为负全责  
+ ▸ 未成年人应在监护下使用  
 
-1. **克隆本仓库**  
+---
 
-   ```bash
-   git clone https://github.com/umaru-233/My-Dream-Moments.git
-   ```
+## 🛠️ 功能全景
 
-2. **安装pip** 
+### ✅ 已实现
+- 微信无缝接入 & 多用户支持
+- 沉浸式角色扮演（支持群聊）
+- 智能对话分段 & 情感化表情包
+- 图像生成 & 图片识别（Kimi集成）
+- 语音消息 & 持久记忆存储
+- 自动更新 & 可视化WebUI
 
-   ```bash
-   python -m ensurepip
-   ```
+### 🚧 开发中
+- 智能定时任务系统
+- 记忆整理优化（8B小模型）
+- 分布式负载均衡
+- 数学公式渲染引擎
+- [参与开发计划](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 
-3. **安装依赖**  
+---
 
-   ```bash
-   pip install -r requirements.txt
-   ```
+## 🚀 快速启动
 
-4. **配置<code>src/config/settings.py</code>**  
-   修改<code>LISTEN_LIST</code>、<code>DEEPSEEK_BASE_URL</code>和<code>DEEPSEEK_API_KEY</code>。
+### 环境准备
+1. **备用设备**：安卓手机/模拟器（微信电脑端登录必须有一个移动设备同时登录，因此不能使用您的主要设备。）
+2. **微信小号**：能登录PC版即可
+3. **API密钥**：[获取DeepSeek Key](https://cloud.siliconflow.cn/i/aQXU6eC5)
 
-按需调整<code>MAX_TOKEN</code>、<code>TEMPERATURE</code>和<code>MODEL</code>。如何配置请阅读<code>config.py</code>里的注释。
+### 部署流程
+#### 半自动部署流程
+```bash
+运行 点我启动程序.bat
+```
+#### 手动部署流程
+```bash
+# 克隆仓库
+git clone https://github.com/KouriChat/KouriChat.git
 
-5. **运行<code>run.py</code>，如果报错请尝试使用Python 3.11版本。**
+# 安装依赖
+pip install -r requirements.txt
 
-   ```bash
-   python run.py
-   ```
+#调整配置文件
+python run_config_web.py
 
-6. FAQ:没什么问题是重启解决不了的，如果重启解决不了，请重启
-
-
-### 3. 如何使用
-
-- **使用微信小号登录微信电脑版**
-
-- **项目运行后，控制台提示**
-
-  ```bash
-  初始化成功，获取到已登录窗口：<您的微信昵称>
-  开始运行BOT...
-  ```
-
-  即可开始监听并调用模型自动回复消息。
-
-## 如果您想修改prompt
-
-- 修改avatars/ATRI/ATRI.md的内容
-- 注意：请不要修改与反斜线 <code> \ </code>相关的 prompt，因为它们被用于分段回复消息。
-
-结构说明：
-
-```python
-My-Dream-Moments/
-├── data/                           # 数据存储目录
-├── logs/                           # 日志目录
-├── src/                            # 源代码主目录
-│   ├── autoupdate/                # 自动更新相关
-│   │   └── updater.py            # 更新器实现
-│   │
-│   ├── config/                    # 配置文件目录
-│   │   ├── config.json           # JSON配置文件
-│   │   ├── settings.py           # 设置模块
-│   │   └── __init__.py           # 配置初始化
-│   │
-│   ├── handlers/                  # 处理器目录
-│   │   ├── emoji.py              # 表情处理
-│   │   ├── image.py              # 图片处理
-│   │   ├── memory.py             # 内存处理
-│   │   ├── message.py            # 消息处理
-│   │   └── voice.py              # 语音处理
-│   │
-│   ├── services/                  # 服务层目录
-│   │   ├── ai/                   # AI服务目录
-│   │   └── database.py           # 数据库服务
-│   │
-│   ├── utils/                     # 工具函数目录
-│   │   ├── cleanup.py            # 清理工具
-│   │   └── logger.py             # 日志工具
-│   │
-│   ├── webui/                     # Web界面相关
-│   │   ├── background_image/     # 背景图片目录
-│   │   ├── routes/               # 路由目录
-│   │   └── templates/            # 模板目录
-│   │       ├── config.html       # 配置页面
-│   │       └── config_item.html  # 配置项模板
-│   │
-│   ├── main.py                    # 核心业务逻辑
-│   └── __init__.py                # 包初始化文件
-│
-├── .git/                           # Git版本控制目录
-├── .gitignore                     # Git忽略配置
-├── LICENSE                        # 开源许可证
-├── MileStone.md                  # 项目里程碑
-├── README.md                     # 中文说明文档
-├── README_EN.md                  # 英文说明文档
-├── SponsorList.md                # 赞助者名单
-├── Thanks.md                     # 致谢文档
-├── a点我启动程序.bat               # Windows启动脚本
-├── requirements.txt              # 依赖包列表
-├── run.py                        # 主程序入口
-├── run_config_web.py             # Web配置界面入口
-├── test.py                       # 测试文件
-└── version.json                  # 版本信息配置
+# 启动程序
+python run.py
 ```
 
+---
 
+## 🧩 项目架构
 
-## 赞助
+```
+My-Dream-Moments/
+├── avatars/                      # 角色配置文件
+├── data/                         # 运行数据存储
+├── src/
+│   ├── handlers/                # 功能处理器
+│   ├── services/                # AI服务接口
+│   ├── webui/                   # 可视化配置界面
+│   └── utils/                   # 工具库
+└── version.json                 # 版本管理
+```
 
-此项目欢迎赞助。您的支持对我非常重要！
+---
 
-- 赞助用户如需远程部署或定制 prompt，请联系我。
-- E-Mail: yangchenglin2004@foxmail.com 
-- Bilibili: [umaru今天吃什么](https://space.bilibili.com/209397245)
-- 感谢您的支持与使用！!<br>
-  ![qrcode.jpg](data%2Fimages%2Fimg%2Fqrcode.jpg)
+## 💖 支持我们
+<div align="center">
+  <p>您的支持将助力项目持续进化</p>
+  <img src="data/images/img/qrcode.jpg" width="450" alt="支持二维码" style="border:3px solid #eee; border-radius:12px">
+</div>
 
-## 请给我Star，这对我很重要TvT
+---
 
-- [![Star History Chart](https://api.star-history.com/svg?repos=umaru-233/My-Dream-Moments&type=Timeline)](https://star-history.com/?spm=a2c6h.12873639.article-detail.8.7b9d359dJmTgdE#umaru-233/My-Dream-Moments&Timeline)
+## 🌐 社区互动
+- [哔哩哔哩频道](https://space.bilibili.com/209397245)
+- 技术交流群：[715616260](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o) 
+- 通过邮箱与我们联系：[yangchenglin2004@foxmail.com](mailto:yangchenglin2004@foxmail.com) 
+
+---
+
+<div align="center">
+  <sub>🛠️ 核心技术栈</sub>
+  <br>
+  <a href="https://www.python.org/" target="_blank">
+    <img src="https://img.shields.io/badge/Python-3.11_➔_3.12-0073B7?logo=python&logoColor=white" alt="Python">
+  </a>
+  <a href="https://github.com/cluic/wxauto" target="_blank">
+    <img src="https://img.shields.io/badge/wxauto-自动化框架-0099E5?logo=wechat&logoColor=white" alt="wxauto">
+  </a>
+
+</div>
+
+[![Star History](https://api.star-history.com/svg?repos=KouriChat/KouriChat&type=Timeline)](https://star-history.com/#KouriChat/KouriChat)

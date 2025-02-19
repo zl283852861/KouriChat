@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="My Dream Moments - 配置中心">
-    <meta name="keywords" content="AI,My Dream Moments">
+    <meta name="description" content="KouriChat - 配置中心">
+    <meta name="keywords" content="AI,KouriChat">
     <meta name="theme-color" content="#6366f1">
-    <title>My Dream Moments - 配置中心</title>
+    <title>KouriChat - 配置中心</title>
     <link href="/static/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdmirror.com/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
     <link rel="icon" type="image/x-icon" href="/static/mom.ico">
@@ -453,6 +453,16 @@
                     showError('保存失败：' + error);
                 });
             });
+
+            // 初始化背景
+            fetch('/get_background')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.path) {
+                        document.body.style.backgroundImage = `url('${data.path}')`;
+                    }
+                })
+                .catch(error => console.error('Error:', error));
         });
 
         function processFormValue(config, key, value) {
@@ -578,18 +588,6 @@
                     showToast('上传失败：' + error, 'danger');
                 });
             }
-        });
-
-        // 页面加载时初始化背景
-        window.addEventListener('DOMContentLoaded', function() {
-            fetch('/get_background')
-            .then(response => response.json())
-            .then(data => {
-                if (data.status === 'success' && data.path) {
-                    document.body.style.backgroundImage = `url('${data.path}')`;
-                }
-            })
-            .catch(error => console.error('Error:', error));
         });
 
         function updateTemperature(key, value) {

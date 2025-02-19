@@ -433,12 +433,12 @@ def print_banner():
     banner = f"""
 {Fore.CYAN}
 ╔══════════════════════════════════════════════╗
-║          My Dream Moments - AI Chat          ║
-║            Created with ❤️  by umaru         ║   
-║ https://github.com/umaru-233/My-Dream-Moments║
+║              KouriChat - AI Chat             ║
+║           Created with ❤️  by umaru          ║   
+║     https://github.com/KouriChat/KouriChat   ║
 ╚══════════════════════════════════════════════╝
 
-My Dream Moments - AI Chat  Copyright (C) 2025,github.com/umaru-233
+KouriChat - AI Chat  Copyright (C) 2025,github.com/umaru-233
 This program comes with ABSOLUTELY NO WARRANTY; for details please read
 https://www.gnu.org/licenses/gpl-3.0.en.html.
 该程序是基于GPLv3许可证分发的，因此该程序不提供任何保证；有关更多信息，请参阅GPLv3许可证。
