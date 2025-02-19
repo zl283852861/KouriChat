@@ -286,7 +286,7 @@ def get_random_countdown_time():
     # 将小时转换为秒，并确保是整数
     min_seconds = int(config.behavior.auto_message.min_hours * 3600)
     max_seconds = int(config.behavior.auto_message.max_hours * 3600)
-    return random.randint(min_seconds, max_seconds)
+    return random.uniform(min_seconds, max_seconds) # bug修复转换问题
 
 def auto_send_message():
     """自动发送消息"""
