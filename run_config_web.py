@@ -1237,15 +1237,23 @@ def check_dependencies():
                 
                 logger.debug(f"已安装的包: {installed_packages}")
                 
-                # 读取requirements.txt，只获取包名
+                # 读取requirements.txt，只获取有效的包名
                 with open(requirements_path, 'r', encoding='utf-8') as f:
                     required_packages = set()
                     for line in f:
                         line = line.strip()
-                        if line and not line.startswith('#'):
-                            # 只取包名，忽略版本信息
-                            pkg = line.split('=')[0].split('>')[0].split('<')[0].split('~')[0]
-                            pkg = pkg.strip().lower()
+                        # 跳过无效行：空行、注释、镜像源配置、-r 开头的文件包含
+                        if (not line or 
+                            line.startswith('#') or 
+                            line.startswith('-i ') or 
+                            line.startswith('-r ') or
+                            line.startswith('--')):
+                            continue
+                            
+                        # 只取包名，忽略版本信息和其他选项
+                        pkg = line.split('=')[0].split('>')[0].split('<')[0].split('~')[0].split('[')[0]
+                        pkg = pkg.strip().lower()
+                        if pkg:  # 确保包名不为空
                             required_packages.add(pkg)
                 
                 logger.debug(f"需要的包: {required_packages}")
