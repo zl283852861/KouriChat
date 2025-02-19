@@ -143,7 +143,10 @@ My-Dream-Moments/
 ## 🌐 社区互动
 
 ### 核心交流群
-[![主群715616260](https://img.shields.io/badge/QQ群-715616260-12B7F3?style=for-the-badge&logo=tencentqq)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
+[![主群](https://img.shields.io/badge/✨_主群-715616260-4FC3F7?style=for-the-badge&logo=tencentqq&logoColor=white&labelColor=006699)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
+[![二群](https://img.shields.io/badge/🎮_二群-1031640399-76D7C4?style=for-the-badge&logo=tencentqq&logoColor=white&labelColor=00897B)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
+[![赞助群](https://img.shields.io/badge/💰_赞助群-953908612-FFEA00?style=for-the-badge&logo=tencentqq&logoColor=333&labelColor=FFD600)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
+[![QQ频道](https://img.shields.io/badge/📢_QQ频道-和Ai恋爱吧-B2EBF2?style=for-the-badge&logo=tencentqq&logoColor=white&labelColor=00B8D4)](https://pd.qq.com/s/4zthl285m)
 
 ### 通过其他方式联系我们
 - **开发讨论**：[功能建议 & Bug反馈](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
