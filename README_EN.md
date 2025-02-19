@@ -65,7 +65,7 @@
 ### Deployment
 #### Semi-Automatic Setup
 ```bash
-Run "Launch Program.bat"
+Run "run.bat"
 ```
 #### Manual Setup
 ```bash
