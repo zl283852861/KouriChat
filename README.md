@@ -6,7 +6,7 @@
   [![Community](https://img.shields.io/badge/QQ群-715616260-12B7F3?style=for-the-badge&logo=tencentqq)](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 
 
-**最新整合包**：[夸克网盘下载](https://pan.quark.cn/s/f37d765e1404)（提取码：zXpP）
+**最新整合包**：[夸克网盘下载](https://pan.quark.cn/s/c55dd13218ea)
 
 ---
 
@@ -17,7 +17,9 @@
 </div>
 
 ### 🚀 部署推荐
+- 通过[夸克网盘](https://pan.quark.cn/s/c55dd13218ea)下载项目，推荐转存，第一时间获得更新，我也会有收益
 - [雨云服务器五折券](https://www.rainyun.com/MzE0MTU=_)
+- [项目直属公益API（推荐）](https://api.kourichat.com/)（注册送20刀，签到送1-5刀）
 - [获取DeepSeek API Key](https://cloud.siliconflow.cn/i/aQXU6eC5)（免费15元额度）
 
 ---
@@ -60,7 +62,9 @@
 ### 环境准备
 1. **备用设备**：安卓手机/模拟器（微信电脑端登录必须有一个移动设备同时登录，因此不能使用您的主要设备。）
 2. **微信小号**：能登录PC版即可
-3. **API密钥**：[获取DeepSeek Key](https://cloud.siliconflow.cn/i/aQXU6eC5)
+3. **API密钥**：
+- [项目直属公益API（推荐）](https://api.kourichat.com/)（注册送20刀，签到送1-5刀）
+- [获取DeepSeek API Key](https://cloud.siliconflow.cn/i/aQXU6eC5)（免费15元额度）
 
 ### 部署流程
 #### 半自动部署流程
@@ -72,7 +76,7 @@
 # 克隆仓库
 git clone https://github.com/KouriChat/KouriChat.git
 
-# 更新仓库
+# 更新pip
 python -m pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --upgrade pip
 
 # 安装依赖
@@ -81,7 +85,7 @@ pip install -r requirements.txt
 #调整配置文件
 python run_config_web.py
 
-# 启动程序
+# 启动程序 或 使用WebUI启动 (在此之前，请启动微信！不然会提示未找到窗口句柄...）
 python run.py
 ```
 
