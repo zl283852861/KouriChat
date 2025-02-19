@@ -117,18 +117,27 @@ class SentimentAnalyzer:
         return SnowNLP(text).sentiments
 
     def analyze(self, text):
-        """综合分析方法"""
-        emotion_result = self._analyze_emotion(text)
-        return {
-            **emotion_result,
-            'sentiment_score': self._get_sentiment_score(text)
-        }
+         '''综合分析方法'''
+         emotion_result = self._analyze_emotion(text)
+         raw_score = self._get_sentiment_score(text)
+
+         # 根据极性调整符号位
+         polarity = emotion_result['polarity']
+         adjusted_score = raw_score
+         if polarity == '正面':
+             adjusted_score += 1
+         elif polarity == '负面':
+             adjusted_score -= 1
+
+         return {
+             **emotion_result,
+             'sentiment_score': adjusted_score
+         }
 
 
-'''
+
 if __name__ == "__main__":
     analyzer = SentimentAnalyzer()
-    test_text = "我喜欢你！"
+    test_text = "今天打英雄联盟被sb队友气死了，但是晚上跟原p对线好爽"
     result = analyzer.analyze(test_text)
     print(result)
-'''
