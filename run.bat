@@ -1,23 +1,23 @@
-@echo off
-REM 设置代码页为 UTF-8
-chcp 65001 >nul
-title KouriChat 启动器
+@echo off 
+REM 设置代码页为 GBK
+chcp 936 >nul
+title Kourichat 启动器
 
 cls
 echo ====================================
-echo        KouriChat 启动器
+echo        Kourichat 启动器
 echo ====================================
 echo.
 echo ╔═══════════════════════════════════╗
-echo ║         KouriChat - AI Chat       ║
-echo ║   Created with Heart by KouriChat ║
+echo ║        Kourichat - AI Chat        ║
+echo ║  Created with Heart by KouriChat  ║
 echo ╚═══════════════════════════════════╝
 echo.
 
 REM 创建桌面快捷方式
 set "SCRIPT_PATH=%~f0"
 set "DESKTOP_PATH=%USERPROFILE%\Desktop"
-set "SHORTCUT_PATH=%DESKTOP_PATH%\My Dream Moments.lnk"
+set "SHORTCUT_PATH=%DESKTOP_PATH%\Kourichat.lnk"
 
 dir "%SHORTCUT_PATH%" >nul 2>nul
 if errorlevel 1 (
@@ -128,7 +128,7 @@ start http://localhost:8501/
 timeout /t 2 /nobreak >nul
 
 REM 使用单独的窗口启动Python程序，这样可以看到错误信息
-start "My Dream Moments Config" cmd /c "python run_config_web.py && pause"
+start "Kourichat Config" cmd /c "python run_config_web.py && pause"
 timeout /t 5 /nobreak >nul
 
 REM 检查Python进程是否正在运行
@@ -158,9 +158,9 @@ if errorlevel 1 (
     taskkill /f /im "python.exe" >nul 2>nul
     echo.
     echo 配置完成，正在启动机器人...
-
+    
     REM 使用新的cmd窗口启动，这样可以看到错误信息
-    start "My Dream Moments" cmd /c "python run.py && pause"
+    start "Kourichat" cmd /c "python run.py && pause"
     if errorlevel 1 (
         echo [错误] 机器人启动失败！
         echo 请确保 run.py 文件存在且无语法错误。

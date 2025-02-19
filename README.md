@@ -72,6 +72,9 @@
 # 克隆仓库
 git clone https://github.com/KouriChat/KouriChat.git
 
+# 更新仓库
+python -m pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple --upgrade pip
+
 # 安装依赖
 pip install -r requirements.txt
 
