@@ -11,7 +11,7 @@ import os
 import sys
 import re
 import logging
-from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, url_for
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, url_for, session
 import importlib
 import json
 from colorama import init, Fore, Style
@@ -31,6 +31,9 @@ import signal
 import atexit
 import socket
 import webbrowser
+import hashlib
+import secrets
+from datetime import timedelta
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -88,6 +91,9 @@ app.config['UPLOAD_FOLDER'] = os.path.join(ROOT_DIR, 'src/webui/background_image
 
 # 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+
+# 生成密钥用于session加密
+app.secret_key = secrets.token_hex(16)
 
 def print_status(message: str, status: str = "info", emoji: str = ""):
     """打印带颜色和表情的状态消息"""
@@ -575,8 +581,14 @@ def get_background():
 # 添加新的路由
 @app.route('/dashboard')
 def dashboard():
-    """渲染控制台页面"""
-    return render_template('dashboard.html', active_page='dashboard')
+    """仪表盘页面"""
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    return render_template(
+        'dashboard.html', 
+        is_local=is_local_network(),
+        active_page='dashboard'
+    )
 
 @app.route('/system_info')
 def system_info():
@@ -843,9 +855,16 @@ def stop_bot():
 
 @app.route('/config')
 def config():
-    """渲染配置页面"""
-    config_groups = parse_config_groups()
-    return render_template('config.html', config_groups=config_groups, active_page='config')
+    """配置页面"""
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    config_groups = parse_config_groups()  # 获取配置组
+    return render_template(
+        'config.html', 
+        config_groups=config_groups,  # 传递配置组
+        is_local=is_local_network(),  # 传递本地网络状态
+        active_page='config'  # 传递当前页面标识
+    )
 
 # 添加获取用户信息的路由
 @app.route('/user_info')
@@ -1492,6 +1511,148 @@ def install_dependencies():
             'status': 'error',
             'message': str(e)
         })
+
+def hash_password(password: str) -> str:
+    # 对密码进行哈希处理
+    return hashlib.sha256(password.encode()).hexdigest()
+
+def is_local_network() -> bool:
+    # 检查是否是本地网络访问
+    client_ip = request.remote_addr
+    return (
+        client_ip == '127.0.0.1' or 
+        client_ip.startswith('192.168.') or 
+        client_ip.startswith('10.') or 
+        client_ip.startswith('172.16.')
+    )
+
+@app.before_request
+def check_auth():
+    # 请求前验证登录状态
+    # 排除不需要验证的路由
+    public_routes = ['login', 'static', 'init_password']
+    if request.endpoint in public_routes:
+        return
+        
+    # 检查是否需要初始化密码
+    from src.config import config
+    if not config.auth.admin_password:
+        return redirect(url_for('init_password'))
+        
+    # 如果是本地网络访问，自动登录
+    if is_local_network():
+        session['logged_in'] = True
+        return
+        
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    # 处理登录请求
+    from src.config import config
+    
+    # 首先检查是否需要初始化密码
+    if not config.auth.admin_password:
+        return redirect(url_for('init_password'))
+    
+    if request.method == 'GET':
+        # 如果已经登录，直接跳转到仪表盘
+        if session.get('logged_in'):
+            return redirect(url_for('dashboard'))
+            
+        # 如果是本地网络访问，自动登录并重定向到仪表盘
+        if is_local_network():
+            session['logged_in'] = True
+            return redirect(url_for('dashboard'))
+            
+        return render_template('login.html')
+    
+    # POST请求处理
+    data = request.get_json()
+    password = data.get('password')
+    remember_me = data.get('remember_me', False)
+    
+    # 正常登录验证
+    stored_hash = config.auth.admin_password
+    if hash_password(password) == stored_hash:
+        session.clear()  # 清除旧会话
+        session['logged_in'] = True
+        if remember_me:
+            session.permanent = True
+            app.permanent_session_lifetime = timedelta(days=30)
+        return jsonify({'status': 'success'})
+    
+    return jsonify({
+        'status': 'error',
+        'message': '密码错误'
+    })
+
+@app.route('/init_password', methods=['GET', 'POST'])
+def init_password():
+    # 初始化管理员密码页面
+    from src.config import config
+    
+    if request.method == 'GET':
+        # 如果已经设置了密码，重定向到登录页面
+        if config.auth.admin_password:
+            return redirect(url_for('login'))
+        return render_template('init_password.html')
+        
+    # POST请求处理
+    try:
+        data = request.get_json()
+        if not data or 'password' not in data:
+            return jsonify({
+                'status': 'error',
+                'message': '无效的请求数据'
+            })
+            
+        password = data.get('password')
+        
+        # 再次检查是否已经设置了密码
+        if config.auth.admin_password:
+            return jsonify({
+                'status': 'error',
+                'message': '密码已经设置'
+            })
+        
+        # 保存新密码的哈希值
+        hashed_password = hash_password(password)
+        if config.update_password(hashed_password):
+            # 重新加载配置
+            importlib.reload(sys.modules['src.config'])
+            from src.config import config
+            
+            # 验证密码是否正确保存
+            if not config.auth.admin_password:
+                return jsonify({
+                    'status': 'error',
+                    'message': '密码保存失败'
+                })
+            
+            # 设置登录状态
+            session.clear()
+            session['logged_in'] = True
+            return jsonify({'status': 'success'})
+        
+        return jsonify({
+            'status': 'error',
+            'message': '保存密码失败'
+        })
+        
+    except Exception as e:
+        logger.error(f"初始化密码失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+@app.route('/logout')
+def logout():
+    # 退出登录
+    session.clear()
+    return redirect(url_for('login'))
 
 if __name__ == '__main__':
     try:

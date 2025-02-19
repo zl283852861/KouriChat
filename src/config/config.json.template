@@ -146,6 +146,17 @@
                     }
                 }
             }
+        },
+        "auth_settings": {
+            "title": "认证设置",
+            "settings": {
+                "admin_password": {
+                    "value": "",
+                    "type": "string", 
+                    "description": "管理员密码",
+                    "is_secret": true
+                }
+            }
         }
     }
 } 

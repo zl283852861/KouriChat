@@ -29,20 +29,13 @@
             --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
         }
         html,body{
-            hight:100%;
+            height:100%;
             margin: 0;
         }
         body {
             background: var(--background-color);
-            background-image: linear-gradient(to bottom right, 
-                rgba(255, 255, 255, 0.1), 
-                rgba(255, 255, 255, 0));  /* 添加微妙的渐变效果 */
             color: var(--text-color);
-            background-size:cover;
-            background-position:center center;
-            background-attachment:fixed;
-            background-repeat:no-repeat; /* 改背景图片为平铺以及比例不变*/
-            transition: background 0.3s, color 0.3s;
+            transition: all 0.3s ease;
         }
 
         .config-section {
@@ -57,6 +50,21 @@
             transition: all 0.3s ease;
             position: relative;
             overflow: hidden;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: slideUp 0.5s ease forwards;
+            animation-delay: 0.1s;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         /* 添加卡片微妙的装饰效果 */
@@ -263,15 +271,33 @@
         main.container-fluid {
             padding: 2rem;  /* 增加整体内边距 */
         }
+
+        /* 添加相同的基础样式 */
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+        }
+
+        main {
+            flex: 1 0 auto;
+            width: 100%;
+            padding: 2rem 0;
+        }
     </style>
     <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/dark-mode.js"></script>
 </head>
 <body>
-    <!-- 替换原有的导航栏部分 -->
-    {% with active_page = 'config' %}
     {% include 'navbar.html' %}
-    {% endwith %}
-
+    
     <main class="container-fluid py-4">
         <div class="row">
             <!-- 左侧基础配置 -->
@@ -359,17 +385,14 @@
         </div>
     </main>
 
-    <div class="toast-container position-fixed bottom-0 end-0 p-3">
-        <div id="saveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
-            <div class="toast-header">
-                <strong class="me-auto">系统通知</strong>
-                <small>刚刚</small>
-                <button type="button" class="btn-close" data-bs-dismiss="toast"></button>
+    <div class="toast-container">
+        <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="toast-body">
+                <i class="bi bi-exclamation-triangle-fill text-danger"></i>
+                <span class="toast-message"></span>
             </div>
-            <div class="toast-body"></div>
         </div>
     </div>
-    <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script>
         // 护眼模式切换
         function toggleDarkMode() {
@@ -420,29 +443,14 @@
                 })
                 .then(response => response.json())
                 .then(data => {
-                    const toast = new bootstrap.Toast(document.getElementById('saveToast'));
-                    const toastBody = document.querySelector('.toast-body');
-                    
                     if (data.status === 'success') {
-                        toastBody.textContent = '配置已保存';
-                        toastBody.classList.remove('text-danger');
-                        toastBody.classList.add('text-success');
+                        showSuccess('配置已保存');
                     } else {
-                        toastBody.textContent = '保存失败：' + data.error;
-                        toastBody.classList.remove('text-success');
-                        toastBody.classList.add('text-danger');
+                        showError('保存失败：' + data.error);
                     }
-                    
-                    toast.show();
                 })
                 .catch(error => {
-                    console.error('Error:', error);
-                    const toast = new bootstrap.Toast(document.getElementById('saveToast'));
-                    const toastBody = document.querySelector('.toast-body');
-                    toastBody.textContent = '保存失败：' + error;
-                    toastBody.classList.remove('text-success');
-                    toastBody.classList.add('text-danger');
-                    toast.show();
+                    showError('保存失败：' + error);
                 });
             });
         });
@@ -607,6 +615,30 @@
                 baseUrlInput.value = 'https://api.deepseek.com/v1';
                 registerLink.href = 'https://platform.deepseek.com';
             }
+        }
+
+        function showError(message) {
+            const toast = document.querySelector('.toast');
+            const toastMessage = toast.querySelector('.toast-message');
+            toastMessage.textContent = message;
+            
+            const bsToast = new bootstrap.Toast(toast, {
+                delay: 3000,
+                animation: true
+            });
+            bsToast.show();
+        }
+
+        function showSuccess(message) {
+            const toast = document.querySelector('.toast');
+            const toastMessage = toast.querySelector('.toast-message');
+            toastMessage.textContent = message;
+            
+            const bsToast = new bootstrap.Toast(toast, {
+                delay: 3000,
+                animation: true
+            });
+            bsToast.show();
         }
     </script>
 </body>

@@ -1,3 +1,49 @@
+<style>
+    .form-label {
+        transition: all 0.3s ease;
+    }
+    
+    .form-label:hover {
+        color: var(--primary-color);
+    }
+    
+    .badge {
+        transition: all 0.3s ease;
+    }
+    
+    .badge:hover {
+        transform: scale(1.1);
+    }
+    
+    /* 列表项动画 */
+    .list-group-item {
+        transition: all 0.3s ease;
+    }
+    
+    .list-group-item:hover {
+        transform: translateX(5px);
+        background: rgba(var(--bs-primary-rgb), 0.1);
+    }
+    
+    /* 按钮动画 */
+    .btn {
+        transition: all 0.3s ease;
+    }
+    
+    .btn:hover {
+        transform: translateY(-2px);
+    }
+    
+    /* 输入框动画 */
+    .form-control {
+        transition: all 0.3s ease;
+    }
+    
+    .form-control:focus {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    }
+</style>
 <label class="form-label">
     <span class="badge badge-info rounded-pill me-2" 
         data-bs-toggle="tooltip" 
