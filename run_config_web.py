@@ -1671,6 +1671,62 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+@app.route('/get_model_configs')
+def get_model_configs():
+    """获取模型和API配置"""
+    try:
+        models_path = os.path.join(ROOT_DIR, 'src/config/models.json')
+        
+        if not os.path.exists(models_path):
+            return jsonify({
+                'status': 'error',
+                'message': '配置文件不存在'
+            })
+
+        with open(models_path, 'r', encoding='utf-8') as f:
+            configs = json.load(f)
+
+        # 检查云端更新
+        if configs.get('update_url'):
+            try:
+                response = requests.get(configs['update_url'], timeout=5)
+                if response.status_code == 200:
+                    cloud_configs = response.json()
+                    if cloud_configs.get('version', '0') > configs.get('version', '0'):
+                        configs = cloud_configs
+                        with open(models_path, 'w', encoding='utf-8') as f:
+                            json.dump(configs, f, indent=4, ensure_ascii=False)
+            except:
+                pass
+
+        # 过滤和排序提供商
+        active_providers = [p for p in configs['api_providers'] 
+                          if p.get('status') == 'active']
+        active_providers.sort(key=lambda x: x.get('priority', 999))
+        
+        # 构建返回配置
+        return_configs = {
+            'api_providers': active_providers,
+            'models': {}
+        }
+        
+        # 只包含活动模型
+        for provider in active_providers:
+            provider_id = provider['id']
+            if provider_id in configs['models']:
+                return_configs['models'][provider_id] = [
+                    m for m in configs['models'][provider_id]
+                    if m.get('status') == 'active'
+                ]
+
+        return jsonify(return_configs)
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
 if __name__ == '__main__':
     try:
         main()

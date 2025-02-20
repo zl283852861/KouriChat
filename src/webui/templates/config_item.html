@@ -86,12 +86,8 @@
         style="display: none;">
 {% elif key == 'DEEPSEEK_BASE_URL' %}
     <div class="mb-3">
-        <select class="form-select mb-2" onchange="updateDeepseekUrl(this.value)">
-            <option value="siliconflow" {% if config.value == 'https://api.siliconflow.cn/v1/' %}selected{% endif %}>硅基流动 API</option>
-            <option value="deepseek" {% if config.value == 'https://api.deepseek.com/v1' %}selected{% endif %}>DeepSeek API</option>
-            <option value="kourichat" {% if config.value == 'https://api.kourichat.com/v1' %}selected{% endif %}>KouriChat API</option>
-            <option value="ollama" {% if config.value == 'http://localhost:11434/api/chat' %}selected{% endif %}>本地 Ollama</option>
-            <option value="custom" {% if not config.value in ['https://api.siliconflow.cn/v1/', 'https://api.deepseek.com/v1', 'https://api.kourichat.com/v1', 'http://localhost:11434/api/chat'] %}selected{% endif %}>自定义 API</option>
+        <select class="form-select mb-2" id="api_provider_select" onchange="updateApiProvider(this.value)">
+            <option value="">请选择API提供商</option>
         </select>
 
         <!-- 添加自定义 API 输入框 -->
@@ -101,40 +97,189 @@
                    onchange="updateCustomApi(this.value)">
         </div>
 
-        <div class="d-flex gap-2">
-            <a href="https://www.siliconflow.cn" 
-               class="btn btn-outline-primary flex-grow-1"
-               target="_blank"
-               id="register_link_siliconflow">
-                <i class="bi bi-box-arrow-up-right me-1"></i>硅基流动注册
-            </a>
-            <a href="https://platform.deepseek.com" 
-               class="btn btn-outline-primary flex-grow-1"
-               target="_blank"
-               id="register_link_deepseek">
-                <i class="bi bi-box-arrow-up-right me-1"></i>DeepSeek注册
-            </a>
+        <!-- 注册链接容器 -->
+        <div id="register_links" class="d-none">
+            <!-- 注册链接将通过JavaScript动态添加 -->
         </div>
-        <div class="d-flex gap-2 mt-2">
-            <a href="https://api.kourichat.com/" 
-               class="btn btn-outline-primary flex-grow-1"
-               target="_blank"
-               id="register_link_kourichat">
-                <i class="bi bi-box-arrow-up-right me-1"></i>KouriChat API
-            </a>
-            <a href="https://ollama.ai" 
-               class="btn btn-outline-primary flex-grow-1"
-               target="_blank"
-               id="register_link_ollama">
-                <i class="bi bi-box-arrow-up-right me-1"></i>Ollama 文档
-            </a>
-        </div>
+
         <input type="text" class="form-control" 
             id="{{ key }}" name="{{ key }}" 
             value="{{ config.value }}"
             readonly
             style="display: none;">
     </div>
+
+    <script>
+    let modelConfigs = null;
+    
+    // 获取配置数据
+    async function fetchModelConfigs() {
+        try {
+            const response = await fetch('/get_model_configs');
+            const data = await response.json();
+            modelConfigs = data;
+            initializeSelects();
+        } catch (error) {
+            console.error('获取配置失败:', error);
+        }
+    }
+
+    // 初始化选择框
+    function initializeSelects() {
+        if (!modelConfigs) return;
+
+        // 初始化API提供商选择框
+        const apiSelect = document.getElementById('api_provider_select');
+        apiSelect.innerHTML = '<option value="">请选择API提供商</option>';
+        
+        // 按优先级排序并添加选项
+        modelConfigs.api_providers
+            .sort((a, b) => a.priority - b.priority)
+            .forEach(provider => {
+                if (provider.status === 'active') {
+                    apiSelect.innerHTML += `<option value="${provider.id}" 
+                        data-url="${provider.url}"
+                        data-register="${provider.register_url}"
+                        >${provider.name}</option>`;
+                }
+            });
+
+        // 根据当前配置设置初始值
+        const currentUrl = document.getElementById('DEEPSEEK_BASE_URL').value;
+        const currentProvider = modelConfigs.api_providers.find(p => p.url === currentUrl);
+        
+        if (currentProvider) {
+            apiSelect.value = currentProvider.id;
+            updateApiProvider(currentProvider.id);
+        } else if (currentUrl) {
+            apiSelect.value = 'custom';
+            showCustomApiInput(currentUrl);
+        }
+    }
+
+    // 显示自定义API输入框
+    function showCustomApiInput(value = '') {
+        const customApiInput = document.getElementById('customApiInput');
+        customApiInput.style.display = 'block';
+        if (value) {
+            customApiInput.querySelector('input').value = value;
+        }
+    }
+
+    // 更新API提供商
+    function updateApiProvider(value) {
+        const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
+        const customApiInput = document.getElementById('customApiInput');
+        const registerLinks = document.getElementById('register_links');
+        const modelSelect = document.getElementById('model_select');
+
+        // 重置所有状态
+        customApiInput.style.display = 'none';
+        registerLinks.classList.add('d-none');
+        registerLinks.innerHTML = '';
+
+        // 处理自定义选项
+        if (value === 'custom') {
+            showCustomApiInput();
+            updateModelSelect('custom');
+            return;
+        }
+
+        // 处理未选择情况
+        if (!value) {
+            updateModelSelect('');
+            return;
+        }
+
+        // 获取选中的提供商配置
+        const selectedOption = document.querySelector(`#api_provider_select option[value="${value}"]`);
+        if (!selectedOption) return;
+
+        // 更新API URL
+        const apiUrl = selectedOption.dataset.url;
+        baseUrlInput.value = apiUrl;
+
+        // 创建注册按钮
+        const registerUrl = selectedOption.dataset.register;
+        if (registerUrl) {
+            const link = document.createElement('a');
+            link.href = registerUrl;
+            link.className = 'btn btn-outline-primary w-100';
+            link.target = '_blank';
+            link.innerHTML = `<i class="bi bi-box-arrow-up-right me-1"></i>前往${selectedOption.textContent.replace(' API', '')}注册`;
+            registerLinks.innerHTML = '';
+            registerLinks.appendChild(link);
+            registerLinks.classList.remove('d-none');
+        }
+
+        // 更新模型选择框
+        updateModelSelect(value);
+    }
+
+    // 更新模型选择框
+    function updateModelSelect(providerId) {
+        const modelSelect = document.getElementById('model_select');
+        modelSelect.innerHTML = '<option value="">请选择模型</option>';
+
+        if (providerId === 'custom') {
+            modelSelect.innerHTML += '<option value="custom">自定义模型</option>';
+            return;
+        }
+
+        if (!providerId) return;
+
+        // 获取并显示当前提供商的模型
+        const models = modelConfigs.models[providerId] || [];
+        models.forEach(model => {
+            if (model.status === 'active') {
+                modelSelect.innerHTML += `
+                    <option value="${model.id}" 
+                        data-type="${model.type}"
+                        data-context-length="${model.context_length}"
+                        >${model.name}</option>`;
+            }
+        });
+
+        // 添加自定义选项
+        modelSelect.innerHTML += '<option value="custom">自定义模型</option>';
+
+        // 设置当前选中的模型
+        const currentModel = document.getElementById('MODEL').value;
+        if (models.some(m => m.id === currentModel)) {
+            modelSelect.value = currentModel;
+        } else if (currentModel) {
+            modelSelect.value = 'custom';
+            document.getElementById('customModelInput').style.display = 'block';
+            document.getElementById('customModelInput').querySelector('input').value = currentModel;
+        }
+    }
+
+    // 更新自定义API
+    function updateCustomApi(value) {
+        document.getElementById('DEEPSEEK_BASE_URL').value = value;
+    }
+
+    // 更新模型
+    function updateModel(value) {
+        const modelInput = document.getElementById('MODEL');
+        const customModelInput = document.getElementById('customModelInput');
+        
+        if (value === 'custom') {
+            customModelInput.style.display = 'block';
+        } else {
+            customModelInput.style.display = 'none';
+            modelInput.value = value;
+        }
+    }
+
+    // 更新自定义模型
+    function updateCustomModel(value) {
+        document.getElementById('MODEL').value = value;
+    }
+
+    // 页面加载时获取配置
+    document.addEventListener('DOMContentLoaded', fetchModelConfigs);
+    </script>
 {% elif key == 'PROMPT_ENHANCEMENT' %}
     <select class="form-select" id="{{ key }}" name="{{ key }}">
         <option value="True" {% if config.value %}selected{% endif %}>启用</option>
@@ -160,20 +305,8 @@
     </div>
 {% elif key == 'MODEL' %}
     <div class="mb-3">
-        <select class="form-select mb-2" onchange="updateModel(this.value)">
-            <optgroup label="硅基流动">
-                <option value="deepseek-ai/DeepSeek-V3" {% if config.value == 'deepseek-ai/DeepSeek-V3' %}selected{% endif %}>硅基流动V3模型（免费额度版）</option>
-                <option value="deepseek-ai/DeepSeek-R1" {% if config.value == 'deepseek-ai/DeepSeek-R1' %}selected{% endif %}>硅基流动R1模型（免费额度版）</option>
-                <option value="Pro/deepseek-ai/DeepSeek-V3" {% if config.value == 'Pro/deepseek-ai/DeepSeek-V3' %}selected{% endif %}>硅基流动V3模型（付费版）</option>
-                <option value="Pro/deepseek-ai/DeepSeek-R1" {% if config.value == 'Pro/deepseek-ai/DeepSeek-R1' %}selected{% endif %}>硅基流动R1模型（付费版）</option>
-            </optgroup>
-            <optgroup label="DeepSeek">
-                <option value="deepseek-chat" {% if config.value == 'deepseek-chat' %}selected{% endif %}>deepseek官方V3模型</option>
-                <option value="deepseek-reasoner" {% if config.value == 'deepseek-reasoner' %}selected{% endif %}>deepseek官方R1模型</option>
-            </optgroup>
-            <optgroup label="其他">
-                <option value="custom" {% if not config.value in ['deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1', 'Pro/deepseek-ai/DeepSeek-V3', 'Pro/deepseek-ai/DeepSeek-R1', 'deepseek-chat', 'deepseek-reasoner'] %}selected{% endif %}>自定义模型</option>
-            </optgroup>
+        <select class="form-select mb-2" id="model_select" onchange="updateModel(this.value)">
+            <option value="">请选择模型</option>
         </select>
 
         <!-- 添加自定义模型输入框 -->
@@ -190,48 +323,6 @@
             readonly
             style="display: none;">
     </div>
-
-    <script>
-    function updateModel(value) {
-        const modelInput = document.getElementById('MODEL');
-        const customModelInput = document.getElementById('customModelInput');
-        
-        if (value === 'custom') {
-            customModelInput.style.display = 'block';
-            // 如果当前值不在预设选项中，保持当前值
-            if (!['deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1', 
-                'Pro/deepseek-ai/DeepSeek-V3', 'Pro/deepseek-ai/DeepSeek-R1', 
-                'deepseek-chat', 'deepseek-reasoner'].includes(modelInput.value)) {
-                customModelInput.querySelector('input').value = modelInput.value;
-            }
-        } else {
-            customModelInput.style.display = 'none';
-            modelInput.value = value;
-        }
-    }
-
-    function updateCustomModel(value) {
-        const modelInput = document.getElementById('MODEL');
-        modelInput.value = value;
-    }
-
-    // 页面加载时检查是否需要显示自定义输入框
-    document.addEventListener('DOMContentLoaded', function() {
-        const modelInput = document.getElementById('MODEL');
-        const customModelInput = document.getElementById('customModelInput');
-        
-        if (modelInput && customModelInput) {
-            const currentValue = modelInput.value;
-            if (!['deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1', 
-                'Pro/deepseek-ai/DeepSeek-V3', 'Pro/deepseek-ai/DeepSeek-R1', 
-                'deepseek-chat', 'deepseek-reasoner'].includes(currentValue)) {
-                document.querySelector('select[onchange="updateModel(this.value)"]').value = 'custom';
-                customModelInput.style.display = 'block';
-                customModelInput.querySelector('input').value = currentValue;
-            }
-        }
-    });
-    </script>
 {% elif config.type == "number" %}
     {% if key == 'MAX_TOKEN' %}
         <style>

@@ -654,40 +654,6 @@
             }
         }
 
-        function updateDeepseekUrl(value) {
-            const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
-            const customApiInput = document.getElementById('customApiInput');
-            
-            let apiUrl = '';
-            switch(value) {
-                case 'siliconflow':
-                    apiUrl = 'https://api.siliconflow.cn/v1/';
-                    break;
-                case 'deepseek':
-                    apiUrl = 'https://api.deepseek.com/v1';
-                    break;
-                case 'kourichat':
-                    apiUrl = 'https://api.kourichat.com/v1';
-                    break;
-                case 'ollama':
-                    apiUrl = 'http://localhost:11434/api/chat';
-                    break;
-                case 'custom':
-                    customApiInput.style.display = 'block';
-                    return;
-                default:
-                    apiUrl = value;
-            }
-            
-            baseUrlInput.value = apiUrl;
-            customApiInput.style.display = 'none';
-        }
-
-        function updateCustomApi(value) {
-            const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
-            baseUrlInput.value = value;
-        }
-
         function showSaveNotification(message, type = 'success') {
             const notification = document.getElementById('saveNotification');
             const messageElement = document.getElementById('saveNotificationMessage');
