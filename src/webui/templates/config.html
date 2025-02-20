@@ -475,6 +475,11 @@
                 // 调试输出所有表单数据
                 for (let [key, value] of formData.entries()) {
                     console.log(`Form data - ${key}: ${value}`);
+                    // 特别处理温度参数
+                    if (key === 'TEMPERATURE') {
+                        value = parseFloat(value);
+                        console.log(`处理后的温度值: ${value}`);
+                    }
                     processFormValue(config, key, value);
                 }
                 
@@ -483,6 +488,15 @@
                     for (let [key, value] of otherFormData.entries()) {
                         processFormValue(config, key, value);
                     }
+                }
+
+                // 特别检查温度值
+                const temperatureSlider = document.getElementById('TEMPERATURE_slider');
+                const temperatureInput = document.getElementById('TEMPERATURE');
+                if (temperatureSlider && temperatureInput) {
+                    const tempValue = parseFloat(temperatureSlider.value);
+                    config['TEMPERATURE'] = tempValue;
+                    console.log(`Final temperature value from slider: ${tempValue}`);
                 }
 
                 // 发送保存请求
@@ -525,7 +539,8 @@
                 config[key] = value.split(',').map(item => item.trim());
             } else if (key === 'TEMPERATURE') {
                 // 特殊处理温度参数
-                config[key] = parseFloat(value);
+                const tempValue = parseFloat(value);
+                config[key] = tempValue;
                 console.log(`Processed temperature to: ${config[key]} (type: ${typeof config[key]})`);
             } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
                 config[key] = value.toLowerCase() === 'true';

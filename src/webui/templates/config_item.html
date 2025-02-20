@@ -446,24 +446,12 @@
                     #3498db 60%,
                     #9b59b6 70%,
                     #e74c3c 80%,
-                    #e74c3c 100%       /* 添加百分比, 让颜色更均匀 */
+                    #e74c3c 100%
                 );
                 outline: none;
                 transition: all 0.3s ease;
             }
             
-            .temperature-slider::-moz-range-track {
-                background: linear-gradient(to right, 
-                    #3498db 0%,
-                    #3498db 60%,
-                    #9b59b6 70%,
-                    #e74c3c 80%,
-                    #e74c3c 100%
-                );
-                height: 8px;
-                border-radius: 4px;
-            }
-
             .temperature-slider::-webkit-slider-thumb {
                 -webkit-appearance: none;
                 appearance: none;
@@ -488,16 +476,6 @@
                 border: 2px solid #0d6efd;
             }
             
-            .temperature-slider::-webkit-slider-thumb:hover {
-                background: #f8f9fa;
-                box-shadow: 0 0 8px rgba(13,110,253,0.5);
-                transform: scale(1.1);
-            }
-            
-            .temperature-slider:active {
-                opacity: 0.8;
-            }
-            
             .temperature-value {
                 transition: all 0.2s ease;
             }
@@ -520,7 +498,7 @@
         
         <div class="mb-3">
             <div class="d-flex justify-content-between align-items-center">
-                <span>当前值: <strong id="{{ key }}_display" class="temperature-value">{{ "%.1f"|format(config.value) }}</strong></span>
+                <span>当前值: <strong id="{{ key }}_display" class="temperature-value">{{ config.value }}</strong></span>
             </div>
             <input type="range" 
                 class="temperature-slider" 
@@ -540,34 +518,45 @@
             <input type="hidden" 
                 id="{{ key }}" 
                 name="{{ key }}" 
-                value="{{ "%.1f"|format(config.value) }}">
+                value="{{ config.value }}">
         </div>
 
         <script>
-            // 动画不好加，这样更精细，让滑动条更加丝滑
             function updateTemperature(key, value) {
-                // 将字符串转换为数字并保留更多小数位用于计算
+                // 将字符串转换为数字
                 const numValue = parseFloat(value);
-                
-                // 显示时四舍五入到一位小数，避免小数位数太多
-                const displayValue = Math.round(numValue * 10) / 10;
                 
                 // 更新显示值
                 const displayElement = document.getElementById(key + '_display');
                 if (displayElement) {
                     displayElement.classList.add('updating');
-                    displayElement.textContent = displayValue.toFixed(1);
+                    displayElement.textContent = numValue;
                     setTimeout(() => {
                         displayElement.classList.remove('updating');
                     }, 300);
                 }
                 
-                // 更新隐藏的实际提交值，实际提交的值也是四舍五入的
+                // 更新隐藏的实际提交值
                 const inputElement = document.getElementById(key);
                 if (inputElement) {
-                    inputElement.value = displayValue.toFixed(1);
+                    inputElement.value = numValue;
+                    // 触发 change 事件以确保表单能捕获到值的变化
+                    const event = new Event('change', { bubbles: true });
+                    inputElement.dispatchEvent(event);
                 }
+
+                // 调试输出
+                console.log(`Temperature updated - key: ${key}, value: ${numValue}, type: ${typeof numValue}`);
+                console.log(`Hidden input value: ${document.getElementById(key).value}`);
             }
+
+            // 确保页面加载时初始化温度值
+            document.addEventListener('DOMContentLoaded', function() {
+                const slider = document.getElementById('{{ key }}_slider');
+                if (slider) {
+                    updateTemperature('{{ key }}', slider.value);
+                }
+            });
         </script>
     {% else %}
         <input type="number" 

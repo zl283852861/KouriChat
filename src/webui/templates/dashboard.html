@@ -448,6 +448,37 @@
         .command-error {
             color: #dc3545;
         }
+
+        .modal-content {
+            border: 1px solid var(--card-border);
+            box-shadow: var(--card-shadow);
+        }
+        
+        .modal-header, .modal-footer {
+            border-color: var(--card-border);
+        }
+        
+        .modal-body {
+            color: var(--text-color);
+        }
+        
+        .btn-close {
+            color: var(--text-color);
+        }
+        
+        /* 动画效果 */
+        .modal.fade .modal-dialog {
+            transition: transform 0.2s ease-out;
+        }
+        
+        .modal.fade .modal-content {
+            transform: scale(0.95);
+            transition: transform 0.2s ease-out;
+        }
+        
+        .modal.show .modal-content {
+            transform: scale(1);
+        }
     </style>
     <!-- 添加 dark-mode.js -->
     <script src="/static/js/bootstrap.bundle.min.js"></script>
@@ -862,6 +893,28 @@
         </div>
     </footer>
 
+    <div class="modal fade" id="stopBotModal" tabindex="-1" aria-labelledby="stopBotModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content" style="background: var(--card-bg); backdrop-filter: blur(10px);">
+                <div class="modal-header border-bottom-0">
+                    <h5 class="modal-title" id="stopBotModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>停止确认
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>确定要停止机器人吗？这将中断所有正在进行的对话。</p>
+                </div>
+                <div class="modal-footer border-top-0">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" onclick="confirmStopBot()">
+                        <i class="bi bi-stop-fill me-1"></i>确认停止
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script>
         // 添加 showToast 函数
@@ -1092,40 +1145,48 @@
 
         // 修改停止机器人函数
         function stopBot() {
+            // 显示模态框而不是使用 confirm
+            const stopModal = new bootstrap.Modal(document.getElementById('stopBotModal'));
+            stopModal.show();
+        }
+
+        function confirmStopBot() {
             const loadingStatus = document.getElementById('botLoadingStatus');
             const loadingText = document.getElementById('botLoadingText');
             const startBtn = document.getElementById('startBotBtn');
             const stopBtn = document.getElementById('stopBotBtn');
             
-            if (confirm('确定要停止机器人吗？')) {
-                loadingStatus.classList.remove('d-none');
-                loadingText.textContent = '正在停止机器人...';
-                stopBtn.disabled = true;
-                
-                fetch('/stop_bot')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.status === 'success') {
-                            document.getElementById('botStatus').innerHTML = 
-                                '<span class="status-stopped">已停止</span>';
-                            document.getElementById('botUptime').textContent = 
-                                '运行时间: 0分钟';
-                            showToast('机器人已停止', 'success');
-                            isPollingLogs = false;
-                            startBtn.disabled = false;
-                            stopBtn.disabled = true;
-                        } else {
-                            showToast('停止失败: ' + data.message, 'error');
-                            stopBtn.disabled = false;
-                        }
-                        loadingStatus.classList.add('d-none');
-                    })
-                    .catch(error => {
-                        showToast('停止失败: ' + error, 'error');
+            // 隐藏模态框
+            const stopModal = bootstrap.Modal.getInstance(document.getElementById('stopBotModal'));
+            stopModal.hide();
+            
+            loadingStatus.classList.remove('d-none');
+            loadingText.textContent = '正在停止机器人...';
+            stopBtn.disabled = true;
+            
+            fetch('/stop_bot')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        document.getElementById('botStatus').innerHTML = 
+                            '<span class="status-stopped">已停止</span>';
+                        document.getElementById('botUptime').textContent = 
+                            '运行时间: 0分钟';
+                        showToast('机器人已停止', 'success');
+                        isPollingLogs = false;
+                        startBtn.disabled = false;
+                        stopBtn.disabled = true;
+                    } else {
+                        showToast('停止失败: ' + data.message, 'error');
                         stopBtn.disabled = false;
-                        loadingStatus.classList.add('d-none');
-                    });
-            }
+                    }
+                    loadingStatus.classList.add('d-none');
+                })
+                .catch(error => {
+                    showToast('停止失败: ' + error, 'error');
+                    stopBtn.disabled = false;
+                    loadingStatus.classList.add('d-none');
+                });
         }
 
         // 检查更新
