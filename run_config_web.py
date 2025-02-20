@@ -282,25 +282,18 @@ def save_config(new_config: Dict[str, Any]) -> bool:
         for key, value in new_config.items():
             logger.debug(f"{key}: {value} (类型: {type(value)})")
 
-        # 特别关注温度参数
-        temperature = new_config.get("TEMPERATURE")
-        logger.debug(f"温度参数: {temperature} (类型: {type(temperature)})")
+        # 特别处理温度参数
+        temperature = float(new_config.get("TEMPERATURE", 1.1))
+        logger.debug(f"处理后的温度参数: {temperature} (类型: {type(temperature)})")
 
         # 构建所有新的配置对象
-        user_settings = UserSettings(
-            listen_list=new_config.get("LISTEN_LIST", [])
-        )
-
         llm_settings = LLMSettings(
             api_key=new_config.get("DEEPSEEK_API_KEY", ""),
             base_url=new_config.get("DEEPSEEK_BASE_URL", ""),
             model=new_config.get("MODEL", ""),
             max_tokens=int(new_config.get("MAX_TOKEN", 2000)),
-            temperature=float(new_config.get("TEMPERATURE", 1.1))  # 改回 TEMPERATURE
+            temperature=temperature  # 使用处理后的温度值
         )
-
-        # 记录转换后的温度值
-        logger.debug(f"LLM设置中的温度值: {llm_settings.temperature}")
 
         media_settings = MediaSettings(
             image_recognition=ImageRecognitionSettings(
@@ -341,7 +334,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                     "title": "用户设置",
                     "settings": {
                         "listen_list": {
-                            "value": user_settings.listen_list,
+                            "value": UserSettings(listen_list=new_config.get("LISTEN_LIST", [])).listen_list,
                             "type": "array",
                             "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）",
                         }
@@ -377,7 +370,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                             "description": "回复最大token数量",
                         },
                         "temperature": {
-                            "value": float(llm_settings.temperature),
+                            "value": temperature,
                             "type": "number",
                             "description": "AI回复的温度值",
                             "min": 0.0,
