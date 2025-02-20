@@ -1,6 +1,6 @@
 {
     "version": "1.0.0",
-    "update_url": "https://api.kourichat.com/v1/models/latest",
+    "update_url": "https://static.kourichat.com/models/latest.json",
     "api_providers": [
         {
             "id": "kourichat",
