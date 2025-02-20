@@ -147,11 +147,11 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             "MODEL": {"value": config.llm.model, "description": "AI模型选择"},
             "DEEPSEEK_BASE_URL": {
                 "value": config.llm.base_url,
-                "description": "硅基流动API注册地址",
+                "description": "API注册地址",
             },
             "DEEPSEEK_API_KEY": {
                 "value": config.llm.api_key,
-                "description": "DeepSeek API密钥",
+                "description": "API密钥",
             },
             "MAX_TOKEN": {
                 "value": config.llm.max_tokens,
@@ -173,7 +173,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
         {
             "MOONSHOT_API_KEY": {
                 "value": config.media.image_recognition.api_key,
-                "description": "Moonshot API密钥（用于图片和表情包识别）",
+                "description": "Moonshot API密钥（用于图片和表情包识别）\n API申请https://platform.moonshot.cn/console/api-keys （免费15元额度）",
             },
             "MOONSHOT_BASE_URL": {
                 "value": config.media.image_recognition.base_url,
@@ -353,7 +353,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                         "api_key": {
                             "value": llm_settings.api_key,
                             "type": "string",
-                            "description": "DeepSeek API密钥",
+                            "description": "API密钥",
                             "is_secret": True,
                         },
                         "base_url": {
@@ -515,17 +515,26 @@ def save():
     """保存配置"""
     try:
         new_config = request.json
-        # 添加调试日志
         logger.debug(f"接收到的配置数据: {new_config}")
-        logger.debug(f"MIN_COUNTDOWN_HOURS type: {type(new_config.get('MIN_COUNTDOWN_HOURS'))}")
-        logger.debug(f"MIN_COUNTDOWN_HOURS value: {new_config.get('MIN_COUNTDOWN_HOURS')}")
         
         if save_config(new_config):
-            return jsonify({"status": "success", "message": "配置已保存"})
-        return jsonify({"status": "error", "message": "保存失败"})
+            return jsonify({
+                "status": "success", 
+                "message": "✨ 配置已成功保存并生效",
+                "title": "保存成功"  # 添加标题字段
+            })
+        return jsonify({
+            "status": "error", 
+            "message": "保存失败，请重试",
+            "title": "保存失败"
+        })
     except Exception as e:
         logger.error(f"保存失败: {str(e)}")
-        return jsonify({"status": "error", "message": f"保存失败: {str(e)}"})
+        return jsonify({
+            "status": "error", 
+            "message": f"保存失败: {str(e)}",
+            "title": "错误"
+        })
 
 # 添加上传处理路由
 @app.route('/upload_background', methods=['POST'])

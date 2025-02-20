@@ -295,6 +295,39 @@
             width: 100%;
             padding: 2rem 0;
         }
+
+        /* 添加通知动画 */
+        .toast {
+            transition: all 0.3s ease;
+            transform: translateY(-20px);
+            opacity: 0;
+        }
+
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        /* 优化按钮悬停效果 */
+        .btn-outline-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        /* 添加输入框过渡效果 */
+        #customApiInput {
+            transition: all 0.3s ease;
+        }
+
+        #customApiInput.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+
+        #customApiInput.hide {
+            transform: translateY(-10px);
+            opacity: 0;
+        }
     </style>
     <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
@@ -398,6 +431,20 @@
             </div>
         </div>
     </div>
+
+    <!-- 在 body 标签下添加顶部通知区域 -->
+    <div class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 1050">
+        <div id="saveNotification" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
+            <div class="d-flex">
+                <div class="toast-body">
+                    <i class="bi bi-check-circle-fill me-2"></i>
+                    <span id="saveNotificationMessage"></span>
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 护眼模式切换
         function toggleDarkMode() {
@@ -449,13 +496,13 @@
                 .then(response => response.json())
                 .then(data => {
                     if (data.status === 'success') {
-                        showSuccess('配置已保存');
+                        showSaveNotification(data.message);
                     } else {
-                        showError('保存失败：' + data.error);
+                        showSaveNotification(data.message, 'error');
                     }
                 })
                 .catch(error => {
-                    showError('保存失败：' + error);
+                    showSaveNotification('保存失败：' + error, 'error');
                 });
             });
 
@@ -609,39 +656,60 @@
 
         function updateDeepseekUrl(value) {
             const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
-            const registerLink = document.getElementById('register_link');
+            const customApiInput = document.getElementById('customApiInput');
             
-            if (value === 'siliconflow') {
-                baseUrlInput.value = 'https://api.siliconflow.cn/v1/';
-                registerLink.href = 'https://www.siliconflow.cn';
-            } else {
-                baseUrlInput.value = 'https://api.deepseek.com/v1';
-                registerLink.href = 'https://platform.deepseek.com';
+            let apiUrl = '';
+            switch(value) {
+                case 'siliconflow':
+                    apiUrl = 'https://api.siliconflow.cn/v1/';
+                    break;
+                case 'deepseek':
+                    apiUrl = 'https://api.deepseek.com/v1';
+                    break;
+                case 'kourichat':
+                    apiUrl = 'https://api.kourichat.com/v1';
+                    break;
+                case 'ollama':
+                    apiUrl = 'http://localhost:11434/api/chat';
+                    break;
+                case 'custom':
+                    customApiInput.style.display = 'block';
+                    return;
+                default:
+                    apiUrl = value;
             }
+            
+            baseUrlInput.value = apiUrl;
+            customApiInput.style.display = 'none';
         }
 
-        function showError(message) {
-            const toast = document.querySelector('.toast');
-            const toastMessage = toast.querySelector('.toast-message');
-            toastMessage.textContent = message;
-            
-            const bsToast = new bootstrap.Toast(toast, {
-                delay: 3000,
-                animation: true
-            });
-            bsToast.show();
+        function updateCustomApi(value) {
+            const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
+            baseUrlInput.value = value;
         }
 
-        function showSuccess(message) {
-            const toast = document.querySelector('.toast');
-            const toastMessage = toast.querySelector('.toast-message');
-            toastMessage.textContent = message;
+        function showSaveNotification(message, type = 'success') {
+            const notification = document.getElementById('saveNotification');
+            const messageElement = document.getElementById('saveNotificationMessage');
             
-            const bsToast = new bootstrap.Toast(toast, {
-                delay: 3000,
-                animation: true
+            // 移除现有的背景色类
+            notification.classList.remove('bg-success', 'bg-danger');
+            
+            // 根据类型设置样式
+            if (type === 'success') {
+                notification.classList.add('bg-success');
+            } else {
+                notification.classList.add('bg-danger');
+            }
+            
+            messageElement.textContent = message;
+            
+            const toast = new bootstrap.Toast(notification, {
+                animation: true,
+                autohide: true,
+                delay: 3000
             });
-            bsToast.show();
+            toast.show();
         }
     </script>
 </body>
