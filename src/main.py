@@ -1,5 +1,3 @@
-import base64
-import requests
 import logging
 import random
 from datetime import datetime
@@ -11,7 +9,6 @@ from services.database import Session, ChatMessage
 from config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
 from wxauto import WeChat
 import re
-import pyautogui
 from handlers.emoji import EmojiHandler
 from handlers.image import ImageHandler
 from handlers.message import MessageHandler
@@ -19,15 +16,10 @@ from handlers.voice import VoiceHandler
 from services.ai.moonshot import MoonShotAI
 from services.ai.deepseek import DeepSeekAI
 from src.handlers.memory import MemoryHandler
-from utils.cleanup import cleanup_pycache, CleanupUtils
 from utils.logger import LoggerConfig
-from colorama import init, Fore, Style
-import signal
-import psutil
-import atexit
-from flask import jsonify,Flask
+from utils.console import print_status
+from colorama import init, Style
 
-app = Flask(__name__)
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -255,9 +247,6 @@ last_chat_time = None
 countdown_timer = None
 is_countdown_running = False
 
-# 创建全局实例
-cleanup_utils = CleanupUtils(root_dir)
-
 def update_last_chat_time():
     """更新最后一次聊天时间"""
     global last_chat_time
@@ -428,138 +417,23 @@ def initialize_wx_listener():
     
     return None
 
-def print_banner():
-    """打印启动横幅"""
-    banner = f"""
-{Fore.CYAN}
-╔══════════════════════════════════════════════╗
-║              KouriChat - AI Chat             ║
-║           Created with ❤️  by umaru          ║   
-║     https://github.com/KouriChat/KouriChat   ║
-╚══════════════════════════════════════════════╝
-
-KouriChat - AI Chat  Copyright (C) 2025,github.com/umaru-233
-This program comes with ABSOLUTELY NO WARRANTY; for details please read
-https://www.gnu.org/licenses/gpl-3.0.en.html.
-该程序是基于GPLv3许可证分发的，因此该程序不提供任何保证；有关更多信息，请参阅GPLv3许可证。
-This is free software, and you are welcome to redistribute it
-under certain conditions; please read
-https://www.gnu.org/licenses/gpl-3.0.en.html.
-这是免费软件，欢迎您二次分发它，在某些情况下，请参阅GPLv3许可证。
-It's freeware, and if you bought it for money, you've been scammed!
-这是免费软件，如果你是花钱购买的，说明你被骗了！
-{Style.RESET_ALL}"""
-    print(banner)
-
-def print_status(message: str, status: str = "info", emoji: str = ""):
-    """打印状态信息"""
-    colors = {
-        "success": Fore.GREEN,
-        "info": Fore.BLUE,
-        "warning": Fore.YELLOW,
-        "error": Fore.RED
-    }
-    color = colors.get(status, Fore.WHITE)
-    print(f"{color}{emoji} {message}{Style.RESET_ALL}")
-
-def stop_bot_process():
-    """停止机器人进程及其所有子进程"""
-    try:
-        if bot_process:
-            # 获取进程组
-            parent = psutil.Process(bot_process.pid)
-            children = parent.children(recursive=True)
-            
-            # 终止子进程
-            for child in children:
-                try:
-                    child.terminate()
-                except:
-                    try:
-                        child.kill()
-                    except:
-                        pass
-            
-            # 终止主进程
-            bot_process.terminate()
-            
-            # 等待进程结束
-            gone, alive = psutil.wait_procs(children + [parent], timeout=3)
-            
-            # 强制结束仍在运行的进程
-            for p in alive:
-                try:
-                    p.kill()
-                except:
-                    pass
-            
-            return True
-    except Exception as e:
-        logger.error(f"停止机器人进程失败: {str(e)}")
-        return False
-
-@app.route('/stop_bot')
-def stop_bot():
-    """停止机器人"""
-    global bot_process
-    try:
-        if bot_process:
-            if stop_bot_process():
-                bot_process = None
-                return jsonify({
-                    'status': 'success',
-                    'message': '机器人已停止'
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': '停止机器人失败'
-                })
-        return jsonify({
-            'status': 'error',
-            'message': '机器人未在运行'
-        })
-    except Exception as e:
-        logger.error(f"停止机器人失败: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        })
-
 def main():
     listener_thread = None  # 在函数开始时定义线程变量
     try:
-        print_banner()
-        print_status("系统启动中...", "info", "🚀")
-        print("-" * 50)
-        
-        # 清理缓存
-        print_status("清理系统缓存...", "info", "��")
-        cleanup_pycache()
-        logger_config.cleanup_old_logs()
-        cleanup_utils.cleanup_all()
-        image_handler.cleanup_temp_dir()
-        voice_handler.cleanup_voice_dir()
-        print_status("缓存清理完成", "success", "✨")
-        
-        # 检查系统目录
-        print_status("检查系统目录...", "info", "��")
-        required_dirs = ['data', 'logs', 'src/config']
-        for dir_name in required_dirs:
-            dir_path = os.path.join(root_dir, dir_name)
-            if not os.path.exists(dir_path):
-                os.makedirs(dir_path)
-                print_status(f"创建目录: {dir_name}", "info", "📁")
-        print_status("目录检查完成", "success", "✅")
+        # 设置wxauto日志路径
+        automation_log_dir = os.path.join(root_dir, "logs", "automation")
+        if not os.path.exists(automation_log_dir):
+            os.makedirs(automation_log_dir)
+        os.environ["WXAUTO_LOG_PATH"] = os.path.join(automation_log_dir, "AutomationLog.txt")
         
         # 初始化微信监听
-        print_status("初始化微信监听...", "info", "🤖")
+        print_status("初始化微信监听...", "info", "BOT")
         wx = initialize_wx_listener()
         if not wx:
-            print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "❌")
+            print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
             return
-        print_status("微信监听初始化完成", "success", "✅")
-        print_status("检查短期记忆...", "info", "🔍")
+        print_status("微信监听初始化完成", "success", "CHECK")
+        print_status("检查短期记忆...", "info", "SEARCH")
 
         memory_handler.summarize_memories()  # 启动时处理残留记忆
 
@@ -571,56 +445,56 @@ def main():
                 except Exception as e:
                     logger.error(f"记忆维护失败: {str(e)}")
 
-        print_status("启动记忆维护线程...", "info", "🧠")
+        print_status("启动记忆维护线程...", "info", "BRAIN")
         memory_thread = threading.Thread(target=memory_maintenance)
         memory_thread.daemon = True
         memory_thread.start()
-        print_status("验证记忆存储路径...", "info", "📁")
+        print_status("验证记忆存储路径...", "info", "FILE")
         memory_dir = os.path.join(root_dir, "data", "memory")
         if not os.path.exists(memory_dir):
             os.makedirs(memory_dir)
-            print_status(f"创建记忆目录: {memory_dir}", "success", "✅")
+            print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
 
         avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
         prompt_path = os.path.join(avatar_dir, "avatar.md")
         if not os.path.exists(prompt_path):
             with open(prompt_path, "w", encoding="utf-8") as f:
                 f.write("# 核心人格\n[默认内容]")
-            print_status(f"创建人设提示文件", "warning", "⚠️")
+            print_status(f"创建人设提示文件", "warning", "WARNING")
         # 启动消息监听线程
-        print_status("启动消息监听线程...", "info", "📡")
+        print_status("启动消息监听线程...", "info", "ANTENNA")
         listener_thread = threading.Thread(target=message_listener)
         listener_thread.daemon = True  # 确保线程是守护线程
         listener_thread.start()
-        print_status("消息监听已启动", "success", "✅")
+        print_status("消息监听已启动", "success", "CHECK")
 
         # 启动自动消息
-        print_status("启动自动消息系统...", "info", "⏰")
+        print_status("启动自动消息系统...", "info", "CLOCK")
         start_countdown()
-        print_status("自动消息系统已启动", "success", "✅")
+        print_status("自动消息系统已启动", "success", "CHECK")
         
         print("-" * 50)
-        print_status("系统初始化完成", "success", "🌟")
+        print_status("系统初始化完成", "success", "STAR_2")
         print("=" * 50)
         
         # 主循环
         while True:
             time.sleep(1)
             if not listener_thread.is_alive():
-                print_status("监听线程已断开，尝试重新连接...", "warning", "🔄")
+                print_status("监听线程已断开，尝试重新连接...", "warning", "SYNC")
                 try:
                     wx = initialize_wx_listener()
                     if wx:
                         listener_thread = threading.Thread(target=message_listener)
                         listener_thread.daemon = True
                         listener_thread.start()
-                        print_status("重新连接成功", "success", "✅")
+                        print_status("重新连接成功", "success", "CHECK")
                 except Exception as e:
-                    print_status(f"重新连接失败: {str(e)}", "error", "❌")
+                    print_status(f"重新连接失败: {str(e)}", "error", "CROSS")
                     time.sleep(5)
 
     except Exception as e:
-        print_status(f"主程序异常: {str(e)}", "error", "💥")
+        print_status(f"主程序异常: {str(e)}", "error", "ERROR")
         logger.error(f"主程序异常: {str(e)}", exc_info=True)  # 添加详细日志记录
     finally:
         # 清理资源
@@ -629,13 +503,13 @@ def main():
         
         # 关闭监听线程
         if listener_thread and listener_thread.is_alive():
-            print_status("正在关闭监听线程...", "info", "🔄")
+            print_status("正在关闭监听线程...", "info", "SYNC")
             listener_thread.join(timeout=2)
             if listener_thread.is_alive():
-                print_status("监听线程未能正常关闭", "warning", "⚠️")
+                print_status("监听线程未能正常关闭", "warning", "WARNING")
         
-        print_status("正在关闭系统...", "warning", "🛑")
-        print_status("系统已退出", "info", "👋")
+        print_status("正在关闭系统...", "warning", "STOP")
+        print_status("系统已退出", "info", "BYE")
         print("\n")
 
 if __name__ == '__main__':
@@ -643,8 +517,8 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print("\n")
-        print_status("用户终止程序", "warning", "🛑")
-        print_status("感谢使用，再见！", "info", "��")
+        print_status("用户终止程序", "warning", "STOP")
+        print_status("感谢使用，再见！", "info", "BYE")
         print("\n")
     except Exception as e:
-        print_status(f"程序异常退出: {str(e)}", "error", "💥")
+        print_status(f"程序异常退出: {str(e)}", "error", "ERROR")

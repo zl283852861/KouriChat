@@ -4,6 +4,7 @@ data/
 *.sqlite
 *.sqlite3
 wxauto文件/
+@AutomationLog.txt
 
 # Config files
 src/config/config.json
