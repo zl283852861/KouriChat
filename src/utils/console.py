@@ -46,6 +46,7 @@ def print_status(message: str, status: str = "info", icon: str = ""):
             "BRAIN": "🧠",
             "ANTENNA": "📡",
             "CHAIN": "🔗",
+            "INTERNET": "🌐",
             "CLOCK": "⏰",
             "SYNC": "🔄",
             "WARNING": "⚠️",

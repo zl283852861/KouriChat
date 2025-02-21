@@ -1416,7 +1416,7 @@ def main():
     host = '0.0.0.0'
     port = 8501
     
-    print_status("正在启动Web服务...", "info", "🌐")
+    print_status("正在启动Web服务...", "info", "INTERNET")
     print("-"*50)
     print_status("配置管理系统已就绪！", "success", "STAR_1")
 
