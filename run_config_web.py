@@ -34,6 +34,7 @@ import webbrowser
 import hashlib
 import secrets
 from datetime import timedelta
+from src.utils.console import print_status
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -94,18 +95,6 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # 生成密钥用于session加密
 app.secret_key = secrets.token_hex(16)
-
-def print_status(message: str, status: str = "info", emoji: str = ""):
-    """打印带颜色和表情的状态消息"""
-    colors = {
-        "success": Fore.GREEN,
-        "info": Fore.BLUE,
-        "warning": Fore.YELLOW,
-        "error": Fore.RED
-    }
-    color = colors.get(status, Fore.WHITE)
-    print(f"{color}{emoji} {message}{Style.RESET_ALL}")
-
 
 def get_available_avatars() -> List[str]:
     """获取可用的人设目录列表"""
@@ -1403,34 +1392,23 @@ def main():
         os.system("@chcp 65001 >nul")  # 使用 >nul 来隐藏输出而不清屏
     
     print("\n" + "="*50)
-    print_status("配置管理系统启动中...", "info", "🚀")
+    print_status("配置管理系统启动中...", "info", "LAUNCH")
     print("-"*50)
     
     # 检查必要目录
-    print_status("检查系统目录...", "info", "📁")
+    print_status("检查系统目录...", "info", "FILE")
     if not os.path.exists(os.path.join(ROOT_DIR, 'src/webui/templates')):
-        print_status("错误：模板目录不存在！", "error", "❌")
+        print_status("错误：模板目录不存在！", "error", "CROSS")
         return
-    print_status("系统目录检查完成", "success", "✅")
+    print_status("系统目录检查完成", "success", "CHECK")
     
     # 检查配置文件
-    print_status("检查配置文件...", "info", "⚙️")
+    print_status("检查配置文件...", "info", "CONFIG")
     if not os.path.exists(config.config_path):
-        print_status("错误：配置文件不存在！", "error", "❌")
+        print_status("错误：配置文件不存在！", "error", "CROSS")
         return
-    print_status("配置文件检查完成", "success", "✅")
-    
-    # 清理缓存
-    print_status("清理系统缓存...", "info", "🧹")
-    cleanup_count = 0
-    for root, dirs, files in os.walk(ROOT_DIR):
-        if '__pycache__' in dirs:
-            cleanup_count += 1
-    if cleanup_count > 0:
-        print_status(f"已清理 {cleanup_count} 个缓存目录", "success", "🗑️")
-    else:
-        print_status("没有需要清理的缓存", "info", "✨")
-    
+    print_status("配置文件检查完成", "success", "CHECK")
+
     # 修改启动 Web 服务器的部分
     cli = sys.modules['flask.cli']
     cli.show_server_banner = lambda *x: None  # 禁用 Flask 启动横幅
@@ -1440,8 +1418,8 @@ def main():
     
     print_status("正在启动Web服务...", "info", "🌐")
     print("-"*50)
-    print_status("配置管理系统已就绪！", "success", "✨")
-    
+    print_status("配置管理系统已就绪！", "success", "STAR_1")
+
     # 获取本机所有IP地址
     def get_ip_addresses():
         ip_list = []
@@ -1462,7 +1440,7 @@ def main():
 
     # 显示所有可用的访问地址
     ip_addresses = get_ip_addresses()
-    print_status("可通过以下地址访问:", "info", "🔗")
+    print_status("可通过以下地址访问:", "info", "CHAIN")
     print(f"  Local:   http://localhost:{port}")
     print(f"  Local:   http://127.0.0.1:{port}")
     for ip in ip_addresses:
@@ -1725,10 +1703,10 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print("\n")
-        print_status("正在关闭服务...", "warning", "🛑")
+        print_status("正在关闭服务...", "warning", "STOP")
         cleanup_processes()
-        print_status("配置管理系统已停止", "info", "👋")
+        print_status("配置管理系统已停止", "info", "BYE")
         print("\n")
     except Exception as e:
-        print_status(f"系统错误: {str(e)}", "error", "💥")
+        print_status(f"系统错误: {str(e)}", "error", "ERROR")
         cleanup_processes()

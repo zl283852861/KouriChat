@@ -17,7 +17,8 @@ from services.ai.moonshot import MoonShotAI
 from services.ai.deepseek import DeepSeekAI
 from src.handlers.memory import MemoryHandler
 from utils.logger import LoggerConfig
-from colorama import init, Fore, Style
+from utils.console import print_status
+from colorama import init, Style
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -416,30 +417,23 @@ def initialize_wx_listener():
     
     return None
 
-
-def print_status(message: str, status: str = "info", emoji: str = ""):
-    """打印状态信息"""
-    colors = {
-        "success": Fore.GREEN,
-        "info": Fore.BLUE,
-        "warning": Fore.YELLOW,
-        "error": Fore.RED
-    }
-    color = colors.get(status, Fore.WHITE)
-    print(f"{color}{emoji} {message}{Style.RESET_ALL}")
-
-
 def main():
     listener_thread = None  # 在函数开始时定义线程变量
     try:
+        # 设置wxauto日志路径
+        automation_log_dir = os.path.join(root_dir, "logs", "automation")
+        if not os.path.exists(automation_log_dir):
+            os.makedirs(automation_log_dir)
+        os.environ["WXAUTO_LOG_PATH"] = os.path.join(automation_log_dir, "AutomationLog.txt")
+        
         # 初始化微信监听
-        print_status("初始化微信监听...", "info", "🤖")
+        print_status("初始化微信监听...", "info", "BOT")
         wx = initialize_wx_listener()
         if not wx:
-            print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "❌")
+            print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
             return
-        print_status("微信监听初始化完成", "success", "✅")
-        print_status("检查短期记忆...", "info", "🔍")
+        print_status("微信监听初始化完成", "success", "CHECK")
+        print_status("检查短期记忆...", "info", "SEARCH")
 
         memory_handler.summarize_memories()  # 启动时处理残留记忆
 
@@ -451,56 +445,56 @@ def main():
                 except Exception as e:
                     logger.error(f"记忆维护失败: {str(e)}")
 
-        print_status("启动记忆维护线程...", "info", "🧠")
+        print_status("启动记忆维护线程...", "info", "BRAIN")
         memory_thread = threading.Thread(target=memory_maintenance)
         memory_thread.daemon = True
         memory_thread.start()
-        print_status("验证记忆存储路径...", "info", "📁")
+        print_status("验证记忆存储路径...", "info", "FILE")
         memory_dir = os.path.join(root_dir, "data", "memory")
         if not os.path.exists(memory_dir):
             os.makedirs(memory_dir)
-            print_status(f"创建记忆目录: {memory_dir}", "success", "✅")
+            print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
 
         avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
         prompt_path = os.path.join(avatar_dir, "avatar.md")
         if not os.path.exists(prompt_path):
             with open(prompt_path, "w", encoding="utf-8") as f:
                 f.write("# 核心人格\n[默认内容]")
-            print_status(f"创建人设提示文件", "warning", "⚠️")
+            print_status(f"创建人设提示文件", "warning", "WARNING")
         # 启动消息监听线程
-        print_status("启动消息监听线程...", "info", "📡")
+        print_status("启动消息监听线程...", "info", "ANTENNA")
         listener_thread = threading.Thread(target=message_listener)
         listener_thread.daemon = True  # 确保线程是守护线程
         listener_thread.start()
-        print_status("消息监听已启动", "success", "✅")
+        print_status("消息监听已启动", "success", "CHECK")
 
         # 启动自动消息
-        print_status("启动自动消息系统...", "info", "⏰")
+        print_status("启动自动消息系统...", "info", "CLOCK")
         start_countdown()
-        print_status("自动消息系统已启动", "success", "✅")
+        print_status("自动消息系统已启动", "success", "CHECK")
         
         print("-" * 50)
-        print_status("系统初始化完成", "success", "🌟")
+        print_status("系统初始化完成", "success", "STAR_2")
         print("=" * 50)
         
         # 主循环
         while True:
             time.sleep(1)
             if not listener_thread.is_alive():
-                print_status("监听线程已断开，尝试重新连接...", "warning", "🔄")
+                print_status("监听线程已断开，尝试重新连接...", "warning", "SYNC")
                 try:
                     wx = initialize_wx_listener()
                     if wx:
                         listener_thread = threading.Thread(target=message_listener)
                         listener_thread.daemon = True
                         listener_thread.start()
-                        print_status("重新连接成功", "success", "✅")
+                        print_status("重新连接成功", "success", "CHECK")
                 except Exception as e:
-                    print_status(f"重新连接失败: {str(e)}", "error", "❌")
+                    print_status(f"重新连接失败: {str(e)}", "error", "CROSS")
                     time.sleep(5)
 
     except Exception as e:
-        print_status(f"主程序异常: {str(e)}", "error", "💥")
+        print_status(f"主程序异常: {str(e)}", "error", "ERROR")
         logger.error(f"主程序异常: {str(e)}", exc_info=True)  # 添加详细日志记录
     finally:
         # 清理资源
@@ -509,13 +503,13 @@ def main():
         
         # 关闭监听线程
         if listener_thread and listener_thread.is_alive():
-            print_status("正在关闭监听线程...", "info", "🔄")
+            print_status("正在关闭监听线程...", "info", "SYNC")
             listener_thread.join(timeout=2)
             if listener_thread.is_alive():
-                print_status("监听线程未能正常关闭", "warning", "⚠️")
+                print_status("监听线程未能正常关闭", "warning", "WARNING")
         
-        print_status("正在关闭系统...", "warning", "🛑")
-        print_status("系统已退出", "info", "👋")
+        print_status("正在关闭系统...", "warning", "STOP")
+        print_status("系统已退出", "info", "BYE")
         print("\n")
 
 if __name__ == '__main__':
@@ -523,8 +517,8 @@ if __name__ == '__main__':
         main()
     except KeyboardInterrupt:
         print("\n")
-        print_status("用户终止程序", "warning", "🛑")
-        print_status("感谢使用，再见！", "info", "��")
+        print_status("用户终止程序", "warning", "STOP")
+        print_status("感谢使用，再见！", "info", "BYE")
         print("\n")
     except Exception as e:
-        print_status(f"程序异常退出: {str(e)}", "error", "💥")
+        print_status(f"程序异常退出: {str(e)}", "error", "ERROR")
