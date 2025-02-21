@@ -2,14 +2,13 @@
     <div class="container">
         <a class="navbar-brand fw-bold" href="/dashboard">
             <img src="/static/mom.ico" alt="MDM" width="32" height="32" 
-                 class="d-inline-block align-text-top me-2 rounded-circle" 
-                 style="object-fit: cover;">
+                 class="d-inline-block align-text-top me-2 rounded-circle nav-logo">
             KouriChat
         </a>
         
         {% if session.get('logged_in') %}
         <!-- 登录后显示的内容 -->
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-label="切换导航菜单">
             <span class="navbar-toggler-icon"></span>
         </button>
         
@@ -36,8 +35,9 @@
                     </label>
                 </div>
                 <div>
+                    <label for="backgroundInput" class="d-none">选择背景图片</label>
                     <input type="file" class="d-none" id="backgroundInput" accept="image/*">
-                    <button class="btn btn-outline-primary" onclick="handleBackgroundClick()">
+                    <button class="btn btn-outline-primary" type="button" onclick="handleBackgroundClick()">
                         <i class="bi bi-image me-2"></i>更换背景
                     </button>
                 </div>
@@ -107,6 +107,11 @@ document.getElementById('backgroundInput').addEventListener('change', function(e
 </script>
 
 <style>
+/* 添加logo样式 */
+.nav-logo {
+    object-fit: cover;
+}
+
 /* 在现有的 style 标签中添加 */
 .nav-item {
     position: relative;
