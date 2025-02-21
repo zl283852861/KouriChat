@@ -328,6 +328,11 @@
             transform: translateY(-10px);
             opacity: 0;
         }
+
+        /* 添加通知容器样式 */
+        .notification-container {
+            z-index: 1050;
+        }
     </style>
     <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
@@ -433,14 +438,14 @@
     </div>
 
     <!-- 在 body 标签下添加顶部通知区域 -->
-    <div class="position-fixed top-0 start-50 translate-middle-x p-3" style="z-index: 1050">
+    <div class="position-fixed top-0 start-50 translate-middle-x p-3 notification-container">
         <div id="saveNotification" class="toast align-items-center text-white bg-success border-0" role="alert" aria-live="assertive" aria-atomic="true">
             <div class="d-flex">
                 <div class="toast-body">
                     <i class="bi bi-check-circle-fill me-2"></i>
                     <span id="saveNotificationMessage"></span>
                 </div>
-                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="关闭通知"></button>
             </div>
         </div>
     </div>

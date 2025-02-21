@@ -1,5 +1,3 @@
-import base64
-import requests
 import logging
 import random
 from datetime import datetime
@@ -11,7 +9,6 @@ from services.database import Session, ChatMessage
 from config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
 from wxauto import WeChat
 import re
-import pyautogui
 from handlers.emoji import EmojiHandler
 from handlers.image import ImageHandler
 from handlers.message import MessageHandler
@@ -19,15 +16,9 @@ from handlers.voice import VoiceHandler
 from services.ai.moonshot import MoonShotAI
 from services.ai.deepseek import DeepSeekAI
 from src.handlers.memory import MemoryHandler
-from utils.cleanup import cleanup_pycache, CleanupUtils
 from utils.logger import LoggerConfig
 from colorama import init, Fore, Style
-import signal
-import psutil
-import atexit
-from flask import jsonify,Flask
 
-app = Flask(__name__)
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -255,9 +246,6 @@ last_chat_time = None
 countdown_timer = None
 is_countdown_running = False
 
-# 创建全局实例
-cleanup_utils = CleanupUtils(root_dir)
-
 def update_last_chat_time():
     """更新最后一次聊天时间"""
     global last_chat_time
@@ -428,28 +416,6 @@ def initialize_wx_listener():
     
     return None
 
-def print_banner():
-    """打印启动横幅"""
-    banner = f"""
-{Fore.CYAN}
-╔══════════════════════════════════════════════╗
-║              KouriChat - AI Chat             ║
-║           Created with ❤️  by umaru          ║   
-║     https://github.com/KouriChat/KouriChat   ║
-╚══════════════════════════════════════════════╝
-
-KouriChat - AI Chat  Copyright (C) 2025,github.com/umaru-233
-This program comes with ABSOLUTELY NO WARRANTY; for details please read
-https://www.gnu.org/licenses/gpl-3.0.en.html.
-该程序是基于GPLv3许可证分发的，因此该程序不提供任何保证；有关更多信息，请参阅GPLv3许可证。
-This is free software, and you are welcome to redistribute it
-under certain conditions; please read
-https://www.gnu.org/licenses/gpl-3.0.en.html.
-这是免费软件，欢迎您二次分发它，在某些情况下，请参阅GPLv3许可证。
-It's freeware, and if you bought it for money, you've been scammed!
-这是免费软件，如果你是花钱购买的，说明你被骗了！
-{Style.RESET_ALL}"""
-    print(banner)
 
 def print_status(message: str, status: str = "info", emoji: str = ""):
     """打印状态信息"""
@@ -462,96 +428,10 @@ def print_status(message: str, status: str = "info", emoji: str = ""):
     color = colors.get(status, Fore.WHITE)
     print(f"{color}{emoji} {message}{Style.RESET_ALL}")
 
-def stop_bot_process():
-    """停止机器人进程及其所有子进程"""
-    try:
-        if bot_process:
-            # 获取进程组
-            parent = psutil.Process(bot_process.pid)
-            children = parent.children(recursive=True)
-            
-            # 终止子进程
-            for child in children:
-                try:
-                    child.terminate()
-                except:
-                    try:
-                        child.kill()
-                    except:
-                        pass
-            
-            # 终止主进程
-            bot_process.terminate()
-            
-            # 等待进程结束
-            gone, alive = psutil.wait_procs(children + [parent], timeout=3)
-            
-            # 强制结束仍在运行的进程
-            for p in alive:
-                try:
-                    p.kill()
-                except:
-                    pass
-            
-            return True
-    except Exception as e:
-        logger.error(f"停止机器人进程失败: {str(e)}")
-        return False
-
-@app.route('/stop_bot')
-def stop_bot():
-    """停止机器人"""
-    global bot_process
-    try:
-        if bot_process:
-            if stop_bot_process():
-                bot_process = None
-                return jsonify({
-                    'status': 'success',
-                    'message': '机器人已停止'
-                })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'message': '停止机器人失败'
-                })
-        return jsonify({
-            'status': 'error',
-            'message': '机器人未在运行'
-        })
-    except Exception as e:
-        logger.error(f"停止机器人失败: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        })
 
 def main():
     listener_thread = None  # 在函数开始时定义线程变量
     try:
-        print_banner()
-        print_status("系统启动中...", "info", "🚀")
-        print("-" * 50)
-        
-        # 清理缓存
-        print_status("清理系统缓存...", "info", "��")
-        cleanup_pycache()
-        logger_config.cleanup_old_logs()
-        cleanup_utils.cleanup_all()
-        image_handler.cleanup_temp_dir()
-        voice_handler.cleanup_voice_dir()
-        print_status("缓存清理完成", "success", "✨")
-        
-        # 检查系统目录
-        print_status("检查系统目录...", "info", "��")
-        required_dirs = ['data', 'logs', 'src/config']
-        for dir_name in required_dirs:
-            dir_path = os.path.join(root_dir, dir_name)
-            if not os.path.exists(dir_path):
-                os.makedirs(dir_path)
-                print_status(f"创建目录: {dir_name}", "info", "📁")
-        print_status("目录检查完成", "success", "✅")
-        
         # 初始化微信监听
         print_status("初始化微信监听...", "info", "🤖")
         wx = initialize_wx_listener()
