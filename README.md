@@ -95,7 +95,7 @@ python run.py
 ## 🧩 项目架构
 
 ```
-My-Dream-Moments/
+KouriChat/
 ├── avatars/                      # 角色配置文件
 ├── data/                         # 运行数据存储
 ├── src/
