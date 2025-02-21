@@ -1,33 +1,31 @@
 import requests
 
 class APITester:
-    def __init__(self, base_url, api_key, model):
+    def __init__(self, base_url, api_key, model, messages=None):  # 添加messages参数
         """
         初始化 API 测试类
-        :param base_url: 服务地址和端口
-        :param api_key: API 密钥
-        :param model: 选择的 AI 模型
+        :param messages: 对话消息列表
         """
+        self.messages = messages or [{"role": "user", "content": "测试消息"}]
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
 
     def test_standard_api(self):
-        """
-        测试标准 API 端点 /v1/chat/completions
-        """
+        """测试标准 API 端点 /v1/chat/completions"""
         url = f'{self.base_url}/v1/chat/completions'
         headers = {
             'Content-Type': 'application/json',
             'Authorization': f'Bearer {self.api_key}'
         }
         data = {
-            "prompt": "这是一个测试请求",
-            "model": self.model  # 添加模型参数
+            "model": self.model,
+            "messages": self.messages  # 替换原来的prompt字段
         }
+        
         response = requests.post(url, headers=headers, json=data)
-        print("标准 API 端点响应:")
-        print(response.json())
+        response.raise_for_status()  # 新增状态码检查
+        return response  # 新增返回响应对象
 
     def test_set_custom_response(self):
         """
