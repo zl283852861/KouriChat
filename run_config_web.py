@@ -1698,6 +1698,54 @@ def get_model_configs():
             'message': str(e)
         })
 
+@app.route('/save_quick_setup', methods=['POST'])
+def save_quick_setup():
+    """保存快速设置"""
+    try:
+        new_config = request.json
+        from src.config import config
+        
+        # 获取当前配置
+        current_config = {
+            "categories": {
+                "user_settings": {
+                    "title": "用户设置",
+                    "settings": {
+                        "listen_list": {
+                            "value": new_config.get('listen_list', []),
+                            "type": "array",
+                            "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）"
+                        }
+                    }
+                },
+                "llm_settings": {
+                    "title": "大语言模型配置",
+                    "settings": {
+                        "api_key": {
+                            "value": new_config.get('api_key', ''),
+                            "type": "string",
+                            "description": "API密钥",
+                            "is_secret": True
+                        }
+                    }
+                }
+            }
+        }
+        
+        # 保存配置
+        if config.save_config(current_config):
+            return jsonify({"status": "success", "message": "设置已保存"})
+        else:
+            return jsonify({"status": "error", "message": "保存失败"})
+            
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
+
+@app.route('/quick_setup')
+def quick_setup():
+    """快速设置页面"""
+    return render_template('quick_setup.html')
+
 if __name__ == '__main__':
     try:
         main()
