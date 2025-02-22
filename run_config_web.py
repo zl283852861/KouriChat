@@ -1464,7 +1464,7 @@ def install_dependencies():
         output = []
         
         # 安装依赖
-        output.append("正在安装依赖...")
+        output.append("正在安装依赖，请耐心等待...")
         requirements_path = os.path.join(ROOT_DIR, 'requirements.txt')
         
         if not os.path.exists(requirements_path):

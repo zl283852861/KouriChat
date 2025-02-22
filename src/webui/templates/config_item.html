@@ -198,6 +198,13 @@
         // 更新API URL
         const apiUrl = selectedOption.dataset.url;
         baseUrlInput.value = apiUrl;
+        
+        // 添加标记是否为 Ollama
+        if (value === 'ollama') {
+            baseUrlInput.dataset.isOllama = 'true';
+        } else {
+            baseUrlInput.dataset.isOllama = 'false';
+        }
 
         // 创建注册按钮
         const registerUrl = selectedOption.dataset.register;
@@ -217,7 +224,7 @@
     }
 
     // 更新模型选择框
-    function updateModelSelect(providerId) {
+    async function updateModelSelect(providerId) {
         const modelSelect = document.getElementById('model_select');
         modelSelect.innerHTML = '<option value="">请选择模型</option>';
 
@@ -228,24 +235,59 @@
 
         if (!providerId) return;
 
-        // 获取并显示当前提供商的模型
-        const models = modelConfigs.models[providerId] || [];
-        models.forEach(model => {
-            if (model.status === 'active') {
-                modelSelect.innerHTML += `
-                    <option value="${model.id}" 
-                        data-type="${model.type}"
-                        data-context-length="${model.context_length}"
-                        >${model.name}</option>`;
+        // 如果是 Ollama，尝试获取本地模型列表
+        if (providerId === 'ollama') {
+            try {
+                const response = await fetch('http://localhost:11434/api/tags');
+                if (response.ok) {
+                    const data = await response.json();
+                    const ollamaModels = data.models || [];
+                    ollamaModels.forEach(model => {
+                        modelSelect.innerHTML += `
+                            <option value="${model.name}" 
+                                data-type="chat"
+                                data-context-length="16000"
+                                >${model.name}</option>`;
+                    });
+                }
+            } catch (error) {
+                console.error('获取Ollama模型列表失败:', error);
+                // 如果获取失败，使用配置文件中的默认模型
+                const defaultModels = modelConfigs.models[providerId] || [];
+                defaultModels.forEach(model => {
+                    if (model.status === 'active') {
+                        modelSelect.innerHTML += `
+                            <option value="${model.id}" 
+                                data-type="${model.type}"
+                                data-context-length="${model.context_length}"
+                                >${model.name}</option>`;
+                    }
+                });
             }
-        });
+        } else {
+            // 其他提供商使用配置文件中的模型列表
+            const providerModels = modelConfigs.models[providerId] || [];
+            providerModels.forEach(model => {
+                if (model.status === 'active') {
+                    modelSelect.innerHTML += `
+                        <option value="${model.id}" 
+                            data-type="${model.type}"
+                            data-context-length="${model.context_length}"
+                            >${model.name}</option>`;
+                }
+            });
+        }
 
         // 添加自定义选项
         modelSelect.innerHTML += '<option value="custom">自定义模型</option>';
 
         // 设置当前选中的模型
         const currentModel = document.getElementById('MODEL').value;
-        if (models.some(m => m.id === currentModel)) {
+        const allModels = providerId === 'ollama' ? 
+            (modelSelect.querySelectorAll('option') || []) : 
+            (modelConfigs.models[providerId] || []);
+        
+        if (Array.from(allModels).some(m => m.value === currentModel || m.id === currentModel)) {
             modelSelect.value = currentModel;
         } else if (currentModel) {
             modelSelect.value = 'custom';

@@ -21,6 +21,7 @@ from tenacity import (
     wait_random_exponential,
     retry_if_exception_type
 )
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,12 @@ class DeepSeekAI:
 
         # 安全字符白名单（可根据需要扩展）
         self.safe_pattern = re.compile(r'[\x00-\x1F\u202E\u200B]')
+
+        # 如果是 Ollama，获取可用模型列表
+        if 'localhost:11434' in base_url:
+            self.available_models = self.get_ollama_models()
+        else:
+            self.available_models = []
 
     def _manage_context(self, user_id: str, message: str, role: str = "user"):
         """
@@ -218,35 +225,90 @@ class DeepSeekAI:
             
             system_prompt = f"{system_prompt}\n{base_content}"
             # print(system_prompt) #测试拼接
+            
+            # 构建消息列表
             messages = [
                 {"role": "system", "content": system_prompt},
                 *self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
             ]
 
-            request_config = {
-                "model": self.config["model"],
-                "messages": messages,
-                "temperature": self.config["temperature"],
-                "max_tokens": self.config["max_token"],
-                "top_p": 0.95,
-                "frequency_penalty": 0.2
+            # 为 Ollama 构建消息内容
+            chat_history = self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
+            history_text = "\n".join([
+                f"{msg['role']}: {msg['content']}" 
+                for msg in chat_history
+            ])
+            ollama_message = {
+                "role": "user",
+                "content": f"{system_prompt}\n\n对话历史：\n{history_text}\n\n用户问题：{message}"
             }
 
-            # —— 阶段4：发送请求 ——
-            response = self.client.chat.completions.create(**request_config)
+            # 检查是否是 Ollama API
+            is_ollama = 'localhost:11434' in str(self.client.base_url)
 
-            # —— 阶段5：响应验证 ——
-            if not self._validate_response(response.model_dump()):
-                raise ValueError("Invalid API response structure")
+            if is_ollama:
+                # Ollama API 格式
+                request_config = {
+                    "model": self.config["model"].split('/')[-1],  # 移除路径前缀
+                    "messages": [ollama_message],  # 将消息包装在列表中
+                    "stream": False,
+                    "options": {
+                        "temperature": self.config["temperature"],
+                        "max_tokens": self.config["max_token"]
+                    }
+                }
+                
+                # 使用 requests 库向 Ollama API 发送 POST 请求
+                try:
+                    response = requests.post(
+                        f"{str(self.client.base_url)}",
+                        json=request_config,
+                        headers={"Content-Type": "application/json"}
+                    )
+                    response.raise_for_status()
+                    response_data = response.json()
+                    
+                    # 检查响应中是否包含 message 字段
+                    if response_data and "message" in response_data:
+                        raw_content = response_data["message"]["content"]
+                        logger.debug("Ollama API响应内容: %s", raw_content)
+                    else:
+                        raise ValueError("错误的API响应结构")
+                        
+                    clean_content = self._sanitize_response(raw_content)
+                    self._manage_context(user_id, clean_content, "assistant")
+                    return clean_content
+                    
+                except Exception as e:
+                    logger.error(f"Ollama API请求失败: {str(e)}")
+                    raise
 
-            # —— 阶段6：内容处理 ——
-            raw_content = response.choices[0].message.content
-            clean_content = self._sanitize_response(raw_content)
-
-            # —— 阶段7：更新对话历史 ——
-            self._manage_context(user_id, clean_content, "assistant")
-
-            return clean_content
+            else:
+                # 主要 api 请求（重要）
+                # 标准 OpenAI 格式
+                request_config = {
+                    "model": self.config["model"],  # 模型名称
+                    "messages": messages,  # 消息列表
+                    "temperature": self.config["temperature"],  # 温度参数
+                    "max_tokens": self.config["max_token"],  # 最大 token 数
+                    "top_p": 0.95,  # top_p 参数
+                    "frequency_penalty": 0.2  # 频率惩罚参数
+                }
+                
+                # 使用 OpenAI 客户端发送请求
+                response = self.client.chat.completions.create(**request_config)
+                # 验证 API 响应结构
+                if not self._validate_response(response.model_dump()):
+                    raise ValueError("错误的API响应结构")
+                    
+                # 获取原始内容
+                raw_content = response.choices[0].message.content
+                # 清理响应内容
+                clean_content = self._sanitize_response(raw_content)
+                # 管理上下文
+                self._manage_context(user_id, clean_content, "assistant")
+                # 返回清理后的内容
+                return clean_content
 
         except Exception as e:
             logger.error("深度求索服务调用失败: %s", str(e), exc_info=True)
@@ -305,3 +367,24 @@ class DeepSeekAI:
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
             return ""
+
+    def get_ollama_models(self) -> List[Dict]:
+        """获取本地 Ollama 可用的模型列表"""
+        try:
+            response = requests.get('http://localhost:11434/api/tags')
+            if response.status_code == 200:
+                models = response.json().get('models', [])
+                return [
+                    {
+                        "id": model['name'],
+                        "name": model['name'],
+                        "status": "active",
+                        "type": "chat",
+                        "context_length": 16000  # 默认上下文长度
+                    }
+                    for model in models
+                ]
+            return []
+        except Exception as e:
+            logger.error(f"获取Ollama模型列表失败: {str(e)}")
+            return []
