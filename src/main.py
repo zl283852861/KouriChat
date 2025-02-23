@@ -1,6 +1,6 @@
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timedelta
 import threading
 import time
 import os
@@ -246,6 +246,8 @@ wait = 1
 last_chat_time = None
 countdown_timer = None
 is_countdown_running = False
+unanswered_count = 0  # 新增未回复计数器
+countdown_end_time = None  # 新增倒计时结束时间
 
 def update_last_chat_time():
     """更新最后一次聊天时间"""
@@ -279,6 +281,8 @@ def get_random_countdown_time():
 
 def auto_send_message():
     """自动发送消息"""
+    global unanswered_count  # 引用全局变量
+
     if is_quiet_time():
         logger.info("当前处于安静时间，跳过自动发送消息")
         start_countdown()
@@ -286,11 +290,13 @@ def auto_send_message():
         
     if listen_list:
         user_id = random.choice(listen_list)
-        logger.info(f"自动发送消息到 {user_id}: {config.behavior.auto_message.content}")
+        unanswered_count += 1  # 每次发送消息时增加未回复计数
+        reply_content = f"{config.behavior.auto_message.content} 这是对方第{unanswered_count}次未回复你！你可以选择模拟对方未回复后的小脾气"
+        logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(
                 chat_id=user_id,
-                content=config.behavior.auto_message.content,
+                content=reply_content,  # 使用更新后的内容
                 sender_name="System",
                 username="System",
                 is_group=False
@@ -305,16 +311,17 @@ def auto_send_message():
 
 def start_countdown():
     """开始新的倒计时"""
-    global countdown_timer, is_countdown_running
+    global countdown_timer, is_countdown_running, countdown_end_time  # 添加 countdown_end_time
     
     if countdown_timer:
         countdown_timer.cancel()
     
     countdown_seconds = get_random_countdown_time()
+    countdown_end_time = datetime.now() + timedelta(seconds=countdown_seconds)  # 设置结束时间
     logger.info(f"开始新的倒计时: {countdown_seconds/3600:.2f}小时")
     
     countdown_timer = threading.Timer(countdown_seconds, auto_send_message)
-    countdown_timer.daemon = True  # 设置为守护线程
+    countdown_timer.daemon = True
     countdown_timer.start()
     is_countdown_running = True
 
