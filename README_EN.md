@@ -58,7 +58,7 @@
 ## 🚀 Quick Start
 
 ### Prerequisites
-1. **Secondary Device**: Android phone/emulator (WeChat PC login requires concurrent mobile login)
+1. **Secondary Device**: Android phone/emulator/multi-login app (WeChat PC login requires concurrent mobile login)
 2. **WeChat Alt Account**: Capable of PC login
 3. **API Keys**: [Get DeepSeek Key](https://cloud.siliconflow.cn/i/aQXU6eC5)
 
