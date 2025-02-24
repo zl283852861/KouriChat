@@ -1296,6 +1296,24 @@
 
         // 页面加载初始化
         document.addEventListener('DOMContentLoaded', function() {
+            // 检查 localStorage 中的状态
+            const darkMode = localStorage.getItem('darkMode');
+            if (darkMode === 'enabled') {
+                document.body.setAttribute('data-bs-theme', 'dark');
+                document.getElementById('darkModeToggle').checked = true; // 更新按钮状态
+            }
+
+            // 护眼模式切换
+            document.getElementById('darkModeToggle').addEventListener('change', function() {
+                if (this.checked) {
+                    document.body.setAttribute('data-bs-theme', 'dark');
+                    localStorage.setItem('darkMode', 'enabled'); // 存储状态
+                } else {
+                    document.body.removeAttribute('data-bs-theme');
+                    localStorage.setItem('darkMode', 'disabled'); // 存储状态
+                }
+            });
+
             // 初始化按钮状态
             const startBtn = document.getElementById('startBotBtn');
             const stopBtn = document.getElementById('stopBotBtn');

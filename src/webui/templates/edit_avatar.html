@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KouriChat - 角色设定</title>
+    <link href="/static/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="icon" type="image/x-icon" href="/static/mom.ico">
+    <style>
+        :root {
+            --primary-color: #6366f1;
+            --secondary-color: #4f46e5;
+            --background-color: #f0f4f8;  
+            --text-color: #1e293b;
+            --card-bg: rgba(255, 255, 255, 0.494);
+            --card-border: rgba(255, 255, 255, 0.5);
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        [data-bs-theme="dark"] {
+            --background-color: #1a1f2e;  /* 深色背景 */
+            --text-color: #f8fafc;        /* 浅色文字 */
+            --card-bg: rgba(30, 41, 59, 0.612); /* 深色卡片背景 */
+            --card-border: rgba(255, 255, 255, 0.1);
+            --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -1px rgba(0, 0, 0, 0.1);
+        }
+
+        body {
+            background: var(--background-color);
+            color: var(--text-color);
+            transition: all 0.3s ease;
+            background-repeat: no-repeat;
+            background-size: cover;
+            background-position: center;
+            background-attachment: fixed;
+            min-height: 100vh;
+        }
+
+        .container {
+            margin: auto;
+        }
+
+        .glass-panel {
+            background: var(--card-bg);
+            border-radius: 1rem;
+            border: 1px solid var(--card-border);
+            box-shadow: var(--card-shadow);
+            padding: 2rem;
+            margin-bottom: 2rem;
+            transition: all 0.3s ease;
+        }
+
+        .form-label {
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: var(--text-color);
+        }
+
+        .form-control {
+            background: var(--card-bg);
+            color: var(--text-color);
+            border-color: var(--card-border);
+            transition: all 0.3s ease;
+            min-height: 100px;
+            resize: vertical;
+            overflow-y: hidden;
+        }
+
+        .form-control:focus {
+            background: var(--card-bg);
+            color: var(--text-color);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 0.25rem rgba(99, 102, 241, 0.25);
+        }
+
+        .form-control::placeholder {
+            color: var(--text-color);
+            opacity: 0.65;
+        }
+
+        /* 暗色模式下的按钮样式 */
+        [data-bs-theme="dark"] .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+
+        [data-bs-theme="dark"] .btn-primary:hover {
+            background-color: var(--secondary-color);
+            border-color: var(--secondary-color);
+        }
+
+        /* 保存按钮样式 */
+        .btn-save {
+            width: 100%; /* 占据100%宽度 */
+            padding: 0.75rem; /* 按钮内边距 */
+            margin-top: 1rem; /* 按钮上边距 */
+            background-color: var(--primary-color); /* 背景颜色 */
+            color: white; /* 字体颜色 */
+            border: none; /* 无边框 */
+            border-radius: 0.5rem; /* 圆角 */
+            transition: background-color 0.3s ease; /* 背景颜色过渡 */
+        }
+
+        .btn-save:hover {
+            background-color: var(--secondary-color); /* 悬停时的背景颜色 */
+        }
+    </style>
+</head>
+<body>
+    {% include 'navbar.html' %}
+    
+    <div class="container py-4">
+        <div class="glass-panel mb-4">
+            <h2>角色设定</h2>
+            <form id="avatarForm">
+                <div class="glass-panel mb-4">
+                    <label for="task" class="form-label">任务</label>
+                    <textarea class="form-control" id="task" name="task" rows="5" 
+                        placeholder="请输入任务描述" title="任务描述" aria-label="任务描述"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="role" class="form-label">角色</label>
+                    <textarea class="form-control" id="role" name="role" rows="5" 
+                        placeholder="请输入角色设定" title="角色设定" aria-label="角色设定"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="appearance" class="form-label">外表</label>
+                    <textarea class="form-control" id="appearance" name="appearance" rows="5" 
+                        placeholder="请输入外表描述" title="外表描述" aria-label="外表描述"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="experience" class="form-label">经历</label>
+                    <textarea class="form-control" id="experience" name="experience" rows="5" 
+                        placeholder="请输入经历描述" title="经历描述" aria-label="经历描述"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="personality" class="form-label">性格</label>
+                    <textarea class="form-control" id="personality" name="personality" rows="5" 
+                        placeholder="请输入性格描述" title="性格描述" aria-label="性格描述"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="classic_lines" class="form-label">经典台词</label>
+                    <textarea class="form-control" id="classic_lines" name="classic_lines" rows="5" 
+                        placeholder="请输入经典台词" title="经典台词" aria-label="经典台词"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="preferences" class="form-label">喜好</label>
+                    <textarea class="form-control" id="preferences" name="preferences" rows="5" 
+                        placeholder="请输入喜好描述" title="喜好描述" aria-label="喜好描述"></textarea>
+                </div>
+                <div class="glass-panel mb-4">
+                    <label for="notes" class="form-label">备注</label>
+                    <textarea class="form-control" id="notes" name="notes" rows="5" 
+                        placeholder="请输入备注信息" title="备注信息" aria-label="备注信息"></textarea>
+                </div>
+                <button type="button" class="btn btn-save" id="saveButton" title="保存角色设定">
+                    <i class="bi bi-save me-2"></i>保存
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            // 检查 localStorage 中的状态
+            const darkMode = localStorage.getItem('darkMode');
+            if (darkMode === 'enabled') {
+                document.body.setAttribute('data-bs-theme', 'dark');
+                document.getElementById('darkModeToggle').checked = true; 
+            }
+
+            // 护眼模式切换
+            document.getElementById('darkModeToggle').addEventListener('change', function() {
+                if (this.checked) {
+                    document.body.setAttribute('data-bs-theme', 'dark');
+                    localStorage.setItem('darkMode', 'enabled'); // 存储状态
+                } else {
+                    document.body.removeAttribute('data-bs-theme');
+                    localStorage.setItem('darkMode', 'disabled'); // 存储状态
+                }
+            });
+
+            // 初始化背景
+            fetch('/get_background')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.path) {
+                        document.body.style.backgroundImage = `url('${data.path}')`;
+                    }
+                })
+                .catch(error => console.error('Error:', error));
+
+            // 加载当前的 avatar.md 内容
+            fetch('/load_avatar')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 更新所有文本框的内容
+                        const fields = ['task', 'role', 'appearance', 'experience', 
+                                      'personality', 'classic_lines', 'preferences', 'notes'];
+                        
+                        fields.forEach(field => {
+                            const element = document.getElementById(field);
+                            if (element && data.content[field]) {
+                                element.value = data.content[field];
+                                // 自动调整文本框高度以适应内容
+                                element.style.height = 'auto';
+                                element.style.height = element.scrollHeight + 'px';
+                            }
+                        });
+                    } else {
+                        console.error('加载失败:', data.message);
+                    }
+                })
+                .catch(error => console.error('加载失败:', error));
+
+            document.getElementById('saveButton').addEventListener('click', function() {
+                const avatarData = {
+                    task: document.getElementById('task').value,
+                    role: document.getElementById('role').value,
+                    appearance: document.getElementById('appearance').value,
+                    experience: document.getElementById('experience').value,
+                    personality: document.getElementById('personality').value,
+                    classic_lines: document.getElementById('classic_lines').value,
+                    preferences: document.getElementById('preferences').value,
+                    notes: document.getElementById('notes').value
+                };
+
+                fetch('/save_avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(avatarData)
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        alert('保存成功！');
+                    } else {
+                        alert('保存失败: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('保存失败: ' + error);
+                });
+            });
+
+            // 为所有文本框添加自动调整高度的功能
+            document.querySelectorAll('textarea.form-control').forEach(textarea => {
+                textarea.addEventListener('input', function() {
+                    this.style.height = 'auto';
+                    this.style.height = this.scrollHeight + 'px';
+                });
+            });
+        });
+    </script>
+</body>
+</html>

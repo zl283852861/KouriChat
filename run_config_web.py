@@ -35,6 +35,7 @@ import hashlib
 import secrets
 from datetime import timedelta
 from src.utils.console import print_status
+from src.avatar_manager import avatar_manager  # 导入角色设定管理器
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -95,6 +96,9 @@ os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 # 生成密钥用于session加密
 app.secret_key = secrets.token_hex(16)
+
+# 在 app 初始化后添加
+app.register_blueprint(avatar_manager)
 
 def get_available_avatars() -> List[str]:
     """获取可用的人设目录列表"""
@@ -1745,6 +1749,38 @@ def save_quick_setup():
 def quick_setup():
     """快速设置页面"""
     return render_template('quick_setup.html')
+
+@app.route('/load_avatar')
+def load_avatar():
+    try:
+        # 假设默认使用 MONO 角色的设定
+        avatar_path = os.path.join('data', 'avatars', 'MONO', 'avatar.md')
+        sections = avatar_manager.read_avatar_sections(avatar_path)
+        return jsonify({
+            'status': 'success',
+            'content': sections
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+@app.route('/save_avatar', methods=['POST'])
+def save_avatar():
+    try:
+        avatar_data = request.json  # 获取前端发送的 JSON 数据
+        # 这里可以进行数据处理，比如保存到文件或数据库
+        # 例如，您可以将数据写入 avatar.md 文件
+        avatar_path = os.path.join('data', 'avatars', 'MONO', 'avatar.md')
+        
+        with open(avatar_path, 'w', encoding='utf-8') as file:
+            for key, value in avatar_data.items():
+                file.write(f"# {key.capitalize()}\n{value}\n\n")  # 写入格式化内容
+        
+        return jsonify({"status": "success", "message": "角色设定已保存"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)})
 
 if __name__ == '__main__':
     try:
