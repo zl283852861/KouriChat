@@ -137,11 +137,11 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                 "value": config.user.listen_list,
                 "description": "用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)",
             },
-            "MODEL": {"value": config.llm.model, "description": "AI模型选择"},
             "DEEPSEEK_BASE_URL": {
                 "value": config.llm.base_url,
                 "description": "API注册地址",
             },
+            "MODEL": {"value": config.llm.model, "description": "AI模型选择"},
             "DEEPSEEK_API_KEY": {
                 "value": config.llm.api_key,
                 "description": "API密钥",
@@ -156,7 +156,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                 "type": "number",
                 "description": "温度参数",
                 "min": 0.0,
-                "max": 1.7
+                "max": 1.7,
             },
         }
     )
