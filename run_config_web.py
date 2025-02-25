@@ -1770,13 +1770,12 @@ def load_avatar():
 def save_avatar():
     try:
         avatar_data = request.json  # 获取前端发送的 JSON 数据
-        # 这里可以进行数据处理，比如保存到文件或数据库
-        # 例如，您可以将数据写入 avatar.md 文件
         avatar_path = os.path.join('data', 'avatars', 'MONO', 'avatar.md')
         
         with open(avatar_path, 'w', encoding='utf-8') as file:
             for key, value in avatar_data.items():
-                file.write(f"# {key.capitalize()}\n{value}\n\n")  # 写入格式化内容
+                if value:  # 只写入非空内容
+                    file.write(f"# {key.capitalize()}\n{value}\n\n")  # 写入格式化内容
         
         return jsonify({"status": "success", "message": "角色设定已保存"})
     except Exception as e:

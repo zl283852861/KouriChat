@@ -12,31 +12,80 @@ def load_avatar():
     if not os.path.exists(avatar_path):
         return jsonify({'status': 'error', 'message': '文件不存在'})
 
-    with open(avatar_path, 'r', encoding='utf-8') as f:
-        content = f.read()
+    try:
+        with open(avatar_path, 'r', encoding='utf-8') as f:
+            content = f.read()
 
-    # 将内容分割成不同区域
-    sections = {}
-    for section in ['任务', '角色', '外表', '经历', '性格']:
-        start = content.find(section)
-        end = content.find('\n#', start + 1) if start != -1 else -1
-        sections[section] = content[start:end].strip() if start != -1 else ''
+        # 将内容分割成不同区域，使用英文键名以匹配前端
+        sections = {}
+        section_mapping = {
+            '任务': 'task',
+            '角色': 'role',
+            '外表': 'appearance',
+            '经历': 'experience',
+            '性格': 'personality',
+            '经典台词': 'classic_lines',
+            '喜好': 'preferences',
+            '备注': 'notes'
+        }
 
-    return jsonify({'status': 'success', 'content': sections})
+        current_section = None
+        current_content = []
+
+        # 按行读取并处理内容
+        for line in content.split('\n'):
+            line = line.strip()
+            if line.startswith('# '):
+                # 如果找到新的部分，保存之前的内容
+                if current_section:
+                    sections[current_section] = '\n'.join(current_content).strip()
+                    current_content = []
+                
+                # 获取新部分的标题
+                section_title = line[2:].strip()
+                current_section = section_mapping.get(section_title)
+            elif current_section and line:
+                current_content.append(line)
+
+        # 保存最后一个部分的内容
+        if current_section and current_content:
+            sections[current_section] = '\n'.join(current_content).strip()
+
+        print("读取到的内容:", sections)  # 调试信息
+        return jsonify({'status': 'success', 'content': sections})
+
+    except Exception as e:
+        print(f"读取文件错误: {e}")  # 调试信息
+        return jsonify({'status': 'error', 'message': str(e)})
 
 @avatar_manager.route('/save_avatar', methods=['POST'])
 def save_avatar():
     """保存 avatar.md 内容"""
     data = request.json
+    print('接收到的数据:', data)  # 调试信息
     avatar_path = os.path.join(config.behavior.context.avatar_dir, 'avatar.md')
 
     if not os.path.exists(avatar_path):
         return jsonify({'status': 'error', 'message': '文件不存在'})
 
+    # 使用中文标题保存内容
+    section_mapping = {
+        'task': '任务',
+        'role': '角色',
+        'appearance': '外表',
+        'experience': '经历',
+        'personality': '性格',
+        'classic_lines': '经典台词',
+        'preferences': '喜好',
+        'notes': '备注'
+    }
+
     # 重新构建内容
     content = ""
-    for section in ['任务', '角色', '外表', '经历', '性格']:
-        content += f"# {section}\n{data.get(section.lower(), '')}\n\n"
+    for en_section, cn_section in section_mapping.items():
+        section_content = data.get(en_section, '')
+        if section_content:  # 只写入非空内容
+            content += f"# {cn_section}\n{section_content}\n\n"
 
     with open(avatar_path, 'w', encoding='utf-8') as f:
         f.write(content.strip())

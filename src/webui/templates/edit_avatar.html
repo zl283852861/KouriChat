@@ -228,6 +228,8 @@
                     notes: document.getElementById('notes').value
                 };
 
+                console.log('准备发送的数据:', avatarData);  // 调试信息
+
                 fetch('/save_avatar', {
                     method: 'POST',
                     headers: {
