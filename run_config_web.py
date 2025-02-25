@@ -1754,13 +1754,43 @@ def quick_setup():
 def load_avatar():
     try:
         # 假设默认使用 MONO 角色的设定
-        avatar_path = os.path.join('data', 'avatars', 'MONO', 'avatar.md')
-        sections = avatar_manager.read_avatar_sections(avatar_path)
+        avatar_path = os.path.join(ROOT_DIR, 'data', 'avatars', 'MONO', 'avatar.md')
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
+        
+        # 如果文件不存在，创建一个空文件
+        if not os.path.exists(avatar_path):
+            with open(avatar_path, 'w', encoding='utf-8') as f:
+                f.write("# Task\n请在此输入任务描述\n\n# Role\n请在此输入角色设定\n\n# Appearance\n请在此输入外表描述\n\n")
+        
+        # 读取角色设定文件并解析内容
+        sections = {}
+        current_section = None
+        
+        with open(avatar_path, 'r', encoding='utf-8') as file:
+            content = ""
+            for line in file:
+                if line.startswith('# '):
+                    # 如果已有部分，保存它
+                    if current_section:
+                        sections[current_section.lower()] = content.strip()
+                    # 开始新部分
+                    current_section = line[2:].strip()
+                    content = ""
+                else:
+                    content += line
+            
+            # 保存最后一个部分
+            if current_section:
+                sections[current_section.lower()] = content.strip()
+        
         return jsonify({
             'status': 'success',
             'content': sections
         })
     except Exception as e:
+        logger.error(f"加载角色设定失败: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -1768,9 +1798,19 @@ def load_avatar():
 
 @app.route('/save_avatar', methods=['POST'])
 def save_avatar():
+    """保存角色设定"""
     try:
         avatar_data = request.json  # 获取前端发送的 JSON 数据
-        avatar_path = os.path.join('data', 'avatars', 'MONO', 'avatar.md')
+        avatar_name = avatar_data.get('avatar', 'MONO')  # 获取人设名称
+        
+        # 移除avatar字段，避免写入到文件
+        if 'avatar' in avatar_data:
+            del avatar_data['avatar']
+        
+        avatar_path = os.path.join(ROOT_DIR, 'data', 'avatars', avatar_name, 'avatar.md')
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
         
         with open(avatar_path, 'w', encoding='utf-8') as file:
             for key, value in avatar_data.items():
@@ -1779,7 +1819,78 @@ def save_avatar():
         
         return jsonify({"status": "success", "message": "角色设定已保存"})
     except Exception as e:
+        logger.error(f"保存角色设定失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)})
+
+# 添加获取可用人设列表的路由
+@app.route('/get_available_avatars')
+def get_available_avatars_route():
+    """获取可用的人设列表"""
+    try:
+        avatars = get_available_avatars()
+        return jsonify({
+            'status': 'success',
+            'avatars': avatars
+        })
+    except Exception as e:
+        logger.error(f"获取人设列表失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
+
+# 修改加载指定人设内容的路由
+@app.route('/load_avatar_content')
+def load_avatar_content():
+    """加载指定人设的内容"""
+    try:
+        avatar_name = request.args.get('avatar', 'MONO')
+        avatar_path = os.path.join(ROOT_DIR, 'data', 'avatars', avatar_name, 'avatar.md')
+        
+        # 确保目录存在
+        os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
+        
+        # 如果文件不存在，创建一个空文件
+        if not os.path.exists(avatar_path):
+            with open(avatar_path, 'w', encoding='utf-8') as f:
+                f.write("# Task\n请在此输入任务描述\n\n# Role\n请在此输入角色设定\n\n# Appearance\n请在此输入外表描述\n\n")
+        
+        # 读取角色设定文件并解析内容
+        sections = {}
+        current_section = None
+        
+        with open(avatar_path, 'r', encoding='utf-8') as file:
+            content = ""
+            for line in file:
+                if line.startswith('# '):
+                    # 如果已有部分，保存它
+                    if current_section:
+                        sections[current_section.lower()] = content.strip()
+                    # 开始新部分
+                    current_section = line[2:].strip()
+                    content = ""
+                else:
+                    content += line
+            
+            # 保存最后一个部分
+            if current_section:
+                sections[current_section.lower()] = content.strip()
+        
+        # 获取原始文件内容，用于前端显示
+        with open(avatar_path, 'r', encoding='utf-8') as file:
+            raw_content = file.read()
+        
+        return jsonify({
+            'status': 'success',
+            'content': sections,
+            'raw_content': raw_content  # 添加原始内容
+        })
+    except Exception as e:
+        logger.error(f"加载人设内容失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        })
 
 if __name__ == '__main__':
     try:
