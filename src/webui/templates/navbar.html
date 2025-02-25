@@ -8,7 +8,7 @@
         
         {% if session.get('logged_in') %}
         <!-- 登录后显示的内容 -->
-        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-label="切换导航菜单">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="切换导航菜单">
             <span class="navbar-toggler-icon"></span>
         </button>
         
@@ -22,6 +22,11 @@
                 <li class="nav-item">
                     <a class="nav-link {{ 'active' if active_page == 'config' }}" href="/config">
                         <i class="bi bi-gear me-1"></i>配置中心
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a class="nav-link {{ 'active' if active_page == 'edit_avatar' }}" href="/edit_avatar">
+                        <i class="bi bi-person-circle me-1"></i>角色设定
                     </a>
                 </li>
             </ul>
@@ -41,11 +46,6 @@
                         <i class="bi bi-image me-2"></i>更换背景
                     </button>
                 </div>
-                {% if not is_local %}
-                <a href="/logout" class="btn btn-outline-danger ms-2">
-                    <i class="bi bi-box-arrow-right me-2"></i>退出
-                </a>
-                {% endif %}
             </div>
         </div>
         {% else %}

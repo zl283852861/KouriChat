@@ -4,5 +4,6 @@ from .database import (
     ChatMessage,
     engine
 )
+from .avatar_manager import avatar_manager
 
-__all__ = ['Base', 'Session', 'ChatMessage', 'engine']
+__all__ = ['Base', 'Session', 'ChatMessage', 'engine', 'avatar_manager']
