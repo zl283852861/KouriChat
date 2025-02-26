@@ -450,6 +450,28 @@
         </div>
     </div>
 
+    <!-- 监听用户列表为空的确认对话框 -->
+    <div class="modal fade" id="emptyListenListModal" tabindex="-1" aria-labelledby="emptyListenListModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="emptyListenListModalLabel">
+                        <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>提示
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <p>您未填写监听用户，是否继续保存？</p>
+                    <p class="text-muted small">未填写监听用户将导致机器人无法响应任何消息。</p>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" data-bs-dismiss="modal">否</button>
+                    <button type="button" class="btn btn-secondary" id="confirmSaveBtn">是</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // 护眼模式切换
         function toggleDarkMode() {
@@ -504,25 +526,27 @@
                     console.log(`Final temperature value from slider: ${tempValue}`);
                 }
 
-                // 发送保存请求
-                fetch('/save', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(config)
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success') {
-                        showSaveNotification(data.message);
-                    } else {
-                        showSaveNotification(data.message, 'error');
-                    }
-                })
-                .catch(error => {
-                    showSaveNotification('保存失败：' + error, 'error');
-                });
+                // 检查页面上是否有用户列表元素
+                const userListElement = document.getElementById('selected_users_LISTEN_LIST');
+                const hasUsers = userListElement && userListElement.querySelectorAll('.list-group-item').length > 0;
+                
+                // 根据是否有用户决定是否显示确认对话框
+                if (!hasUsers) {
+                    // 创建确认对话框
+                    const confirmDialog = new bootstrap.Modal(document.getElementById('emptyListenListModal'));
+                    confirmDialog.show();
+                    
+                    // 设置确认按钮的事件
+                    document.getElementById('confirmSaveBtn').onclick = function() {
+                        confirmDialog.hide();
+                        saveConfig(config);
+                    };
+                    
+                    // 取消按钮事件在HTML中已设置为关闭对话框
+                } else {
+                    // 直接保存配置
+                    saveConfig(config);
+                }
             });
 
             // 初始化背景
@@ -535,6 +559,29 @@
                 })
                 .catch(error => console.error('Error:', error));
         });
+
+        // 保存配置的函数
+        function saveConfig(config) {
+            // 发送保存请求
+            fetch('/save', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(config)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'success') {
+                    showSaveNotification(data.message);
+                } else {
+                    showSaveNotification(data.message, 'error');
+                }
+            })
+            .catch(error => {
+                showSaveNotification('保存失败：' + error, 'error');
+            });
+        }
 
         function processFormValue(config, key, value) {
             // 添加调试日志
