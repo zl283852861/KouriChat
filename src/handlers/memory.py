@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import List
-from services.ai.deepseek import DeepSeekAI
+from services.ai.llm_service import LLMService
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class MemoryHandler:
 
     def _get_deepseek_client(self):
 
-        return DeepSeekAI(
+        return LLMService(
             api_key=self.api_key,
             base_url=self.base_url,
             model=self.model,

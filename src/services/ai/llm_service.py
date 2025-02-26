@@ -25,7 +25,7 @@ import requests
 
 logger = logging.getLogger(__name__)
 
-class DeepSeekAI:
+class LLMService:
     def __init__(self, api_key: str, base_url: str, model: str,
                  max_token: int, temperature: float, max_groups: int):
         """
@@ -131,10 +131,17 @@ class DeepSeekAI:
                 return False
 
         # —— 校验层级3：字段内容有效性 ——
-        # 检查模型名称格式
-        if not re.match(r'^[a-zA-Z/-]*deepseek', response["model"], re.IGNORECASE):
-            logger.error("模型名称格式异常：%s", response["model"])
-            return False
+        # 检查模型名称格式 - 支持多种模型格式
+        model_name = response["model"]
+        valid_model_prefixes = [
+            'deepseek', 'qwen', 'claude', 'chatglm', 'llama', 'gpt', 'baichuan', 
+            'mixtral', 'gemma', 'phi', 'yi', 'glm'
+        ]
+        
+        # 检查模型名称是否符合常见命名模式
+        if not any(re.search(prefix, model_name, re.IGNORECASE) for prefix in valid_model_prefixes):
+            logger.warning("模型名称格式不常见：%s，但仍继续处理", model_name)
+            # 注意：这里改为警告而不是错误，不再拒绝响应
 
         # 检查时间戳有效性（允许过去30年到未来5分钟）
         current_timestamp = int(time.time())
@@ -212,7 +219,7 @@ class DeepSeekAI:
             # —— 阶段3：构建请求参数 ——
             # 拼接基础Prompt
             try:
-                # 从当前文件位置(deepseek.py)向上导航到项目根目录
+                # 从当前文件位置(llm_service.py)向上导航到项目根目录
                 current_dir = os.path.dirname(os.path.abspath(__file__))  # src/services/ai
                 project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_dir)))  # 项目根目录
                 base_prompt_path = os.path.join(project_root, "data", "base", "base.md")
@@ -308,7 +315,7 @@ class DeepSeekAI:
                 # 管理上下文
                 self._manage_context(user_id, clean_content, "assistant")
                 # 返回清理后的内容
-                return clean_content
+                return clean_content or ""
 
         except Exception as e:
             logger.error("深度求索服务调用失败: %s", str(e), exc_info=True)
@@ -362,7 +369,7 @@ class DeepSeekAI:
             if not self._validate_response(response.model_dump()):
                 raise ValueError("Invalid API response structure")
                 
-            return response.choices[0].message.content
+            return response.choices[0].message.content or ""
             
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
