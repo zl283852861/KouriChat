@@ -17,7 +17,7 @@ from wxauto import WeChat
 from services.database import Session, ChatMessage
 import random
 import os
-from services.ai.deepseek import DeepSeekAI
+from services.ai.llm_service import LLMService
 from handlers.memory import MemoryHandler
 from config import config
 
@@ -36,7 +36,7 @@ class MessageHandler:
         self.prompt_content = prompt_content
         
         # 使用 DeepSeekAI 替换直接的 OpenAI 客户端
-        self.deepseek = DeepSeekAI(
+        self.deepseek = LLMService(
             api_key=api_key,
             base_url=base_url,
             model=model,

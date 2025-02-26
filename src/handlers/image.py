@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 import re
 import time
-from services.ai.deepseek import DeepSeekAI
+from services.ai.llm_service import LLMService
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ class ImageHandler:
         self.temp_dir = os.path.join(root_dir, "data", "images", "temp")
         
         # 复用消息模块的AI实例(使用正确的模型名称)
-        self.text_ai = DeepSeekAI(
+        self.text_ai = LLMService(
             api_key=api_key,
             base_url=base_url,
             model="deepseek-ai/DeepSeek-V3",  # 修改为默认免费模型

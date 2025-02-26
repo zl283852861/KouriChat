@@ -83,7 +83,7 @@ def save_avatar():
     # 重新构建内容
     content = ""
     for en_section, cn_section in section_mapping.items():
-        section_content = data.get(en_section, '')
+        section_content = data.get(en_section, '') if data is not None else ''
         if section_content:  # 只写入非空内容
             content += f"# {cn_section}\n{section_content}\n\n"
 

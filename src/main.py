@@ -13,8 +13,8 @@ from handlers.emoji import EmojiHandler
 from handlers.image import ImageHandler
 from handlers.message import MessageHandler
 from handlers.voice import VoiceHandler
-from services.ai.moonshot import MoonShotAI
-from services.ai.deepseek import DeepSeekAI
+from services.ai.image_recognition_service import ImageRecognitionService
+from services.ai.llm_service import LLMService
 from src.handlers.memory import MemoryHandler
 from utils.logger import LoggerConfig
 from utils.console import print_status
@@ -204,7 +204,7 @@ memory_handler = MemoryHandler(
     temperature=TEMPERATURE,    # 从config.py获取
     max_groups=MAX_GROUPS       # 从config.py获取
 )
-moonshot_ai = MoonShotAI(
+moonshot_ai = ImageRecognitionService(
     api_key=config.media.image_recognition.api_key,
     base_url=config.media.image_recognition.base_url,
     temperature=config.media.image_recognition.temperature
