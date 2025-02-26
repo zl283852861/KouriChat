@@ -1,0 +1,156 @@
+.error {
+    color: #ff0000;
+    white-space: pre-wrap;
+}
+
+.success {
+    color: #00aa00;
+    white-space: pre-wrap;
+}
+.error {
+    color: #ff0000;
+    background-color: #333;
+    padding: 1rem;
+    border-radius: 4px;
+}
+
+:root {
+    --primary-color: #2196F3;
+    --hover-color: #1976D2;
+    --background: #f5f7fa;
+    --success: #4CAF50;
+    --error: #f44336;
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    line-height: 1.6;
+    background: var(--background);
+    padding: 2rem;
+    max-width: 1000px;
+    margin: 0 auto;
+}
+
+h1 {
+    color: #2c3e50;
+    text-align: center;
+    margin-bottom: 2rem;
+    font-size: 2.2em;
+    position: relative;
+    padding-bottom: 0.5rem;
+}
+
+h1::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 3px;
+    background: var(--primary-color);
+}
+
+.form-group {
+    margin: 0 1rem 1.5rem;
+    background: white;
+    padding: 1.5rem;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    transition: transform 0.2s ease;
+}
+
+.form-group:hover {
+    transform: translateY(-2px);
+}
+
+label {
+    display: block;
+    margin-bottom: 0.5rem;
+    color: #34495e;
+    font-weight: 500;
+}
+
+input {
+    width: calc(100% - 4px);
+    padding: 0.8rem;
+    border: 2px solid #e0e0e0;
+    border-radius: 6px;
+    font-size: 1rem;
+    transition: border-color 0.3s ease;
+    box-sizing: border-box;
+}
+
+input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(33,150,243,0.1);
+}
+
+.hint {
+    font-size: 0.9em;
+    color: #7f8c8d;
+    margin-top: 0.5rem;
+    padding-left: 0.5rem;
+}
+
+.button-group {
+    display: flex;
+    gap: 1rem;
+    margin-top: 2rem;
+}
+
+button {
+    flex: 1;
+    padding: 0.8rem 1.5rem;
+    border: none;
+    border-radius: 6px;
+    background: var(--primary-color);
+    color: white;
+    font-size: 1rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    transition: all 0.3s ease;
+}
+
+button:hover {
+    background: var(--hover-color);
+    transform: translateY(-1px);
+    box-shadow: 0 3px 6px rgba(0,0,0,0.1);
+}
+
+button:active {
+    transform: translateY(0);
+}
+
+.button-icon {
+    font-size: 1.1em;
+}
+
+#output {
+    background: #2c3e50;
+    color: white;
+    padding: 1rem;
+    border-radius: 6px;
+    margin-top: 2rem;
+    white-space: pre-wrap;
+    font-family: 'Consolas', monospace;
+}
+
+.success {
+    border-left: 4px solid var(--success);
+}
+
+.error {
+    border-left: 4px solid var(--error);
+    animation: shake 0.5s ease;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    25% { transform: translateX(-5px); }
+    75% { transform: translateX(5px); }
+}

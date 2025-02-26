@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API配置管理</title>
+    <!-- 核心CSS文件 -->
+    <link href="/static/css/app.css" rel="stylesheet">
+    <style>
+        /* 终端样式 */
+        #terminal {
+            background-color: black;
+            color: white;
+            font-family: monospace;
+            padding: 10px;
+            min-height: 200px;
+            overflow-y: auto;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>API配置管理</h1>
+    <form id="configForm">
+        <div class="form-group">
+            <label for="url">服务器URL:</label>
+            <input type="text" id="url" name="real_server_base_url"
+                   value="{{ config.real_server_base_url }}"
+                   placeholder="请输入完整的API服务器地址">
+            <div class="hint">就是服务商的url，没啥好说的吧~</div>
+        </div>
+
+        <div class="form-group">
+            <label for="key">API Key:</label>
+            <input type="password" id="key" name="api_key"
+                   value="{{ config.api_key }}"
+                   placeholder="请输入32位API密钥">
+            <div class="hint">密钥格式：直接复制不会错</div>
+        </div>
+
+        <div class="form-group">
+            <label for="model">大模型:</label>
+            <input type="text" id="model" name="model"
+                   value="{{ config.model }}"
+                   placeholder="请输入模型名称">
+            <div class="hint">支持模型：很多</div>
+        </div>
+
+        <div class="button-group">
+            <button type="submit">
+                <span class="button-text">保存配置</span>
+            </button>
+            <button id="runTestButton" type="button">
+                <span class="button-text">运行诊断测试</span>
+            </button>
+        </div>
+    </form>
+    <div id="terminal"></div>
+
+    <script>
+        const configForm = document.getElementById('configForm');
+        const runTestButton = document.getElementById('runTestButton');
+        const terminalDiv = document.getElementById('terminal');
+
+        // 运行诊断测试
+        runTestButton.addEventListener('click', async () => {
+            terminalDiv.textContent = ''; // 清空之前的内容
+            try {
+                const response = await fetch('/run_diagnostic_test');
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    updateTerminal(decoder.decode(value));
+                }
+            } catch (error) {
+                updateTerminal(`错误: ${error.message}`);
+            }
+        });
+
+        // 保存配置信息
+        configForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const formData = new FormData(configForm);
+            const config = {};
+            formData.forEach((value, key) => {
+                config[key] = value;
+            });
+            const response = await fetch('/save_config', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(config)
+            });
+            const result = await response.json();
+            if (result.status === "success") {
+                alert('配置保存成功');
+            }
+        });
+
+        // 更新终端内容的函数
+        function updateTerminal(text) {
+            terminalDiv.textContent += text;
+            // 自动滚动到最新内容
+            terminalDiv.scrollTop = terminalDiv.scrollHeight;
+        }
+    </script>
+</body>
+
+</html>

@@ -1,4 +1,3 @@
-from mock_server import DeepSeekAPIMockServer
 from api_request import APITester
 import api_config
 import threading
@@ -7,12 +6,8 @@ import requests
 import logging
 
 # 配置日志记录
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(asctime)s - %(message)s')
 
-def start_mock_server():
-    """启动 DeepSeek API 模拟服务器"""
-    server = DeepSeekAPIMockServer()
-    server.run()
 
 def handle_api_error(e, server_type):
     """处理API请求错误"""
@@ -48,26 +43,9 @@ def handle_api_error(e, server_type):
     
     logging.error(error_msg)
 
+
 def test_servers():
-    """测试模拟服务器和实际 AI 对话服务器"""
-    time.sleep(2)
-    
-    # 新增调试信息
-    logging.info(f"📡 正在连接模拟服务器：{api_config.mock_server_base_url}")
-    mock_tester = APITester(api_config.mock_server_base_url, api_config.api_key, api_config.model)
-
-    try:
-        logging.info("🔄 正在测试模拟服务器...")
-        response = mock_tester.test_standard_api()
-        
-        # 新增响应内容检查
-        if not response.text.startswith('{"'):
-            logging.warning("⚠️ 模拟服务器返回了非JSON格式响应，请检查实现逻辑")
-            
-    except Exception as e:
-        handle_api_error(e, "模拟服务器")
-        return
-
+    """测试实际 AI 对话服务器"""
     # 创建 APITester 实例，使用实际 AI 对话服务器的配置
     real_tester = APITester(
         api_config.real_server_base_url,
@@ -100,11 +78,7 @@ def test_servers():
     except Exception as e:
         handle_api_error(e, "实际 AI 对话服务器")
 
-if __name__ == "__main__":
-    # 启动模拟服务器线程
-    mock_server_thread = threading.Thread(target=start_mock_server)
-    mock_server_thread.daemon = True
-    mock_server_thread.start()
 
+if __name__ == "__main__":
     # 开始测试服务器
     test_servers()
