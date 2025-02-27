@@ -642,7 +642,7 @@
             <!-- 时间选择器弹出层 -->
             <div class="time-picker-dropdown-{{ key }}" id="time_picker_{{ key }}" style="display: none;">
                 <div class="time-header-{{ key }}">
-                    {{ config.value }} 至 00:00:00
+                    {{ config.value }}
                 </div>
                 <div class="time-columns-container-{{ key }}">
                     <div class="time-column-label-{{ key }}">{{ '开始时间' if key == 'QUIET_TIME_START' else '结束时间' }}</div>
@@ -656,12 +656,6 @@
                             {% for m in range(0, 60, 1) %}
                             <div class="time-option-{{ key }}" data-value="{{ '%02d' % m }}" onclick="selectTimeOption_{{ key }}('minute', '{{ '%02d' % m }}')">{{ '%02d' % m }}</div>
                             {% endfor %}
-                        </div>
-                        <div class="time-column-{{ key }}">
-                            <div class="time-option-{{ key }} selected" data-value="00">00</div>
-                            <div class="time-option-{{ key }}" data-value="01">01</div>
-                            <div class="time-option-{{ key }}" data-value="02">02</div>
-                            <div class="time-option-{{ key }}" data-value="03">03</div>
                         </div>
                     </div>
                 </div>
@@ -791,11 +785,10 @@
     </style>
     
     <script>
-        // 为每个时间选择器创建独立的变量和函数
+        // 修改时间选择器的变量和函数
         let timeSelection_{{ key }} = {
             hour: '{{ config.value.split(":")[0] if ":" in config.value else "00" }}',
-            minute: '{{ config.value.split(":")[1] if ":" in config.value and config.value.split(":")|length > 1 else "00" }}',
-            second: '00'
+            minute: '{{ config.value.split(":")[1] if ":" in config.value and config.value.split(":")|length > 1 else "00" }}'
         };
         
         // 显示时间选择器
@@ -858,7 +851,7 @@
         function updateTimeDisplay_{{ key }}() {
             const timeString = `${timeSelection_{{ key }}.hour}:${timeSelection_{{ key }}.minute}`;
             document.querySelector('.time-header-{{ key }}').textContent = 
-                timeString + ' 至 00:00:00';
+                timeString;
         }
         
         // 高亮选中的时间
@@ -879,11 +872,6 @@
             if (columns[1]) {
                 const minuteOption = columns[1].querySelector(`.time-option-{{ key }}[data-value="${timeSelection_{{ key }}.minute}"]`);
                 if (minuteOption) minuteOption.classList.add('selected');
-            }
-            
-            if (columns[2]) {
-                const secondOption = columns[2].querySelector(`.time-option-{{ key }}[data-value="00"]`);
-                if (secondOption) secondOption.classList.add('selected');
             }
         }
         
