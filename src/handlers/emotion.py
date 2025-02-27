@@ -5,163 +5,291 @@
 - 文本感情七维构建
 - 文本感情强烈程度评分
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import pandas as pd
 import jieba
-from snownlp import SnowNLP
+import math
+import numpy as np
 from collections import Counter
+from src.services.ai.embedding import EmbeddingModelAI
+from tenacity import retry, stop_after_attempt, wait_exponential, wait_fixed, retry_if_exception_type
 
-# 加载否定词表
-def load_negative_words(file_path):
+# 标点符号常量
+PUNCTUATION = {'，', '。', '！', '？', '；', '：', '、', ',', '.', '!', '?', ';', ':'}
+
+def load_word_list(file_path):
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
-            return [line.strip() for line in f.readlines()]
+            return set(line.strip() for line in f if line.strip())
     except FileNotFoundError:
-        print(f"未找到否定词表文件: {file_path}")
-        return []
+        print(f"未找到词表文件: {file_path}")
+        return set()
 
-NEGATIVE_WORDS = load_negative_words('src\handlers\emodata\否定词表.txt')
+# 加载词表
+BASE_DIR = Path(__file__).parent
+NEGATIVE_WORDS = load_word_list(BASE_DIR/'emodata/否定词表.txt')
+DEGREE_ADVERBS = load_word_list(BASE_DIR/'emodata/程度副词.txt')
+POSITIVE_WORDS = load_word_list(BASE_DIR/'emodata/正面情绪词.txt')
+NEGATIVE_WORDS_EXT = load_word_list(BASE_DIR/'emodata/负面情绪词.txt')
 
-# 情感分类到情感类型和极性的映射关系
+# 情感分类映射
 CATEGORY_MAPPING = {
-    # 喜悦（正面）
-    'PA': ('joy', 'positive'),
-    'PE': ('joy', 'positive'),
-    # 喜好（正面）
-    'PD': ('like', 'positive'),
-    'PH': ('like', 'positive'),
-    'PG': ('like', 'positive'),
-    'PB': ('like', 'positive'),
-    'PK': ('like', 'positive'),
-    # 惊讶（正面）
-    'PC': ('surprise', 'positive'),
-    # 愤怒（负面）
-    'NA': ('anger', 'negative'),
-    # 低落（负面）
-    'NB': ('depress', 'negative'),
-    'NJ': ('depress', 'negative'),
-    'NH': ('depress', 'negative'),
-    'PF': ('depress', 'negative'),
-    # 恐惧（负面）
-    'NI': ('fear', 'negative'),
-    'NC': ('fear', 'negative'),
-    'NG': ('fear', 'negative'),
-    # 厌恶（负面）
-    'NE': ('dislike', 'negative'),
-    'ND': ('dislike', 'negative'),
-    'NN': ('dislike', 'negative'),
-    'NK': ('dislike', 'negative'),
-    'NL': ('dislike', 'negative')
+    'PA': ('joy', 'positive'), 'PE': ('joy', 'positive'),
+    'PD': ('like', 'positive'), 'PH': ('like', 'positive'),
+    'PG': ('like', 'positive'), 'PB': ('like', 'positive'),
+    'PK': ('like', 'positive'), 'PC': ('surprise', 'positive'),
+    'NA': ('anger', 'negative'), 'NB': ('anger', 'negative'),
+    'NJ': ('depress', 'negative'), 'NH': ('depress', 'negative'),
+    'PF': ('depress', 'negative'), 'NI': ('fear', 'negative'),
+    'NC': ('fear', 'negative'), 'NG': ('fear', 'negative'),
+    'NE': ('dislike', 'negative'), 'ND': ('dislike', 'negative'),
+    'NK': ('dislike', 'negative'), 'NL': ('dislike', 'negative'),
 }
-
 class SentimentAnalyzer:
-    def __init__(self):
+    def __init__(self, hybrid_mode=True):
+        self._hybrid_mode = hybrid_mode
+        self.emotion_dict = {}
+        self.embedding_model = None
+        self._init_components()
+        
+    def _init_components(self):
+        """初始化组件并处理失败情况"""
+        # 加载情感词典
+        self._load_emotion_dictionary()
+        
+        # 尝试初始化嵌入模型
+        if self._hybrid_mode:
+            try:
+                # 维度参数（1024是支持的选项之一）
+                self.embedding_model = EmbeddingModelAI(dimension=1024)
+                if not self.embedding_model.available:
+                    print("混合模式不可用，自动切换到规则模式")
+                    self._hybrid_mode = False
+            except Exception as e:
+                print(f"混合模式初始化失败: {str(e)}，切换到规则模式")
+                self._hybrid_mode = False
+
+    def analyze(self, text):
+        """自动回退的核心分析方法"""
+        emotion_result = self._analyze_emotion(text)
+        
+        if self._hybrid_mode and self.embedding_model:
+            try:
+                embedding = self.embedding_model.get_embeddings(text)
+                if embedding is not None:
+                    emotion_result = self._enhance_with_embedding(emotion_result, embedding)
+                else:
+                    print("获取嵌入失败，使用规则模式结果")
+            except Exception as e:
+                print(f"嵌入处理异常: {str(e)}，使用规则模式结果")
+                self._hybrid_mode = False
+
+        # 综合评分计算
+        intensity = emotion_result['emotion_info']['intensity']
+        base_score = emotion_result['emotion_info']['base_score']
+        adjusted_score = base_score * (1 + math.exp(2 * intensity - 1))
+        final_score = max(min(adjusted_score, 5), -5)
+        
+        return {
+            **emotion_result,
+            'sentiment_score': round(final_score, 2),
+            'mode': 'hybrid' if self._hybrid_mode else 'rule'
+        }
+# 情感分类映射
+CATEGORY_MAPPING = {
+    'PA': ('joy', 'positive'), 'PE': ('joy', 'positive'),
+    'PD': ('like', 'positive'), 'PH': ('like', 'positive'),
+    'PG': ('like', 'positive'), 'PB': ('like', 'positive'),
+    'PK': ('like', 'positive'), 'PC': ('surprise', 'positive'),
+    'NA': ('anger', 'negative'), 'NB': ('anger', 'negative'),
+    'NJ': ('depress', 'negative'), 'NH': ('depress', 'negative'),
+    'PF': ('depress', 'negative'), 'NI': ('fear', 'negative'),
+    'NC': ('fear', 'negative'), 'NG': ('fear', 'negative'),
+    'NE': ('dislike', 'negative'), 'ND': ('dislike', 'negative'),
+    'NK': ('dislike', 'negative'), 'NL': ('dislike', 'negative'),
+}
+class SentimentAnalyzer:
+    def __init__(self, hybrid_mode=False):
+        self.hybrid_mode = hybrid_mode
         self.emotion_dict = {}
         self._load_emotion_dictionary()
+        self.embedding_model = EmbeddingModelAI() if hybrid_mode else None
 
-    def _load_emotion_dictionary(self):
-        """加载情感词典并构建快速查询结构"""
-        try:
-            df = pd.read_excel(r'src\handlers\emodata\大连理工大学中文情感词汇本体.xlsx.xlsx')
-            for _, row in df.iterrows():
-                word = row['词语']
-                category = row['情感分类']
-                if category in CATEGORY_MAPPING:
-                    emotion_type, polarity = CATEGORY_MAPPING[category]
-                    self.emotion_dict[word] = (emotion_type, polarity)
-            print('情感词典加载完成')
-        except FileNotFoundError:
-            print("未找到情感词典文件，请检查路径。")
+    def analyze(self, text):
+        """核心分析方法"""
+        emotion_result = self._analyze_emotion(text)
+        
+        if self.hybrid_mode:
+            try:
+                embedding = self.embedding_model.get_embeddings(text)
+                if embedding:
+                    emotion_result = self._enhance_with_embedding(emotion_result, embedding)
+            except Exception as e:
+                print(f"嵌入模型异常: {str(e)}")
 
-    def _analyze_emotion(self, text):
-        """核心情感分析方法"""
-        counters = {
-            'positive': 0,
-            'negative': 0,
-            'anger': 0,
-            'dislike': 0,
-            'fear': 0,
-            'depress': 0,
-            'surprise': 0,
-            'like': 0,
-            'joy': 0
+        # 综合评分计算
+        intensity = emotion_result['emotion_info']['intensity']
+        base_score = emotion_result['emotion_info']['base_score']
+        adjusted_score = base_score * (1 + math.exp(2 * intensity - 1))  # 增强指数项
+        final_score = max(min(adjusted_score, 5), -5)
+        
+        return {
+            **emotion_result,
+            'sentiment_score': round(final_score, 2),
+            'mode': 'hybrid' if self.hybrid_mode else 'rule'
         }
 
-        # 分词
+    def _enhance_with_embedding(self, result, embedding):
+        """增强模式处理"""
+        vector_norm = np.linalg.norm(embedding)
+        # 增强嵌入影响：使用sigmoid函数调整强度
+        intensity_boost = 2 / (1 + math.exp(-vector_norm/50))  # 系数调整
+        result['emotion_info']['intensity'] = min(
+            result['emotion_info']['intensity'] * intensity_boost, 3.0
+        )
+        result['embedding'] = embedding[:3]
+        return result
+
+    def _load_emotion_dictionary(self):
+        """加载情感词典"""
+        try:
+            df = pd.read_csv(
+                r'src\handlers\emodata\大连理工大学中文情感词汇本体.csv',
+                usecols=['词语', '情感分类'],
+                encoding='utf-8'
+            )
+            valid_records = df[df['情感分类'].isin(CATEGORY_MAPPING)]
+            self.emotion_dict = {
+                row['词语']: CATEGORY_MAPPING[row['情感分类']]
+                for _, row in valid_records.iterrows()
+            }
+            print(f'情感词典加载完成，共{len(self.emotion_dict)}条记录')
+        except FileNotFoundError:
+            print("未找到情感词典文件，请检查路径。")
+    def _analyze_emotion(self, text):
+        """核心情感分析方法"""
         words = jieba.lcut(text)
-
-        # 处理否定词
-        for i, word in enumerate(words):
-            if word in NEGATIVE_WORDS and i < len(words) - 1:
-                next_word = words[i + 1]
-                if next_word in self.emotion_dict:
-                    emotion_type, polarity = self.emotion_dict[next_word]
-                    # 反转极性
-                    new_polarity = 'negative' if polarity == 'positive' else 'positive'
-                    self.emotion_dict[next_word] = (emotion_type, new_polarity)
-
-        # 统计词频
         word_counts = Counter(words)
+        
+        # 初始化参数
+        counters = {t: 0 for t in ['positive', 'negative', 'anger', 'dislike', 
+                                 'fear', 'depress', 'surprise', 'like', 'joy']}
+        current_weight = 1.0
+        negation_scope = False
+        adverb_weight = 1.0
 
-        # 情感计数处理
-        for word, count in word_counts.items():
-            if word in self.emotion_dict:
-                emotion_type, polarity = self.emotion_dict[word]
+        for i, word in enumerate(words):
+            # 标点符号处理
+            if word in PUNCTUATION:
+                negation_scope = False
+                adverb_weight = 1.0
+                continue
+                
+            # 位置权重（句子开头和结尾增强）
+            position_weight = 1.2 - 0.5 * (i / len(words))
+            
+            # 程度副词处理
+            if word in DEGREE_ADVERBS:
+                adverb_weight = self._get_adverb_weight(word)
+                continue
+                
+            # 否定词处理
+            if word in NEGATIVE_WORDS:
+                negation_scope = True
+                counters['negative'] += 1.5 * position_weight
+                counters['dislike'] += 1.0 * position_weight
+                continue
 
-                # 更新极性计数
-                counters[polarity] += count
+            # 情感词处理
+            emotion_type, polarity = self._get_word_sentiment(word)
+            if emotion_type:
+                # 应用权重和否定反转
+                final_weight = adverb_weight * position_weight
+                if negation_scope:
+                    polarity = 'negative' if polarity == 'positive' else 'positive'
+                    emotion_type = self._reverse_emotion(emotion_type)
+                
+                # 更新计数器
+                counters[polarity] += final_weight
+                counters[emotion_type] += final_weight
+                adverb_weight = 1.0  # 重置副词权重
 
-                # 更新具体情感计数
-                if emotion_type in counters:
-                    counters[emotion_type] += count
-
-        # 确定情感极性
-        if counters['positive'] > counters['negative']:
-            polarity = '正面'
-        elif counters['positive'] == counters['negative']:
+        return self._finalize_result(counters, len(words))
+    def _finalize_result(self, counters, text_length):
+        """结果处理"""
+        # 情感极性计算
+        positive = counters['positive']
+        negative = counters['negative']
+        
+        # 线性归一化得分
+        total = positive + negative
+        if total == 0:
             polarity = '中立'
+            base_score = 0
         else:
-            polarity = '负面'
-
-        # 确定主要情感类型
-        emotion_fields = ['anger', 'dislike', 'fear', 'depress', 'surprise', 'like', 'joy']
-        emotion_values = [(field, counters[field]) for field in emotion_fields]
-        main_emotion, max_count = max(emotion_values, key=lambda x: x[1])
+            base_score = (positive - negative) / total * 5
+            polarity = '正面' if base_score > 0 else '负面'
+        
+        # 主情感类型
+        emotions = [(k, v) for k, v in counters.items() if k not in ['positive', 'negative']]
+        main_emotion, max_val = max(emotions, key=lambda x: x[1], default=(None, 0))
+        
+        # 强度计算（线性）
+        intensity = min(max_val / (text_length * 0.5), 1)  # 按文本长度归一化
 
         return {
-            'sentiment_type': main_emotion.capitalize() if max_count > 0 else 'None',
+            'sentiment_type': main_emotion.capitalize() if max_val > 0 else 'None',
             'polarity': polarity,
             'emotion_info': {
-                'length': len(words),
-                'positive': counters['positive'],
-                'negative': counters['negative'],
-                **{k: v for k, v in counters.items() if k not in ['positive', 'negative']}
+                'length': text_length,
+                'positive': positive,
+                'negative': negative,
+                'intensity': round(intensity, 2),
+                'base_score': base_score, 
+                **counters
             }
         }
 
-    def _get_sentiment_score(self, text):
-        """获取SnowNLP情感评分"""
-        return SnowNLP(text).sentiments
-
-    def analyze(self, text):
-        '''综合分析方法'''
-        emotion_result = self._analyze_emotion(text)
-        raw_score = self._get_sentiment_score(text)
-
-        # 根据极性调整符号位
-        polarity = emotion_result['polarity']
-        adjusted_score = raw_score
-        if polarity == '正面':
-            adjusted_score += 1
-        elif polarity == '负面':
-            adjusted_score -= 1
-
-        return {
-            **emotion_result,
-            'sentiment_score': adjusted_score
+    # 辅助方法
+    def _get_adverb_weight(self, adverb):
+        """细粒度程度副词权重"""
+        weights = {
+            '极其': 3.0, '超': 2.8, '最': 2.5,
+            '非常': 2.0, '特别': 2.0, '十分': 2.0,
+            '较为': 1.5, '比较': 1.5, '有点': 0.7,
+            '稍微': 0.6, '略微': 0.5
         }
+        return weights.get(adverb, 1.0)
 
-if __name__ == "__main__":
-    analyzer = SentimentAnalyzer()
-    test_text = "我不喜欢你"
-    result = analyzer.analyze(test_text)
-    print(result)
+    def _reverse_emotion(self, emotion):
+        """情感类型反转逻辑"""
+        reversal_map = {
+            'joy': 'depress',
+            'like': 'dislike',
+            'surprise': 'fear',
+            'anger': 'like',
+            'dislike': 'like',
+            'fear': 'surprise',
+            'depress': 'joy'
+        }
+        return reversal_map.get(emotion, emotion)
+
+    def _get_word_sentiment(self, word):
+        """获取词语情感属性"""
+        if word in self.emotion_dict:
+            return self.emotion_dict[word]
+        if word in POSITIVE_WORDS:
+            return ('joy', 'positive')
+        if word in NEGATIVE_WORDS_EXT:
+            return ('depress', 'negative')
+        return (None, None)
+    
+
+# 实例化分析器
+analyzer = SentimentAnalyzer(hybrid_mode=True)
+
+# 分析文本
+result = analyzer.analyze("我喜欢你")
+print(result)
