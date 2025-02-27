@@ -207,7 +207,8 @@ memory_handler = MemoryHandler(
 moonshot_ai = ImageRecognitionService(
     api_key=config.media.image_recognition.api_key,
     base_url=config.media.image_recognition.base_url,
-    temperature=config.media.image_recognition.temperature
+    temperature=config.media.image_recognition.temperature,
+    model=config.media.image_recognition.model
 )
 
 # 获取机器人名称

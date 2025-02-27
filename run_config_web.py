@@ -176,6 +176,10 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                 "value": config.media.image_recognition.temperature,
                 "description": "Moonshot温度参数",
             },
+            "MOONSHOT_MODEL": {
+                "value": config.media.image_recognition.model,
+                "description": "Moonshot AI模型",
+            }
         }
     )
 
@@ -293,6 +297,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                 api_key=new_config.get("MOONSHOT_API_KEY", ""),
                 base_url=new_config.get("MOONSHOT_BASE_URL", ""),
                 temperature=float(new_config.get("MOONSHOT_TEMPERATURE", 1.1)),
+                model=new_config.get("MOONSHOT_MODEL", ""),
             ),
             image_generation=ImageGenerationSettings(
                 model=new_config.get("IMAGE_MODEL", ""),
@@ -378,20 +383,25 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                             "api_key": {
                                 "value": media_settings.image_recognition.api_key,
                                 "type": "string",
-                                "description": "Moonshot AI API密钥（用于图片和表情包识别）",
+                                "description": "图像识别 AI API 密钥（用于图片和表情包识别）",
                                 "is_secret": True,
                             },
                             "base_url": {
                                 "value": media_settings.image_recognition.base_url,
                                 "type": "string",
-                                "description": "Moonshot API基础URL",
+                                "description": "图像识别 AI API 基础 URL",
                             },
                             "temperature": {
                                 "value": media_settings.image_recognition.temperature,
                                 "type": "number",
-                                "description": "Moonshot AI的温度值",
+                                "description": "图像识别 AI 的温度值",
                                 "min": 0,
                                 "max": 2,
+                            },
+                            "model": {
+                                "value": media_settings.image_recognition.model,
+                                "type": "string",
+                                "description": "图像识别 AI 模型",
                             },
                         },
                         "image_generation": {
