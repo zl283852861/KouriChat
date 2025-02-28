@@ -63,7 +63,8 @@ def save_avatar():
     """保存 avatar.md 内容"""
     data = request.json
     print('接收到的数据:', data)  # 调试信息
-    avatar_path = os.path.join(config.behavior.context.avatar_dir, 'avatar.md')
+    avatar_name = data.get('avatar', config.behavior.context.avatar_dir)  # 获取人设名称
+    avatar_path = os.path.join(avatar_name, 'avatar.md')
 
     if not os.path.exists(avatar_path):
         return jsonify({'status': 'error', 'message': '文件不存在'})
