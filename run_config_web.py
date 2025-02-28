@@ -36,6 +36,7 @@ import secrets
 from datetime import timedelta
 from src.utils.console import print_status
 from src.avatar_manager import avatar_manager  # 导入角色设定管理器
+from src.webui.routes.avatar import avatar_bp
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -99,6 +100,7 @@ app.secret_key = secrets.token_hex(16)
 
 # 在 app 初始化后添加
 app.register_blueprint(avatar_manager)
+app.register_blueprint(avatar_bp)
 
 def get_available_avatars() -> List[str]:
     """获取可用的人设目录列表"""

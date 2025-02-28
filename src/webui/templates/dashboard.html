@@ -102,7 +102,7 @@
         }
 
         /* 毛玻璃效果卡片 */
-        .glass-panel {
+        .glass-panel, .info-card ,.modal-content,.modal-header,.modal-footer,.modal-body{
             background: var(--card-bg);
             -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
@@ -119,14 +119,6 @@
             box-shadow: 0 8px 12px -1px rgba(0, 0, 0, 0.15), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
         }
 
-        .info-card {
-            background: var(--card-bg);
-            border: 1px solid var(--card-border);
-            border-radius: 0.75rem;
-            padding: 1.25rem;
-            margin-bottom: 1rem;
-            transition: all 0.3s ease;
-        }
 
         .info-card:hover {
             transform: translateY(-1px);

@@ -251,6 +251,12 @@
                 <select id="avatarSelector" class="form-select">
                     <!-- 这里的选项将通过JavaScript动态加载 -->
                 </select>
+                <button type="button" class="btn btn-outline-primary" id="newAvatarBtn" title="创建新人设">
+                    <i class="bi bi-plus-circle"></i> 新建人设
+                </button>
+                <button type="button" class="btn btn-outline-danger" id="deleteAvatarBtn" title="删除当前人设">
+                    <i class="bi bi-trash"></i> 删除人设
+                </button>
             </div>
             
             <form id="avatarForm">
@@ -301,11 +307,63 @@
         </div>
     </div>
 
+    <!-- 新建人设模态框 -->
+    <div class="modal fade" id="newAvatarModal" tabindex="-1" aria-labelledby="newAvatarModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="newAvatarModalLabel">新建人设</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="mb-3">
+                        <label for="newAvatarName" class="form-label">人设名称</label>
+                        <input type="text" class="form-control" id="newAvatarName" placeholder="请输入人设名称（英文）" required>
+                        <small class="text-muted">请使用英文字母、数字和下划线，例如：ATRI、Mono_Chan</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" id="createAvatarBtn">创建</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加删除确认模态框 -->
+    <div class="modal fade" id="deleteAvatarModal" tabindex="-1" aria-labelledby="deleteAvatarModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="deleteAvatarModalLabel">删除人设</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    确定要删除这个人设吗？此操作不可恢复。
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" id="confirmDeleteBtn">删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // 当前选中的人设目录
             let currentAvatar = 'MONO';
             let rawContent = ''; // 存储原始内容
+            
+            // 初始化背景
+            fetch('/get_background')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.path) {
+                        document.body.style.backgroundImage = `url('${data.path}')`;
+                    }
+                })
+                .catch(error => console.error('Error:', error));
             
             // 获取可用的人设列表
             function loadAvatarList() {
@@ -422,10 +480,24 @@
                                     <button type="button" class="btn-close ${isDarkMode ? 'btn-close-white' : ''}" data-bs-dismiss="modal" aria-label="Close"></button>
                                 </div>
                                 <div class="modal-body">
-                                    <pre class="p-3 rounded ${isDarkMode ? 'bg-dark text-light border border-secondary' : 'bg-light'}" style="max-height: 500px; overflow-y: auto;">${rawContent}</pre>
+                                    <div class="mb-3">
+                                        <div class="d-flex justify-content-end mb-2">
+                                            <button type="button" class="btn btn-sm btn-outline-secondary me-2" id="copyMdBtn">
+                                                <i class="bi bi-clipboard"></i> 复制
+                                            </button>
+                                            <button type="button" class="btn btn-sm btn-outline-danger" id="clearMdBtn">
+                                                <i class="bi bi-trash"></i> 清空
+                                            </button>
+                                        </div>
+                                        <textarea class="form-control ${isDarkMode ? 'bg-dark text-light' : ''}" 
+                                            id="rawMdContent" 
+                                            style="min-height: 400px; font-family: monospace;"
+                                        >${rawContent}</textarea>
+                                    </div>
                                 </div>
                                 <div class="modal-footer ${isDarkMode ? 'border-secondary' : ''}">
-                                    <button type="button" class="btn ${isDarkMode ? 'btn-outline-light' : 'btn-secondary'}" data-bs-dismiss="modal">关闭</button>
+                                    <button type="button" class="btn ${isDarkMode ? 'btn-outline-light' : 'btn-secondary'}" data-bs-dismiss="modal">取消</button>
+                                    <button type="button" class="btn btn-primary" id="saveMdBtn">保存修改</button>
                                 </div>
                             </div>
                         </div>
@@ -436,6 +508,53 @@
                     // 显示模态框
                     const modal = new bootstrap.Modal(modalDiv);
                     modal.show();
+                    
+                    // 复制按钮功能
+                    document.getElementById('copyMdBtn').addEventListener('click', function() {
+                        const textarea = document.getElementById('rawMdContent');
+                        textarea.select();
+                        document.execCommand('copy');
+                        showToast('内容已复制到剪贴板', 'success');
+                    });
+                    
+                    // 清空按钮功能
+                    document.getElementById('clearMdBtn').addEventListener('click', function() {
+                        if(confirm('确定要清空所有内容吗？此操作不可恢复。')) {
+                            document.getElementById('rawMdContent').value = '';
+                            showToast('内容已清空', 'success');
+                        }
+                    });
+                    
+                    // 保存修改按钮功能
+                    document.getElementById('saveMdBtn').addEventListener('click', function() {
+                        const newContent = document.getElementById('rawMdContent').value;
+                        const avatarData = {
+                            avatar: currentAvatar,
+                            content: newContent
+                        };
+                        
+                        fetch('/save_avatar_raw', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(avatarData)
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                showToast('修改已保存', 'success');
+                                modal.hide();
+                                // 重新加载内容
+                                loadAvatarContent(currentAvatar);
+                            } else {
+                                showToast('保存失败: ' + data.message, 'error');
+                            }
+                        })
+                        .catch(error => {
+                            showToast('保存失败: ' + error, 'error');
+                        });
+                    });
                     
                     // 模态框关闭后移除DOM
                     modalDiv.addEventListener('hidden.bs.modal', function() {
@@ -453,16 +572,6 @@
                     loadAvatarContent(selectedAvatar);
                 }
             });
-            
-            // 初始化背景
-            fetch('/get_background')
-                .then(response => response.json())
-                .then(data => {
-                    if (data.status === 'success' && data.path) {
-                        document.body.style.backgroundImage = `url('${data.path}')`;
-                    }
-                })
-                .catch(error => console.error('Error:', error));
             
             // 保存按钮点击事件
             document.getElementById('saveButton').addEventListener('click', function() {
@@ -542,6 +651,86 @@
             
             // 添加查看原始MD内容的按钮
             addViewRawButton();
+
+            // 新建人设按钮点击事件
+            document.getElementById('newAvatarBtn').addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('newAvatarModal'));
+                modal.show();
+            });
+
+            // 创建人设按钮点击事件
+            document.getElementById('createAvatarBtn').addEventListener('click', function() {
+                const avatarName = document.getElementById('newAvatarName').value.trim();
+                
+                if (!avatarName) {
+                    showToast('请输入人设名称', 'error');
+                    return;
+                }
+
+                if (!/^[a-zA-Z0-9_]+$/.test(avatarName)) {
+                    showToast('人设名称只能包含英文字母、数字和下划线', 'error');
+                    return;
+                }
+
+                fetch('/create_avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ avatar_name: avatarName })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showToast('人设创建成功', 'success');
+                        // 关闭模态框
+                        bootstrap.Modal.getInstance(document.getElementById('newAvatarModal')).hide();
+                        // 重新加载人设列表
+                        loadAvatarList();
+                        // 清空输入框
+                        document.getElementById('newAvatarName').value = '';
+                    } else {
+                        showToast('创建失败: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    showToast('创建失败: ' + error, 'error');
+                });
+            });
+
+            // 删除人设按钮点击事件
+            document.getElementById('deleteAvatarBtn').addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('deleteAvatarModal'));
+                modal.show();
+            });
+            
+            // 确认删除按钮点击事件
+            document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
+                const avatarName = document.getElementById('avatarSelector').value;
+                
+                fetch('/delete_avatar', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ avatar_name: avatarName })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showToast('人设已删除', 'success');
+                        // 关闭模态框
+                        bootstrap.Modal.getInstance(document.getElementById('deleteAvatarModal')).hide();
+                        // 重新加载人设列表
+                        loadAvatarList();
+                    } else {
+                        showToast('删除失败: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    showToast('删除失败: ' + error, 'error');
+                });
+            });
         });
     </script>
 </body>
