@@ -251,10 +251,11 @@ unanswered_count = 0  # 新增未回复计数器
 countdown_end_time = None  # 新增倒计时结束时间
 
 def update_last_chat_time():
-    """更新最后一次聊天时间"""
-    global last_chat_time
+    """更新最后一次聊天时间并重置未回复计数"""
+    global last_chat_time, unanswered_count
     last_chat_time = datetime.now()
-    logger.info(f"更新最后聊天时间: {last_chat_time}")
+    unanswered_count = 0  # 重置未回复计数
+    logger.info(f"更新最后聊天时间: {last_chat_time}, 重置未回复计数")
 
 def is_quiet_time() -> bool:
     """检查当前是否在安静时间段内"""
@@ -365,12 +366,12 @@ def message_listener():
                         if msgtype != 'friend':
                             logger.debug(f"非好友消息，忽略! 消息类型: {msgtype}")
                             continue  
-                            # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
+                        # 当收到消息时更新最后聊天时间并重置未回复计数
+                        update_last_chat_time()
+                        # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
                         if who == msg.sender:
-
-                            chat_bot.handle_wxauto_message(msg, msg.sender) # 处理私聊信息
+                            chat_bot.handle_wxauto_message(msg, msg.sender)
                         elif ROBOT_WX_NAME != '' and (bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)) or bool(re.search(f'{ROBOT_WX_NAME}\u2005', msg.content))): 
-                            # 修改：在群聊被@时或者被叫名字，传入群聊ID(who)作为回复目标
                             chat_bot.handle_wxauto_message(msg, who, is_group=True) 
                         else:
                             logger.debug(f"非需要处理消息，可能是群聊非@消息: {content}")   
