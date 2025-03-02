@@ -94,7 +94,7 @@ def initialize_system():
         print_status("目录检查完成", "success", "CHECK")
 
         print("-" * 50)
-        print_status("系统初始化完成", "success", "STAR")
+        print_status("系统初始化完成", "success", "STAR_1")
         time.sleep(1)  # 稍微停顿以便用户看清状态
 
         # 启动主程序
