@@ -150,13 +150,15 @@ class ChatBot:
                         logger.info("不是画图请求，继续正常对话")
 
                 sender_name = username
-                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                time_aware_content = f"[{current_time}] {content}"
-                logger.info(f"格式化后的消息: {time_aware_content}")
 
                 with self.queue_lock:
                     if chatName not in self.user_queues:
+                        # 只有第一条消息添加时间戳
                         logger.info(f"创建新的消息队列 - 聊天ID: {chatName}")
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        time_aware_content = f"[{current_time}] {content}"
+                        logger.info(f"格式化后的第一条消息: {time_aware_content}")
+                        
                         self.user_queues[chatName] = {
                             'timer': threading.Timer(5.0, self.process_user_messages, args=[chatName]),
                             'messages': [time_aware_content],
@@ -167,9 +169,11 @@ class ChatBot:
                         self.user_queues[chatName]['timer'].start()
                         logger.info(f"消息队列创建完成 - 是否群聊: {is_group}, 发送者: {sender_name}")
                     else:
+                        # 后续消息不添加时间戳
                         logger.info(f"更新现有消息队列 - 聊天ID: {chatName}")
                         self.user_queues[chatName]['timer'].cancel()
-                        self.user_queues[chatName]['messages'].append(time_aware_content)
+                        self.user_queues[chatName]['messages'].append(content)
+                        logger.info(f"添加后续消息(无时间戳): {content}")
                         self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName])
                         self.user_queues[chatName]['timer'].start()
                         logger.info("消息队列更新完成")
@@ -293,7 +297,7 @@ def auto_send_message():
     if listen_list:
         user_id = random.choice(listen_list)
         unanswered_count += 1  # 每次发送消息时增加未回复计数
-        reply_content = f"{config.behavior.auto_message.content} 这是对方第{unanswered_count}次未回复你！你可以选择模拟对方未回复后的小脾气"
+        reply_content = f"{config.behavior.auto_message.content} 这是对方第{unanswered_count}次未回复你, 你可以选择模拟对方未回复后的小脾气"
         logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(

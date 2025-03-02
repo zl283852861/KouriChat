@@ -299,11 +299,13 @@ class MessageHandler:
     def add_to_queue(self, chat_id: str, content: str, sender_name: str, 
                     username: str, is_group: bool = False):
         """添加消息到队列"""
-        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        time_aware_content = f"[{current_time}] {content}"
-
+        
         with self.queue_lock:
             if chat_id not in self.user_queues:
+                # 只有第一条消息添加时间戳
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                time_aware_content = f"[{current_time}] {content}"
+                
                 self.user_queues[chat_id] = {
                     'timer': threading.Timer(5.0, self.process_messages, args=[chat_id]),
                     'messages': [time_aware_content],
@@ -313,7 +315,8 @@ class MessageHandler:
                 }
                 self.user_queues[chat_id]['timer'].start()
             else:
+                # 后续消息不添加时间戳
                 self.user_queues[chat_id]['timer'].cancel()
-                self.user_queues[chat_id]['messages'].append(time_aware_content)
+                self.user_queues[chat_id]['messages'].append(content)
                 self.user_queues[chat_id]['timer'] = threading.Timer(5.0, self.process_messages, args=[chat_id])
                 self.user_queues[chat_id]['timer'].start() 
