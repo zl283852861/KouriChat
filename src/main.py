@@ -34,6 +34,10 @@ if not os.path.exists(config_path) and os.path.exists(config_template_path):
     logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 配置日志
+# 清除所有现有日志处理器
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 logger_config = LoggerConfig(root_dir)
 logger = logger_config.setup_logger('main')
 listen_list = config.user.listen_list
@@ -73,15 +77,27 @@ class ChatBot:
             logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
             logger.info(f"消息内容: {messages}")
 
-            # 处理消息
-            self.message_handler.add_to_queue(
+            # 合并消息内容
+            # 检查是否包含图片识别结果
+            is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
+            
+            if len(messages) > 1:
+                # 第一条消息已经包含时间戳（由handle_wxauto_message保证）
+                # 直接合并所有消息，不需要额外处理
+                content = "\n".join(messages)
+            else:
+                content = messages[0]
+
+            # 直接调用MessageHandler的handle_user_message方法
+            self.message_handler.handle_user_message(
+                content=content,
                 chat_id=chat_id,
-                content='\n'.join(messages),
                 sender_name=sender_name,
                 username=username,
-                is_group=is_group
+                is_group=is_group,
+                is_image_recognition=is_image_recognition
             )
-            logger.info(f"消息已添加到处理队列 - 聊天ID: {chat_id}")
+            logger.info(f"消息已处理 - 聊天ID: {chat_id}")
             
         except Exception as e:
             logger.error(f"处理消息队列失败: {str(e)}", exc_info=True)
@@ -141,22 +157,16 @@ class ChatBot:
                         logger.info(f"准备发送情感表情包: {emoji_path}")
                         self.message_handler.wx.SendFiles(emoji_path, chatName)
 
-                # 如果是图片识别结果，跳过画图功能检测
-                if not is_image_recognition:
-                    logger.info("检查是否为画图请求")
-                    if image_handler.is_image_generation_request(content):
-                        logger.info(f"检测到画图请求: {content}")
-                    else:
-                        logger.info("不是画图请求，继续正常对话")
-
                 sender_name = username
-                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                time_aware_content = f"[{current_time}] {content}"
-                logger.info(f"格式化后的消息: {time_aware_content}")
 
                 with self.queue_lock:
                     if chatName not in self.user_queues:
+                        # 只有第一条消息添加时间戳
                         logger.info(f"创建新的消息队列 - 聊天ID: {chatName}")
+                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        time_aware_content = f"[{current_time}] {content}"
+                        logger.info(f"格式化后的第一条消息: {time_aware_content}")
+                        
                         self.user_queues[chatName] = {
                             'timer': threading.Timer(5.0, self.process_user_messages, args=[chatName]),
                             'messages': [time_aware_content],
@@ -167,9 +177,11 @@ class ChatBot:
                         self.user_queues[chatName]['timer'].start()
                         logger.info(f"消息队列创建完成 - 是否群聊: {is_group}, 发送者: {sender_name}")
                     else:
+                        # 后续消息不添加时间戳
                         logger.info(f"更新现有消息队列 - 聊天ID: {chatName}")
                         self.user_queues[chatName]['timer'].cancel()
-                        self.user_queues[chatName]['messages'].append(time_aware_content)
+                        self.user_queues[chatName]['messages'].append(content)
+                        logger.info(f"添加后续消息(无时间戳): {content}")
                         self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName])
                         self.user_queues[chatName]['timer'].start()
                         logger.info("消息队列更新完成")
@@ -293,7 +305,7 @@ def auto_send_message():
     if listen_list:
         user_id = random.choice(listen_list)
         unanswered_count += 1  # 每次发送消息时增加未回复计数
-        reply_content = f"{config.behavior.auto_message.content} 这是对方第{unanswered_count}次未回复你！你可以选择模拟对方未回复后的小脾气"
+        reply_content = f"{config.behavior.auto_message.content} 这是对方第{unanswered_count}次未回复你, 你可以选择模拟对方未回复后的小脾气"
         logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(

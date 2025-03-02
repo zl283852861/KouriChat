@@ -13,7 +13,8 @@ import requests
 from typing import Optional
 import os
 
-logger = logging.getLogger(__name__)
+# 修改logger获取方式，确保与main模块一致
+logger = logging.getLogger('main')
 
 class ImageRecognitionService:
     def __init__(self, api_key: str, base_url: str, temperature: float, model: str):
