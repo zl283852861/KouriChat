@@ -187,4 +187,5 @@ cython_debug/
 #.idea/
 
 .vscode/
+.cursor/
 .cursorrules
