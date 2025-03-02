@@ -11,6 +11,7 @@ import logging
 import os
 from logging.handlers import RotatingFileHandler
 from datetime import datetime
+from typing import Optional
 
 class LoggerConfig:
     def __init__(self, root_dir: str):
@@ -28,15 +29,16 @@ class LoggerConfig:
         current_date = datetime.now().strftime("%Y%m%d")
         return os.path.join(self.log_dir, f"bot_{current_date}.log")
 
-    def setup_logger(self, name: str = None, level: int = logging.INFO):
+    def setup_logger(self, name: Optional[str] = None, level: int = logging.INFO):
         """配置日志记录器"""
         # 创建或获取日志记录器
         logger = logging.getLogger(name)
         logger.setLevel(level)
-
-        # 如果已经有处理器，不重复添加
-        if logger.handlers:
-            return logger
+        logger.propagate = True  # 确保日志能正确传播
+        
+        # 移除所有已有的handler，防止重复
+        for handler in logger.handlers[:]:
+            logger.removeHandler(handler)
 
         # 创建控制台处理器
         console_handler = logging.StreamHandler()

@@ -21,7 +21,8 @@ from services.ai.llm_service import LLMService
 from handlers.memory import MemoryHandler
 from config import config
 
-logger = logging.getLogger(__name__)
+# 修改logger获取方式，确保与main模块一致
+logger = logging.getLogger('main')
 
 class MessageHandler:
     def __init__(self, root_dir, api_key, base_url, model, max_token, temperature, 
@@ -118,205 +119,201 @@ class MessageHandler:
             except Exception as restore_error:
                 logger.error(f"恢复提示文件失败: {str(restore_error)}")
 
-    def process_messages(self, chat_id: str):
-        """处理消息队列中的消息"""
-        with self.queue_lock:
-            if chat_id not in self.user_queues:
-                return
-            user_data = self.user_queues.pop(chat_id)
-            messages = user_data['messages']
-            sender_name = user_data['sender_name']
-            username = user_data['username']
-            is_group = user_data.get('is_group', False)
-
-        messages = messages[-5:]
-        merged_message = ' \\ '.join(messages)
-        print("\n" + "="*50)
-        print(f"收到消息 - 发送者: {sender_name}")
-        print(f"消息内容: {merged_message}")
-        print("-"*50)
-
+    def handle_user_message(self, content: str, chat_id: str, sender_name: str, 
+                     username: str, is_group: bool = False, is_image_recognition: bool = False):
+        """统一的消息处理入口"""
         try:
-            # 检查消息是否包含图片识别结果
-            is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
-            if is_image_recognition:
-                print("消息类型: 图片识别结果")
+            logger.info(f"处理消息 - 发送者: {sender_name}, 聊天ID: {chat_id}, 是否群聊: {is_group}")
+            logger.info(f"消息内容: {content}")
             
             # 检查是否为语音请求
-            if self.voice_handler.is_voice_request(merged_message):
-                logger.info("检测到语音请求")
-                reply = self.get_api_response(merged_message, chat_id)
-                if "</think>" in reply:
-                    reply = reply.split("</think>", 1)[1].strip()
+            if self.voice_handler.is_voice_request(content):
+                return self._handle_voice_request(content, chat_id, sender_name, username, is_group)
                 
-                voice_path = self.voice_handler.generate_voice(reply)
-                if voice_path:
-                    try:
-                        self.wx.SendFiles(filepath=voice_path, who=chat_id)
-                    except Exception as e:
-                        logger.error(f"发送语音失败: {str(e)}")
-                        if is_group:
-                            reply = f"@{sender_name} {reply}"
-                        self.wx.SendMsg(msg=reply, who=chat_id)
-                    finally:
-                        try:
-                            os.remove(voice_path)
-                        except Exception as e:
-                            logger.error(f"删除临时语音文件失败: {str(e)}")
-                else:
-                    if is_group:
-                        reply = f"@{sender_name} {reply}"
-                    self.wx.SendMsg(msg=reply, who=chat_id)
-                
-                # 异步保存消息记录
-                threading.Thread(target=self.save_message, 
-                               args=(username, sender_name, merged_message, reply)).start()
-                return
-
             # 检查是否为随机图片请求
-            elif self.image_handler.is_random_image_request(merged_message):
-                logger.info("检测到随机图片请求")
-                image_path = self.image_handler.get_random_image()
-                if image_path:
-                    try:
-                        self.wx.SendFiles(filepath=image_path, who=chat_id)
-                        reply = "给主人你找了一张好看的图片哦~"
-                    except Exception as e:
-                        logger.error(f"发送图片失败: {str(e)}")
-                        reply = "抱歉主人，图片发送失败了..."
-                    finally:
-                        try:
-                            if os.path.exists(image_path):
-                                os.remove(image_path)
-                        except Exception as e:
-                            logger.error(f"删除临时图片失败: {str(e)}")
-                    
-                    if is_group:
-                        reply = f"@{sender_name} {reply}"
-                    self.wx.SendMsg(msg=reply, who=chat_id)
-                    return
-
+            elif self.image_handler.is_random_image_request(content):
+                return self._handle_random_image_request(content, chat_id, sender_name, username, is_group)
+                
             # 检查是否为图像生成请求，但跳过图片识别结果
-            elif not is_image_recognition and self.image_handler.is_image_generation_request(merged_message):
-                logger.info("检测到画图请求")
-                image_path = self.image_handler.generate_image(merged_message)
-                if image_path:
-                    try:
-                        self.wx.SendFiles(filepath=image_path, who=chat_id)
-                        reply = "这是按照主人您的要求生成的图片\\(^o^)/~"
-                    except Exception as e:
-                        logger.error(f"发送生成图片失败: {str(e)}")
-                        reply = "抱歉主人，图片生成失败了..."
-                    finally:
-                        try:
-                            if os.path.exists(image_path):
-                                os.remove(image_path)
-                        except Exception as e:
-                            logger.error(f"删除临时图片失败: {str(e)}")
-                    
-                    if is_group:
-                        reply = f"@{sender_name} {reply}"
-                    self.wx.SendMsg(msg=reply, who=chat_id)
-                    return
-
+            elif not is_image_recognition and self.image_handler.is_image_generation_request(content):
+                return self._handle_image_generation_request(content, chat_id, sender_name, username, is_group)
+                
             # 处理普通文本回复
             else:
-                logger.info("处理普通文本回复")
-                reply = self.get_api_response(merged_message, chat_id)
-                if "</think>" in reply:
-                    think_content, reply = reply.split("</think>", 1)
-                    print("\n思考过程:")
-                    print(think_content.strip())
-                    print("\nAI回复:")
-                    print(reply.strip())
-                else:
-                    print("\nAI回复:")
-                    print(reply)
+                return self._handle_text_message(content, chat_id, sender_name, username, is_group)
                 
-                if is_group:
-                    reply = f"@{sender_name} {reply}"
-
-                # 发送文本回复
-                if '\\' in reply:
-                    parts = [p.strip() for p in reply.split('\\') if p.strip()]
-                    for part in parts:
-                        self.wx.SendMsg(msg=part, who=chat_id)
-                        time.sleep(random.randint(2, 4))
-                else:
-                    self.wx.SendMsg(msg=reply, who=chat_id)
-
-                # 检查回复中是否包含情感关键词并发送表情包
-                print("\n检查情感关键词...")
-                logger.info("开始检查AI回复的情感关键词")
-                emotion_detected = False
-
-                try:
-                    if not hasattr(self.emoji_handler, 'emotion_map'):
-                        logger.error("emoji_handler 缺少 emotion_map 属性")
-                        return
-                        
-                    for emotion, keywords in self.emoji_handler.emotion_map.items():
-                        if not keywords:  # 跳过空的关键词列表（如 neutral）
-                            continue
-                            
-                        if any(keyword in reply for keyword in keywords):
-                            emotion_detected = True
-                            print(f"检测到情感: {emotion}")
-                            logger.info(f"在回复中检测到情感: {emotion}")
-                            
-                            emoji_path = self.emoji_handler.get_emotion_emoji(reply)
-                            if emoji_path:
-                                try:
-                                    print(f"发送情感表情包: {emoji_path}")
-                                    self.wx.SendFiles(filepath=emoji_path, who=chat_id)
-                                    logger.info(f"已发送情感表情包: {emoji_path}")
-                                except Exception as e:
-                                    logger.error(f"发送表情包失败: {str(e)}")
-                            else:
-                                logger.warning(f"未找到对应情感 {emotion} 的表情包")
-                            break
-
-                    if not emotion_detected:
-                        print("未检测到明显情感")
-                        logger.info("未在回复中检测到明显情感")
-                        
-                except Exception as e:
-                    logger.error(f"情感检测过程发生错误: {str(e)}")
-                    print(f"情感检测失败: {str(e)}")
-
-                # 异步保存消息记录
-                threading.Thread(target=self.save_message, 
-                               args=(username, sender_name, merged_message, reply)).start()
-
-            print("="*50 + "\n")
-
         except Exception as e:
             logger.error(f"处理消息失败: {str(e)}", exc_info=True)
-            print("\n处理消息时出现错误:")
-            print(f"错误信息: {str(e)}")
-            print("="*50 + "\n")
+            print(f"\n处理消息时出现错误: {str(e)}")
+            return None
+    
+    def _handle_voice_request(self, content, chat_id, sender_name, username, is_group):
+        """处理语音请求"""
+        logger.info("处理语音请求")
+        reply = self.get_api_response(content, chat_id)
+        if "</think>" in reply:
+            reply = reply.split("</think>", 1)[1].strip()
+        
+        voice_path = self.voice_handler.generate_voice(reply)
+        if voice_path:
+            try:
+                self.wx.SendFiles(filepath=voice_path, who=chat_id)
+            except Exception as e:
+                logger.error(f"发送语音失败: {str(e)}")
+                if is_group:
+                    reply = f"@{sender_name} {reply}"
+                self.wx.SendMsg(msg=reply, who=chat_id)
+            finally:
+                try:
+                    os.remove(voice_path)
+                except Exception as e:
+                    logger.error(f"删除临时语音文件失败: {str(e)}")
+        else:
+            if is_group:
+                reply = f"@{sender_name} {reply}"
+            self.wx.SendMsg(msg=reply, who=chat_id)
+        
+        # 异步保存消息记录
+        threading.Thread(target=self.save_message, 
+                       args=(username, sender_name, content, reply)).start()
+        return reply
+        
+    def _handle_random_image_request(self, content, chat_id, sender_name, username, is_group):
+        """处理随机图片请求"""
+        logger.info("处理随机图片请求")
+        image_path = self.image_handler.get_random_image()
+        if image_path:
+            try:
+                self.wx.SendFiles(filepath=image_path, who=chat_id)
+                reply = "给主人你找了一张好看的图片哦~"
+            except Exception as e:
+                logger.error(f"发送图片失败: {str(e)}")
+                reply = "抱歉主人，图片发送失败了..."
+            finally:
+                try:
+                    if os.path.exists(image_path):
+                        os.remove(image_path)
+                except Exception as e:
+                    logger.error(f"删除临时图片失败: {str(e)}")
+            
+            if is_group:
+                reply = f"@{sender_name} {reply}"
+            self.wx.SendMsg(msg=reply, who=chat_id)
+            
+            # 异步保存消息记录
+            threading.Thread(target=self.save_message, 
+                           args=(username, sender_name, content, reply)).start()
+            return reply
+        return None
+            
+    def _handle_image_generation_request(self, content, chat_id, sender_name, username, is_group):
+        """处理图像生成请求"""
+        logger.info("处理画图请求")
+        image_path = self.image_handler.generate_image(content)
+        if image_path:
+            try:
+                self.wx.SendFiles(filepath=image_path, who=chat_id)
+                reply = "这是按照主人您的要求生成的图片\\(^o^)/~"
+            except Exception as e:
+                logger.error(f"发送生成图片失败: {str(e)}")
+                reply = "抱歉主人，图片生成失败了..."
+            finally:
+                try:
+                    if os.path.exists(image_path):
+                        os.remove(image_path)
+                except Exception as e:
+                    logger.error(f"删除临时图片失败: {str(e)}")
+            
+            if is_group:
+                reply = f"@{sender_name} {reply}"
+            self.wx.SendMsg(msg=reply, who=chat_id)
+            
+            # 异步保存消息记录
+            threading.Thread(target=self.save_message, 
+                           args=(username, sender_name, content, reply)).start()
+            return reply
+        return None
+    
+    def _handle_text_message(self, content, chat_id, sender_name, username, is_group):
+        """处理普通文本消息"""
+        logger.info("处理普通文本回复")
+        reply = self.get_api_response(content, chat_id)
+        if "</think>" in reply:
+            think_content, reply = reply.split("</think>", 1)
+            print("\n思考过程:")
+            print(think_content.strip())
+            print("\nAI回复:")
+            print(reply.strip())
+        else:
+            print("\nAI回复:")
+            print(reply)
+        
+        if is_group:
+            reply = f"@{sender_name} {reply}"
+
+        # 发送文本回复
+        if '\\' in reply:
+            parts = [p.strip() for p in reply.split('\\') if p.strip()]
+            for part in parts:
+                self.wx.SendMsg(msg=part, who=chat_id)
+                time.sleep(random.randint(2, 4))
+        else:
+            self.wx.SendMsg(msg=reply, who=chat_id)
+
+        # 检查回复中是否包含情感关键词并发送表情包
+        print("\n检查情感关键词...")
+        logger.info("开始检查AI回复的情感关键词")
+        emotion_detected = False
+
+        try:
+            if not hasattr(self.emoji_handler, 'emotion_map'):
+                logger.error("emoji_handler 缺少 emotion_map 属性")
+                return reply
+                
+            for emotion, keywords in self.emoji_handler.emotion_map.items():
+                if not keywords:  # 跳过空的关键词列表（如 neutral）
+                    continue
+                    
+                if any(keyword in reply for keyword in keywords):
+                    emotion_detected = True
+                    print(f"检测到情感: {emotion}")
+                    logger.info(f"在回复中检测到情感: {emotion}")
+                    
+                    emoji_path = self.emoji_handler.get_emotion_emoji(reply)
+                    if emoji_path:
+                        try:
+                            print(f"发送情感表情包: {emoji_path}")
+                            self.wx.SendFiles(filepath=emoji_path, who=chat_id)
+                            logger.info(f"已发送情感表情包: {emoji_path}")
+                        except Exception as e:
+                            logger.error(f"发送表情包失败: {str(e)}")
+                    else:
+                        logger.warning(f"未找到对应情感 {emotion} 的表情包")
+                    break
+
+            if not emotion_detected:
+                print("未检测到明显情感")
+                logger.info("未在回复中检测到明显情感")
+                
+        except Exception as e:
+            logger.error(f"情感检测过程发生错误: {str(e)}")
+            print(f"情感检测失败: {str(e)}")
+
+        # 异步保存消息记录
+        threading.Thread(target=self.save_message, 
+                       args=(username, sender_name, content, reply)).start()
+                       
+        return reply
 
     def add_to_queue(self, chat_id: str, content: str, sender_name: str, 
                     username: str, is_group: bool = False):
-        """添加消息到队列"""
+        """添加消息到队列（已废弃，保留兼容）"""
+        # 直接处理消息，不再使用队列
+        logger.info("直接处理消息，跳过队列")
+        return self.handle_user_message(content, chat_id, sender_name, username, is_group)
         
-        with self.queue_lock:
-            if chat_id not in self.user_queues:
-                # 只有第一条消息添加时间戳
-                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                time_aware_content = f"[{current_time}] {content}"
-                
-                self.user_queues[chat_id] = {
-                    'timer': threading.Timer(5.0, self.process_messages, args=[chat_id]),
-                    'messages': [time_aware_content],
-                    'sender_name': sender_name,
-                    'username': username,
-                    'is_group': is_group
-                }
-                self.user_queues[chat_id]['timer'].start()
-            else:
-                # 后续消息不添加时间戳
-                self.user_queues[chat_id]['timer'].cancel()
-                self.user_queues[chat_id]['messages'].append(content)
-                self.user_queues[chat_id]['timer'] = threading.Timer(5.0, self.process_messages, args=[chat_id])
-                self.user_queues[chat_id]['timer'].start() 
+    def process_messages(self, chat_id: str):
+        """处理消息队列中的消息（已废弃，保留兼容）"""
+        # 该方法不再使用，保留以兼容旧代码
+        logger.warning("process_messages方法已废弃，使用handle_message代替")
+        pass 

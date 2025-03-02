@@ -34,6 +34,10 @@ if not os.path.exists(config_path) and os.path.exists(config_template_path):
     logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 配置日志
+# 清除所有现有日志处理器
+for handler in logging.root.handlers[:]:
+    logging.root.removeHandler(handler)
+
 logger_config = LoggerConfig(root_dir)
 logger = logger_config.setup_logger('main')
 listen_list = config.user.listen_list
@@ -73,15 +77,27 @@ class ChatBot:
             logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
             logger.info(f"消息内容: {messages}")
 
-            # 处理消息
-            self.message_handler.add_to_queue(
+            # 合并消息内容
+            # 检查是否包含图片识别结果
+            is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
+            
+            if len(messages) > 1:
+                # 第一条消息已经包含时间戳（由handle_wxauto_message保证）
+                # 直接合并所有消息，不需要额外处理
+                content = "\n".join(messages)
+            else:
+                content = messages[0]
+
+            # 直接调用MessageHandler的handle_user_message方法
+            self.message_handler.handle_user_message(
+                content=content,
                 chat_id=chat_id,
-                content='\n'.join(messages),
                 sender_name=sender_name,
                 username=username,
-                is_group=is_group
+                is_group=is_group,
+                is_image_recognition=is_image_recognition
             )
-            logger.info(f"消息已添加到处理队列 - 聊天ID: {chat_id}")
+            logger.info(f"消息已处理 - 聊天ID: {chat_id}")
             
         except Exception as e:
             logger.error(f"处理消息队列失败: {str(e)}", exc_info=True)
@@ -140,14 +156,6 @@ class ChatBot:
                     if emoji_path:
                         logger.info(f"准备发送情感表情包: {emoji_path}")
                         self.message_handler.wx.SendFiles(emoji_path, chatName)
-
-                # 如果是图片识别结果，跳过画图功能检测
-                if not is_image_recognition:
-                    logger.info("检查是否为画图请求")
-                    if image_handler.is_image_generation_request(content):
-                        logger.info(f"检测到画图请求: {content}")
-                    else:
-                        logger.info("不是画图请求，继续正常对话")
 
                 sender_name = username
 
