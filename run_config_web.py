@@ -36,6 +36,7 @@ import secrets
 from datetime import timedelta
 from src.utils.console import print_status
 from src.avatar_manager import avatar_manager  # 导入角色设定管理器
+from src.webui.routes.avatar import avatar_bp
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -99,6 +100,7 @@ app.secret_key = secrets.token_hex(16)
 
 # 在 app 初始化后添加
 app.register_blueprint(avatar_manager)
+app.register_blueprint(avatar_bp)
 
 def get_available_avatars() -> List[str]:
     """获取可用的人设目录列表"""
@@ -176,6 +178,10 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                 "value": config.media.image_recognition.temperature,
                 "description": "Moonshot温度参数",
             },
+            "MOONSHOT_MODEL": {
+                "value": config.media.image_recognition.model,
+                "description": "Moonshot AI模型",
+            }
         }
     )
 
@@ -293,6 +299,7 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                 api_key=new_config.get("MOONSHOT_API_KEY", ""),
                 base_url=new_config.get("MOONSHOT_BASE_URL", ""),
                 temperature=float(new_config.get("MOONSHOT_TEMPERATURE", 1.1)),
+                model=new_config.get("MOONSHOT_MODEL", ""),
             ),
             image_generation=ImageGenerationSettings(
                 model=new_config.get("IMAGE_MODEL", ""),
@@ -378,20 +385,25 @@ def save_config(new_config: Dict[str, Any]) -> bool:
                             "api_key": {
                                 "value": media_settings.image_recognition.api_key,
                                 "type": "string",
-                                "description": "Moonshot AI API密钥（用于图片和表情包识别）",
+                                "description": "图像识别 AI API 密钥（用于图片和表情包识别）",
                                 "is_secret": True,
                             },
                             "base_url": {
                                 "value": media_settings.image_recognition.base_url,
                                 "type": "string",
-                                "description": "Moonshot API基础URL",
+                                "description": "图像识别 AI API 基础 URL",
                             },
                             "temperature": {
                                 "value": media_settings.image_recognition.temperature,
                                 "type": "number",
-                                "description": "Moonshot AI的温度值",
+                                "description": "图像识别 AI 的温度值",
                                 "min": 0,
                                 "max": 2,
+                            },
+                            "model": {
+                                "value": media_settings.image_recognition.model,
+                                "type": "string",
+                                "description": "图像识别 AI 模型",
                             },
                         },
                         "image_generation": {
@@ -503,7 +515,7 @@ def save():
         new_config = request.json
         logger.debug(f"接收到的配置数据: {new_config}")
         
-        if save_config(new_config):
+        if new_config is not None and save_config(new_config):
             return jsonify({
                 "status": "success", 
                 "message": "✨ 配置已成功保存并生效",
@@ -532,18 +544,21 @@ def upload_background():
     if file.filename == '':
         return jsonify({"status": "error", "message": "没有选择文件"})
     
-    if file:
-        filename = secure_filename(file.filename)
-        # 清理旧的背景图片
-        for old_file in os.listdir(app.config['UPLOAD_FOLDER']):
-            os.remove(os.path.join(app.config['UPLOAD_FOLDER'], old_file))
-        # 保存新图片
-        file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-        return jsonify({
-            "status": "success", 
-            "message": "背景图片已更新",
-            "path": f"/background_image/{filename}"
-        })
+    # 确保 filename 不为 None
+    if file.filename is None:
+        return jsonify({"status": "error", "message": "文件名无效"})
+        
+    filename = secure_filename(file.filename)
+    # 清理旧的背景图片
+    for old_file in os.listdir(app.config['UPLOAD_FOLDER']):
+        os.remove(os.path.join(app.config['UPLOAD_FOLDER'], old_file))
+    # 保存新图片
+    file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
+    return jsonify({
+        "status": "success", 
+        "message": "背景图片已更新",
+        "path": f"/background_image/{filename}"
+    })
 
 # 添加背景图片目录的路由
 @app.route('/background_image/<filename>')
@@ -670,7 +685,7 @@ def check_update():
 def confirm_update():
     """确认是否更新"""
     try:
-        choice = request.json.get('choice', '').lower()
+        choice = (request.json or {}).get('choice', '').lower()
         if choice in ('y', 'yes'):
             updater = Updater()
             result = updater.update()
@@ -714,8 +729,10 @@ def start_bot():
             CREATE_NEW_PROCESS_GROUP = 0x00000200
             DETACHED_PROCESS = 0x00000008
             creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+            preexec_fn = None
         else:
             creationflags = 0
+            preexec_fn = getattr(os, 'setsid', None)
         
         # 启动进程
         bot_process = subprocess.Popen(
@@ -728,7 +745,7 @@ def start_bot():
             encoding='utf-8',
             errors='replace',
             creationflags=creationflags if sys.platform.startswith('win') else 0,
-            preexec_fn=os.setsid if not sys.platform.startswith('win') else None
+            preexec_fn=preexec_fn
         )
         
         # 记录启动时间
@@ -738,18 +755,19 @@ def start_bot():
         def read_output():
             try:
                 while bot_process and bot_process.poll() is None:
-                    line = bot_process.stdout.readline()
-                    if line:
-                        try:
-                            # 尝试解码并清理日志内容
-                            line = line.strip()
-                            if isinstance(line, bytes):
-                                line = line.decode('utf-8', errors='replace')
-                            timestamp = datetime.datetime.now().strftime('%H:%M:%S')
-                            bot_logs.put(f"[{timestamp}] {line}")
-                        except Exception as e:
-                            logger.error(f"日志处理错误: {str(e)}")
-                            continue
+                    if bot_process.stdout:
+                        line = bot_process.stdout.readline()
+                        if line:
+                            try:
+                                # 尝试解码并清理日志内容
+                                line = line.strip()
+                                if isinstance(line, bytes):
+                                    line = line.decode('utf-8', errors='replace')
+                                timestamp = datetime.datetime.now().strftime('%H:%M:%S')
+                                bot_logs.put(f"[{timestamp}] {line}")
+                            except Exception as e:
+                                logger.error(f"日志处理错误: {str(e)}")
+                                continue
             except Exception as e:
                 logger.error(f"读取日志失败: {str(e)}")
                 bot_logs.put(f"[ERROR] 读取日志失败: {str(e)}")
@@ -820,8 +838,14 @@ def stop_bot():
                 subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)], 
                              capture_output=True)
             else:
-                import signal
-                os.killpg(os.getpgid(bot_process.pid), signal.SIGTERM)
+                # 使用 getattr 避免在 Windows 上直接引用不存在的属性
+                killpg = getattr(os, 'killpg', None)
+                getpgid = getattr(os, 'getpgid', None)
+                if killpg and getpgid:
+                    import signal
+                    killpg(getpgid(bot_process.pid), signal.SIGTERM)
+                else:
+                    bot_process.kill()
             
             # 清理进程对象
             bot_process = None
@@ -917,13 +941,16 @@ def get_user_info():
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     """提供静态文件服务"""
-    return send_from_directory(app.static_folder, filename)
+    static_folder = app.static_folder
+    if static_folder is None:
+        static_folder = os.path.join(ROOT_DIR, 'src/webui/static')
+    return send_from_directory(static_folder, filename)
 
 @app.route('/execute_command', methods=['POST'])
 def execute_command():
     """执行控制台命令"""
     try:
-        command = request.json.get('command', '').strip()
+        command = (request.json or {}).get('command', '').strip()
         global bot_process, bot_start_time
         
         # 处理内置命令
@@ -1016,8 +1043,10 @@ type - 显示文件内容
                 CREATE_NEW_PROCESS_GROUP = 0x00000200
                 DETACHED_PROCESS = 0x00000008
                 creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+                preexec_fn = None
             else:
                 creationflags = 0
+                preexec_fn = getattr(os, 'setsid', None)
             
             # 启动进程
             bot_process = subprocess.Popen(
@@ -1030,7 +1059,7 @@ type - 显示文件内容
                 encoding='utf-8',
                 errors='replace',
                 creationflags=creationflags if sys.platform.startswith('win') else 0,
-                preexec_fn=os.setsid if not sys.platform.startswith('win') else None
+                preexec_fn=preexec_fn
             )
             
             # 记录启动时间
@@ -1060,8 +1089,14 @@ type - 显示文件内容
                         subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)], 
                                      capture_output=True)
                     else:
-                        import signal
-                        os.killpg(os.getpgid(bot_process.pid), signal.SIGTERM)
+                        # 使用 getattr 避免在 Windows 上直接引用不存在的属性
+                        killpg = getattr(os, 'killpg', None)
+                        getpgid = getattr(os, 'getpgid', None)
+                        if killpg and getpgid:
+                            import signal
+                            killpg(getpgid(bot_process.pid), signal.SIGTERM)
+                        else:
+                            bot_process.kill()
                     
                     # 清理进程对象
                     bot_process = None
@@ -1097,8 +1132,12 @@ type - 显示文件内容
                         subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)], 
                                      capture_output=True)
                     else:
-                        import signal
-                        os.killpg(os.getpgid(bot_process.pid), signal.SIGTERM)
+                        # 使用 getattr 避免在 Windows 上直接引用不存在的属性
+                        killpg = getattr(os, 'killpg', None)
+                        getpgid = getattr(os, 'getpgid', None)
+                        if killpg and getpgid:
+                            import signal
+                            killpg(getpgid(bot_process.pid), signal.SIGTERM)
                 except Exception as e:
                     return jsonify({
                         'status': 'error',
@@ -1120,8 +1159,10 @@ type - 显示文件内容
                     CREATE_NEW_PROCESS_GROUP = 0x00000200
                     DETACHED_PROCESS = 0x00000008
                     creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+                    preexec_fn = None
                 else:
                     creationflags = 0
+                    preexec_fn = getattr(os, 'setsid', None)
                 
                 bot_process = subprocess.Popen(
                     [sys.executable, 'run.py'],
@@ -1133,7 +1174,7 @@ type - 显示文件内容
                     encoding='utf-8',
                     errors='replace',
                     creationflags=creationflags if sys.platform.startswith('win') else 0,
-                    preexec_fn=os.setsid if not sys.platform.startswith('win') else None
+                    preexec_fn=preexec_fn
                 )
                 
                 bot_start_time = datetime.datetime.now()
@@ -1414,8 +1455,12 @@ def main():
     print_status("配置文件检查完成", "success", "CHECK")
 
     # 修改启动 Web 服务器的部分
-    cli = sys.modules['flask.cli']
-    cli.show_server_banner = lambda *x: None  # 禁用 Flask 启动横幅
+    try:
+        cli = sys.modules['flask.cli']
+        if hasattr(cli, 'show_server_banner'):
+            setattr(cli, 'show_server_banner', lambda *x: None)  # 禁用 Flask 启动横幅
+    except (KeyError, AttributeError):
+        pass
     
     host = '0.0.0.0'
     port = 8501
@@ -1436,7 +1481,7 @@ def main():
             for addr in addresses:
                 ip = addr[4][0]
                 # 只获取IPv4地址且不是回环地址
-                if '.' in ip and ip != '127.0.0.1':
+                if isinstance(ip, str) and '.' in ip and ip != '127.0.0.1':
                     ip_list.append(ip)
         except:
             pass
@@ -1511,6 +1556,8 @@ def hash_password(password: str) -> str:
 def is_local_network() -> bool:
     # 检查是否是本地网络访问
     client_ip = request.remote_addr
+    if client_ip is None:
+        return True
     return (
         client_ip == '127.0.0.1' or 
         client_ip.startswith('192.168.') or 
@@ -1706,7 +1753,7 @@ def get_model_configs():
 def save_quick_setup():
     """保存快速设置"""
     try:
-        new_config = request.json
+        new_config = request.json or {}
         from src.config import config
         
         # 获取当前配置
@@ -1749,78 +1796,6 @@ def save_quick_setup():
 def quick_setup():
     """快速设置页面"""
     return render_template('quick_setup.html')
-
-@app.route('/load_avatar')
-def load_avatar():
-    try:
-        # 假设默认使用 MONO 角色的设定
-        avatar_path = os.path.join(ROOT_DIR, 'data', 'avatars', 'MONO', 'avatar.md')
-        
-        # 确保目录存在
-        os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
-        
-        # 如果文件不存在，创建一个空文件
-        if not os.path.exists(avatar_path):
-            with open(avatar_path, 'w', encoding='utf-8') as f:
-                f.write("# Task\n请在此输入任务描述\n\n# Role\n请在此输入角色设定\n\n# Appearance\n请在此输入外表描述\n\n")
-        
-        # 读取角色设定文件并解析内容
-        sections = {}
-        current_section = None
-        
-        with open(avatar_path, 'r', encoding='utf-8') as file:
-            content = ""
-            for line in file:
-                if line.startswith('# '):
-                    # 如果已有部分，保存它
-                    if current_section:
-                        sections[current_section.lower()] = content.strip()
-                    # 开始新部分
-                    current_section = line[2:].strip()
-                    content = ""
-                else:
-                    content += line
-            
-            # 保存最后一个部分
-            if current_section:
-                sections[current_section.lower()] = content.strip()
-        
-        return jsonify({
-            'status': 'success',
-            'content': sections
-        })
-    except Exception as e:
-        logger.error(f"加载角色设定失败: {str(e)}")
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        })
-
-@app.route('/save_avatar', methods=['POST'])
-def save_avatar():
-    """保存角色设定"""
-    try:
-        avatar_data = request.json  # 获取前端发送的 JSON 数据
-        avatar_name = avatar_data.get('avatar', 'MONO')  # 获取人设名称
-        
-        # 移除avatar字段，避免写入到文件
-        if 'avatar' in avatar_data:
-            del avatar_data['avatar']
-        
-        avatar_path = os.path.join(ROOT_DIR, 'data', 'avatars', avatar_name, 'avatar.md')
-        
-        # 确保目录存在
-        os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
-        
-        with open(avatar_path, 'w', encoding='utf-8') as file:
-            for key, value in avatar_data.items():
-                if value:  # 只写入非空内容
-                    file.write(f"# {key.capitalize()}\n{value}\n\n")  # 写入格式化内容
-        
-        return jsonify({"status": "success", "message": "角色设定已保存"})
-    except Exception as e:
-        logger.error(f"保存角色设定失败: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)})
 
 # 添加获取可用人设列表的路由
 @app.route('/get_available_avatars')

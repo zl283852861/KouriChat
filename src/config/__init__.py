@@ -24,6 +24,7 @@ class ImageRecognitionSettings:
     api_key: str
     base_url: str
     temperature: float
+    model: str
 
 @dataclass
 class ImageGenerationSettings:
@@ -159,7 +160,8 @@ class Config:
                     image_recognition=ImageRecognitionSettings(
                         api_key=media_data['image_recognition']['api_key']['value'],
                         base_url=media_data['image_recognition']['base_url']['value'],
-                        temperature=media_data['image_recognition']['temperature']['value']
+                        temperature=media_data['image_recognition']['temperature']['value'],
+                        model=media_data['image_recognition']['model']['value']
                     ),
                     image_generation=ImageGenerationSettings(
                         model=media_data['image_generation']['model']['value'],

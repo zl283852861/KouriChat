@@ -1,7 +1,7 @@
-# Ignore all folders in avatars except atri and mono
-avatars/
-!avatars/atri
-!avatars/mono
+/data/avatars/*
+!data/avatars/ATRI/
+!data/avatars/MONO/
+!data/avatars/Nijiko/
 # Database
 *.db
 *.sqlite
@@ -187,4 +187,5 @@ cython_debug/
 #.idea/
 
 .vscode/
+.cursor/
 .cursorrules

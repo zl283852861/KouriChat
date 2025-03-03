@@ -1,6 +1,6 @@
 """
-Moonshot AI服务模块
-提供与Moonshot API的交互功能，包括:
+图像识别 AI 服务模块
+提供与图像识别 API 的交互功能，包括:
 - 图像识别
 - 文本生成
 - API请求处理
@@ -13,10 +13,11 @@ import requests
 from typing import Optional
 import os
 
-logger = logging.getLogger(__name__)
+# 修改logger获取方式，确保与main模块一致
+logger = logging.getLogger('main')
 
 class ImageRecognitionService:
-    def __init__(self, api_key: str, base_url: str, temperature: float):
+    def __init__(self, api_key: str, base_url: str, temperature: float, model: str):
         self.api_key = api_key
         self.base_url = base_url
         # 确保 temperature 在有效范围内
@@ -25,7 +26,7 @@ class ImageRecognitionService:
             'Authorization': f'Bearer {api_key}',
             'Content-Type': 'application/json'
         }
-        self.model = "moonshot-v1-8k-vision-preview"
+        self.model = model  # "moonshot-v1-8k-vision-preview"
         
         if temperature > 1.0:
             logger.warning(f"Temperature值 {temperature} 超出范围，已自动调整为 1.0")
