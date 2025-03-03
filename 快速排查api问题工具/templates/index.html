@@ -4,25 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API配置管理</title>
+    <title>API问题快速排查</title>
     <!-- 核心CSS文件 -->
     <link href="/static/css/app.css" rel="stylesheet">
-    <style>
-        /* 终端样式 */
-        #terminal {
-            background-color: black;
-            color: white;
-            font-family: monospace;
-            padding: 10px;
-            min-height: 200px;
-            overflow-y: auto;
-        }
-    </style>
 </head>
 
 <body>
-    <h1>API配置管理</h1>
-    <form id="configForm">
+    <div class="config-container">
+    <h1>API问题排查工具</h1>
+    <form id="configForm" class="config-card">
         <div class="form-group">
             <label for="url">服务器URL:</label>
             <input type="text" id="url" name="real_server_base_url"
@@ -50,9 +40,21 @@
         <div class="button-group">
             <button type="submit">
                 <span class="button-text">保存配置</span>
+                <span class="button-loading">
+                    <svg class="loading-icon" viewBox="0 0 24 24" width="18" height="18">
+                        <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" 
+                                stroke-width="3" stroke-dasharray="15 85" opacity="0.6">
+                            <animateTransform attributeName="transform" type="rotate" 
+                                from="0 12 12" to="360 12 12" dur="1s" repeatCount="indefinite"/>
+                        </circle>
+                    </svg>
+                </span>
             </button>
             <button id="runTestButton" type="button">
                 <span class="button-text">运行诊断测试</span>
+                <svg class="button-icon" viewBox="0 0 24 24" width="18" height="18">
+                    <path fill="currentColor" d="M13,14H11V9H13V14M13,18H11V16H13V18M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z"/>
+                </svg>
             </button>
         </div>
     </form>

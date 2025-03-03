@@ -1,17 +1,69 @@
-.error {
-    color: #ff0000;
-    white-space: pre-wrap;
+/* 新增卡片容器样式 */
+.config-container {
+    max-width: 800px;
+    margin: 2rem auto;
+    padding: 20px;
 }
 
-.success {
-    color: #00aa00;
-    white-space: pre-wrap;
+.config-card {
+    background: white;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    padding: 2rem;
 }
-.error {
-    color: #ff0000;
-    background-color: #333;
-    padding: 1rem;
-    border-radius: 4px;
+
+/* 按钮加载动画 */
+.button-loading {
+    display: none;
+    margin-left: 8px;
+}
+
+button.is-loading .button-loading {
+    display: inline-block;
+}
+
+.loading-icon {
+    animation: rotate 1s linear infinite;
+}
+
+@keyframes rotate {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+/* 终端样式 */
+#terminal {
+    background-color: white;
+    color: #2c3e50;
+    font-family: 'Fira Code', monospace;
+    padding: 1.5rem;
+    border-radius: 8px;
+    margin-top: 2rem;
+    min-height: 250px;
+    border: 1px solid #e0e0e0;
+    box-shadow: inset 0 2px 4px rgba(0,0,0,0.1);
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+/* 响应式布局 */
+@media (max-width: 768px) {
+    .config-container {
+        padding: 10px;
+    }
+    
+    .config-card {
+        padding: 1rem;
+    }
+    
+    .button-group {
+        flex-direction: column;
+    }
+    
+    button {
+        width: 100%;
+    }
 }
 
 :root {
@@ -52,12 +104,13 @@ h1::after {
 }
 
 .form-group {
-    margin: 0 1rem 1.5rem;
-    background: white;
+    margin: 0 0 1.5rem;
+    background: #ffffff;
     padding: 1.5rem;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    transition: transform 0.2s ease;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border: 1px solid rgba(0,0,0,0.05);
 }
 
 .form-group:hover {
@@ -102,22 +155,42 @@ input:focus {
 
 button {
     flex: 1;
-    padding: 0.8rem 1.5rem;
+    padding: 1rem 1.5rem;
     border: none;
-    border-radius: 6px;
-    background: var(--primary-color);
-    color: white;
+    border-radius: 8px;
+    background: white;
+    color: #2c3e50;
     font-size: 1rem;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;
-    transition: all 0.3s ease;
+    gap: 0.8rem;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #e0e0e0;
+}
+
+button::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 300px;
+    height: 300px;
+    background: rgba(33,150,243,0.05);
+    border-radius: 50%;
+    transform: translate(-50%, -50%) scale(0);
+    transition: transform 0.5s ease;
+}
+
+button:hover::after {
+    transform: translate(-50%, -50%) scale(1);
 }
 
 button:hover {
-    background: var(--hover-color);
+    background: #f8f9fa;
     transform: translateY(-1px);
     box-shadow: 0 3px 6px rgba(0,0,0,0.1);
 }
@@ -130,14 +203,34 @@ button:active {
     font-size: 1.1em;
 }
 
-#output {
-    background: #2c3e50;
-    color: white;
-    padding: 1rem;
-    border-radius: 6px;
-    margin-top: 2rem;
+/* 终端容器 */
+#terminal {
+    background: white;
+    color: #2c3e50;
+    padding: 1.5rem;
+    border-radius: 12px;
+    margin: 2rem 0;
+    font-family: 'Fira Code', Consolas, monospace;
+    font-size: 0.9em;
+    line-height: 1.6;
+    box-shadow: inset 0 0 12px rgba(0,0,0,0.1);
+    min-height: 300px;
+    display: flex;
+    flex-direction: column;
+    overflow-x: auto;
     white-space: pre-wrap;
-    font-family: 'Consolas', monospace;
+    word-break: break-all;
+}
+
+/* 终端内容区域 */
+#terminal::before {
+    content: "Terminal Output";
+    display: block;
+    color: #888;
+    font-size: 0.8em;
+    margin-bottom: 1rem;
+    padding-bottom: 0.5rem;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
 }
 
 .success {
