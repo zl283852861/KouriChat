@@ -19,6 +19,7 @@ from src.handlers.memory import MemoryHandler
 from utils.logger import LoggerConfig
 from utils.console import print_status
 from colorama import init, Style
+from src.AutoTasker.autoTasker import AutoTasker
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -251,11 +252,10 @@ unanswered_count = 0  # 新增未回复计数器
 countdown_end_time = None  # 新增倒计时结束时间
 
 def update_last_chat_time():
-    """更新最后一次聊天时间并重置未回复计数"""
-    global last_chat_time, unanswered_count
+    """更新最后一次聊天时间"""
+    global last_chat_time
     last_chat_time = datetime.now()
-    unanswered_count = 0  # 重置未回复计数
-    logger.info(f"更新最后聊天时间: {last_chat_time}, 重置未回复计数")
+    logger.info(f"更新最后聊天时间: {last_chat_time}")
 
 def is_quiet_time() -> bool:
     """检查当前是否在安静时间段内"""
@@ -366,12 +366,12 @@ def message_listener():
                         if msgtype != 'friend':
                             logger.debug(f"非好友消息，忽略! 消息类型: {msgtype}")
                             continue  
-                        # 当收到消息时更新最后聊天时间并重置未回复计数
-                        update_last_chat_time()
-                        # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
+                            # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
                         if who == msg.sender:
-                            chat_bot.handle_wxauto_message(msg, msg.sender)
+
+                            chat_bot.handle_wxauto_message(msg, msg.sender) # 处理私聊信息
                         elif ROBOT_WX_NAME != '' and (bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)) or bool(re.search(f'{ROBOT_WX_NAME}\u2005', msg.content))): 
+                            # 修改：在群聊被@时或者被叫名字，传入群聊ID(who)作为回复目标
                             chat_bot.handle_wxauto_message(msg, who, is_group=True) 
                         else:
                             logger.debug(f"非需要处理消息，可能是群聊非@消息: {content}")   
@@ -426,8 +426,59 @@ def initialize_wx_listener():
     
     return None
 
+def initialize_auto_tasks(message_handler):
+    """初始化自动任务系统"""
+    print_status("初始化自动任务系统...", "info", "CLOCK")
+    
+    try:
+        # 创建AutoTasker实例
+        auto_tasker = AutoTasker(message_handler)
+        print_status("创建AutoTasker实例成功", "success", "CHECK")
+        
+        # 清空现有任务
+        auto_tasker.scheduler.remove_all_jobs()
+        print_status("清空现有任务", "info", "CLEAN")
+        
+        # 从配置文件读取任务信息
+        if hasattr(config, 'behavior') and hasattr(config.behavior, 'schedule_settings'):
+            schedule_settings = config.behavior.schedule_settings
+            if schedule_settings and schedule_settings.tasks:  # 直接检查 tasks 列表
+                tasks = schedule_settings.tasks
+                if tasks:
+                    print_status(f"从配置文件读取到 {len(tasks)} 个任务", "info", "TASK")
+                    tasks_added = 0
+                    
+                    # 遍历所有任务并添加
+                    for task in tasks:
+                        try:
+                            # 添加定时任务
+                            auto_tasker.add_task(
+                                task_id=task.task_id,
+                                chat_id=listen_list[0],  # 使用 listen_list 中的第一个聊天ID
+                                content=task.content,
+                                schedule_type=task.schedule_type,
+                                schedule_time=task.schedule_time
+                            )
+                            tasks_added += 1
+                            print_status(f"成功添加任务 {task.task_id}: {task.content}", "success", "CHECK")
+                        except Exception as e:
+                            print_status(f"添加任务 {task.task_id} 失败: {str(e)}", "error", "ERROR")
+                    
+                    print_status(f"成功添加 {tasks_added}/{len(tasks)} 个任务", "info", "TASK")
+                else:
+                    print_status("配置文件中没有找到任务", "warning", "WARNING")
+        else:
+            print_status("未找到任务配置信息", "warning", "WARNING")
+            print_status(f"当前 behavior 属性: {dir(config.behavior)}", "info", "INFO")
+        
+        return auto_tasker
+        
+    except Exception as e:
+        print_status(f"初始化自动任务系统失败: {str(e)}", "error", "ERROR")
+        logger.error(f"初始化自动任务系统失败: {str(e)}")
+        return None
+
 def main():
-    listener_thread = None  # 在函数开始时定义线程变量
     try:
         # 设置wxauto日志路径
         automation_log_dir = os.path.join(root_dir, "logs", "automation")
@@ -486,6 +537,12 @@ def main():
         print_status("系统初始化完成", "success", "STAR_2")
         print("=" * 50)
         
+        # 初始化自动任务系统
+        auto_tasker = initialize_auto_tasks(message_handler)
+        if not auto_tasker:
+            print_status("自动任务系统初始化失败", "error", "ERROR")
+            return
+            
         # 主循环
         while True:
             time.sleep(1)
