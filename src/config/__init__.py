@@ -59,10 +59,24 @@ class ContextSettings:
     avatar_dir: str  # 人设目录路径，prompt文件和表情包目录都将基于此路径
 
 @dataclass
+class TaskSettings:
+    task_id: str
+    chat_id: str
+    content: str
+    schedule_type: str
+    schedule_time: str
+    is_active: bool
+
+@dataclass
+class ScheduleSettings:
+    tasks: List[TaskSettings]
+
+@dataclass
 class BehaviorSettings:
     auto_message: AutoMessageSettings
     quiet_time: QuietTimeSettings
     context: ContextSettings
+    schedule_settings: ScheduleSettings
 
 @dataclass
 class AuthSettings:
@@ -175,6 +189,23 @@ class Config:
                 
                 # 行为设置
                 behavior_data = categories['behavior_settings']['settings']
+                
+                # 读取定时任务配置
+                schedule_tasks = []
+                if 'schedule_settings' in categories:
+                    schedule_data = categories['schedule_settings']
+                    if 'settings' in schedule_data and 'tasks' in schedule_data['settings']:
+                        tasks_data = schedule_data['settings']['tasks']['value']
+                        for task in tasks_data:
+                            schedule_tasks.append(TaskSettings(
+                                task_id=task['task_id'],
+                                chat_id=task['chat_id'],
+                                content=task['content'],
+                                schedule_type=task['schedule_type'],
+                                schedule_time=task['schedule_time'],
+                                is_active=task.get('is_active', True)
+                            ))
+                
                 self.behavior = BehaviorSettings(
                     auto_message=AutoMessageSettings(
                         content=behavior_data['auto_message']['content']['value'],
@@ -188,6 +219,9 @@ class Config:
                     context=ContextSettings(
                         max_groups=behavior_data['context']['max_groups']['value'],
                         avatar_dir=behavior_data['context']['avatar_dir']['value']
+                    ),
+                    schedule_settings=ScheduleSettings(
+                        tasks=schedule_tasks
                     )
                 )
                 

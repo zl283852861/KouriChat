@@ -333,6 +333,45 @@
         .notification-container {
             z-index: 1050;
         }
+
+        .accordion-button {
+            background: transparent !important;
+        }
+        
+        .accordion-button:not(.collapsed) {
+            color: rgb(147, 151, 255) !important;
+        }
+        
+        .list-group-item {
+            border: none;
+            margin-bottom: 8px;
+            border-radius: 8px !important;
+            transition: all 0.3s ease;
+        }
+        
+        /* 只针对定时任务的列表项应用深色样式 */
+        #schedule-settings .list-group-item {
+            background: rgba(30, 41, 59, 0.5);
+            color: #fff;
+        }
+        
+        #schedule-settings .list-group-item:hover {
+            background: rgba(30, 41, 59, 0.8) !important;
+            transform: translateX(5px);
+        }
+        
+        /* 监听用户列表使用默认颜色 */
+        #selected_users_LISTEN_LIST .list-group-item {
+            background: var(--bs-list-group-bg);
+            color: var(--bs-body-color);
+        }
+        
+        /* 深色模式下的特定样式 */
+        [data-bs-theme="dark"] #selected_users_LISTEN_LIST .list-group-item {
+            background: rgba(30, 41, 59, 0.5);
+            color: #fff;
+        }
+        
     </style>
     <script defer src="http://umami.kourichat.com/script.js" data-website-id="319cc5bc-c057-4f6c-8bc4-4af5e110add1"></script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
@@ -385,7 +424,7 @@
                     </h4>
                     <form id="otherConfigForm">
                         {% for group_name, configs in config_groups.items() %}
-                            {% if group_name != '基础配置' %}
+                            {% if group_name != '基础配置' and group_name != '定时任务配置' %}  {# 排除定时任务配置 #}
                             <div class="accordion mb-3">
                                 <div class="accordion-item">
                                     <h2 class="accordion-header">
@@ -407,6 +446,57 @@
                             </div>
                             {% endif %}
                         {% endfor %}
+
+                        <!-- 单独添加定时任务配置部分 -->
+                        <div class="accordion mb-3">
+                            <div class="accordion-item">
+                                <h2 class="accordion-header">
+                                    <button class="accordion-button collapsed" type="button" 
+                                            data-bs-toggle="collapse" 
+                                            data-bs-target="#schedule-settings"
+                                            style="color: rgb(0, 0, 0); ">
+                                        定时任务配置
+                                    </button>
+                                </h2>
+                                <div id="schedule-settings" class="accordion-collapse collapse">
+                                    <div class="accordion-body">
+                                        <!-- 定时任务配置的内容 -->
+                                        <input type="hidden" 
+                                               id="TASKS" 
+                                               name="TASKS" 
+                                               value='{{ tasks_json|safe }}'>
+                                        
+                                        <!-- 添加和管理任务的按钮 -->
+                                        <div class="mb-3 list-group">
+                                            <a href="#" class="list-group-item list-group-item-action" 
+                                               data-bs-toggle="modal" data-bs-target="#addTaskModal"
+                                               style="background: rgba(30, 41, 59, 0.5);">
+                                                <i class="bi bi-plus-lg me-2"></i>
+                                                添加定时任务
+                                                <i class="bi bi-chevron-right float-end mt-1"></i>
+                                            </a>
+                                        </div>
+                                        
+                                        <!-- 任务列表管理按钮 -->
+                                        <div class="mb-3 list-group">
+                                            <a href="#" class="list-group-item list-group-item-action" 
+                                               data-bs-toggle="modal" data-bs-target="#taskListModal"
+                                               style="background: rgba(30, 41, 59, 0.5);">
+                                                <i class="bi bi-list-ul me-2"></i>
+                                                任务列表管理
+                                                <i class="bi bi-chevron-right float-end mt-1"></i>
+                                            </a>
+                                        </div>
+                                        
+                                        <!-- 说明文字 -->
+                                        <div class="text-muted small">
+                                            <i class="bi bi-info-circle me-1"></i>
+                                            可以添加定时发送消息的任务，支持Cron表达式和时间间隔两种方式
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
                     </form>
                 </div>
             </div>
@@ -471,6 +561,117 @@
             </div>
         </div>
     </div>
+
+    <!-- 任务列表模态框 -->
+    <div class="modal fade" id="taskListModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        <i class="bi bi-list-check me-2"></i>定时任务列表
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <div id="taskListContainer" class="list-group">
+                        <!-- 默认显示无任务提示 -->
+                        <div class="text-center text-muted p-4">
+                            <i class="bi bi-inbox fs-2"></i>
+                            <p class="mt-2">暂无定时任务</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 添加任务模态框 -->
+    <div class="modal fade" id="addTaskModal" tabindex="-1" aria-labelledby="addTaskModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="addTaskModalLabel">
+                        <i class="bi bi-plus-circle me-2"></i>添加定时任务
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <form id="taskForm">
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-key me-2"></i>任务ID
+                            </label>
+                            <input type="text" class="form-control" id="taskId" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-person me-2"></i>发送对象
+                            </label>
+                            <select class="form-select" id="taskChatId" required>
+                                <!-- 将通过JS动态填充 -->
+                            </select>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-chat-text me-2"></i>消息内容
+                            </label>
+                            <textarea class="form-control" id="taskContent" rows="3" required></textarea>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-alarm me-2"></i>定时类型
+                            </label>
+                            <select class="form-select" id="scheduleType" onchange="toggleScheduleInput()">
+                                <option value="cron">Cron表达式</option>
+                                <option value="interval">时间间隔</option>
+                            </select>
+                        </div>
+                        <div id="intervalInputGroup" class="mb-3" style="display: none;">
+                            <label class="form-label">
+                                <i class="bi bi-hourglass-split me-2"></i>间隔时间（小时）
+                            </label>
+                            <input type="number" class="form-control" id="intervalHours" 
+                                   min="0.1" step="0.1" placeholder="例如：1.5">
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                设置任务每隔多少小时执行一次：
+                                <ul class="mb-0 mt-1">
+                                    <li>0.5 = 每30分钟执行一次</li>
+                                    <li>1 = 每1小时执行一次</li>
+                                    <li>24 = 每天执行一次</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div id="cronInputGroup" class="mb-3">
+                            <label class="form-label">
+                                <i class="bi bi-calendar3 me-2"></i>Cron表达式
+                            </label>
+                            <input type="text" class="form-control" id="cronExpression" 
+                                   placeholder="例如：0 9 * * * (每天9点)">
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                格式：分 时 日 月 星期，常用示例：
+                                <ul class="mb-0 mt-1">
+                                    <li>0 9 * * * = 每天早上9点</li>
+                                    <li>0 */2 * * * = 每2小时整点</li>
+                                    <li>0 9-18 * * * = 每天9点到18点的整点</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-primary" onclick="saveTask()">保存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 在页面中添加隐藏的配置数据 -->
+    <script id="config_data" type="application/json">
+        {{ config_json|safe }}
+    </script>
 
     <script>
         // 护眼模式切换
@@ -558,6 +759,9 @@
                     }
                 })
                 .catch(error => console.error('Error:', error));
+
+            // 页面加载时初始化任务列表
+            updateTaskList();
         });
 
         // 保存配置的函数
@@ -662,6 +866,7 @@
                     inputElement.value = '';
                 }
             }
+            updateTaskChatIdOptions();
         }
 
         function removeUser(key, userToRemove) {
@@ -681,6 +886,7 @@
                     break;
                 }
             }
+            updateTaskChatIdOptions();
         }
 
         // 添加背景图片上传处理
@@ -743,6 +949,226 @@
                 delay: 3000
             });
             toast.show();
+        }
+
+        // 修改显示添加任务模态框时的处理
+        document.getElementById('addTaskModal').addEventListener('show.bs.modal', function () {
+            // 重置表单
+            document.getElementById('taskForm').reset();
+            
+            // 填充发送对象下拉框
+            const chatSelect = document.getElementById('taskChatId');
+            chatSelect.innerHTML = '<option value="">请选择发送对象</option>';
+            
+            // 从监听列表获取用户
+            const userElements = document.querySelectorAll('#selected_users_LISTEN_LIST .list-group-item');
+            userElements.forEach(element => {
+                const userName = element.textContent.trim();
+                if (userName) {
+                    chatSelect.innerHTML += `<option value="${userName}">${userName}</option>`;
+                }
+            });
+            
+            // 默认显示cron输入框
+            toggleScheduleInput();
+        });
+
+        // 添加一个函数来更新任务对话框中的发送对象选项
+        function updateTaskChatIdOptions() {
+            const chatSelect = document.getElementById('taskChatId');
+            if (chatSelect) {
+                const currentValue = chatSelect.value;
+                chatSelect.innerHTML = '<option value="">请选择发送对象</option>';
+                
+                const userElements = document.querySelectorAll('#selected_users_LISTEN_LIST .list-group-item');
+                userElements.forEach(element => {
+                    const userName = element.textContent.trim();
+                    if (userName) {
+                        chatSelect.innerHTML += `<option value="${userName}">${userName}</option>`;
+                    }
+                });
+                
+                // 保持原来选中的值
+                if (currentValue) {
+                    chatSelect.value = currentValue;
+                }
+            }
+        }
+
+        // 添加保存任务的函数
+        function saveTask() {
+            const taskId = document.getElementById('taskId').value.trim();
+            const chatId = document.getElementById('taskChatId').value;
+            const content = document.getElementById('taskContent').value.trim();
+            const scheduleType = document.getElementById('scheduleType').value;
+            
+            // 验证必填字段
+            if (!taskId || !chatId || !content) {
+                showSaveNotification('请填写所有必填字段', 'error');
+                return;
+            }
+            
+            const task = {
+                task_id: taskId,
+                chat_id: chatId,
+                content: content,
+                schedule_type: scheduleType,
+                is_active: true
+            };
+            
+            // 根据调度类型设置相应的值
+            if (scheduleType === 'cron') {
+                const cronExp = document.getElementById('cronExpression').value.trim();
+                if (!cronExp) {
+                    showSaveNotification('请输入Cron表达式', 'error');
+                    return;
+                }
+                task.schedule_time = cronExp;
+            } else {
+                const hours = parseFloat(document.getElementById('intervalHours').value);
+                if (!hours || hours <= 0) {
+                    showSaveNotification('请输入有效的间隔时间', 'error');
+                    return;
+                }
+                task.interval = hours * 3600; // 转换为秒
+            }
+            
+            // 获取现有的任务列表
+            let tasks = [];
+            try {
+                const tasksInput = document.getElementById('TASKS');
+                if (tasksInput && tasksInput.value) {
+                    tasks = JSON.parse(tasksInput.value);
+                }
+            } catch (e) {
+                console.error('解析任务列表失败:', e);
+            }
+            
+            // 更新任务列表
+            const existingIndex = tasks.findIndex(t => t.task_id === taskId);
+            if (existingIndex >= 0) {
+                tasks[existingIndex] = task;
+            } else {
+                tasks.push(task);
+            }
+            
+            // 更新隐藏输入框的值
+            document.getElementById('TASKS').value = JSON.stringify(tasks);
+            
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('addTaskModal'));
+            modal.hide();
+            
+            // 显示成功提示
+            showSaveNotification('任务已添加，请点击底部的"保存所有设置"按钮保存更改');
+            
+            // 刷新任务列表
+            updateTaskList();
+        }
+
+        // 修改更新任务列表的函数
+        function updateTaskList() {
+            const container = document.getElementById('taskListContainer');
+            if (!container) return;
+            
+            // 获取任务列表
+            let tasks = [];
+            try {
+                const tasksInput = document.getElementById('TASKS');
+                if (tasksInput && tasksInput.value) {
+                    tasks = JSON.parse(tasksInput.value);
+                }
+            } catch (e) {
+                console.error('解析任务列表失败:', e);
+            }
+            
+            // 更新显示
+            container.innerHTML = tasks.length === 0 ? `
+                <div class="text-center text-muted p-4">
+                    <i class="bi bi-inbox fs-2"></i>
+                    <p class="mt-2">暂无定时任务</p>
+                </div>
+            ` : tasks.map(task => `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div class="me-auto">
+                            <div class="d-flex align-items-center mb-1">
+                                <span class="badge bg-primary me-2">${task.task_id}</span>
+                                <small class="text-muted">${task.schedule_type === 'cron' ? 
+                                    `Cron: ${task.schedule_time}` : 
+                                    `每 ${task.interval/3600} 小时`}</small>
+                            </div>
+                            <div class="mb-1">发送给：${task.chat_id}</div>
+                            <small class="text-muted">${task.content}</small>
+                        </div>
+                        <button class="btn btn-danger btn-sm" onclick="deleteTask('${task.task_id}')">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 页面加载时初始化任务列表
+        document.addEventListener('DOMContentLoaded', function() {
+            // 从隐藏输入框获取任务列表
+            const tasksInput = document.getElementById('TASKS');
+            if (tasksInput) {
+                try {
+                    // 确保有初始值
+                    if (!tasksInput.value) {
+                        // 如果没有值，尝试从 tasks_json 获取
+                        const tasks = {{ tasks_json|safe }};
+                        tasksInput.value = JSON.stringify(tasks);
+                    }
+                    // 更新显示
+                    updateTaskList();
+                } catch (e) {
+                    console.error('初始化任务列表失败:', e);
+                }
+            }
+        });
+
+        function deleteTask(taskId) {
+            if (confirm('确定要删除这个任务吗？')) {
+                // 获取当前任务列表
+                let tasks = [];
+                try {
+                    const tasksInput = document.getElementById('TASKS');
+                    if (tasksInput && tasksInput.value) {
+                        tasks = JSON.parse(tasksInput.value);
+                    }
+                } catch (e) {
+                    console.error('解析任务列表失败:', e);
+                    return;
+                }
+                
+                // 删除指定任务
+                tasks = tasks.filter(t => t.task_id !== taskId);
+                
+                // 更新隐藏输入框的值
+                document.getElementById('TASKS').value = JSON.stringify(tasks);
+                
+                // 刷新任务列表显示
+                updateTaskList();
+                
+                showSaveNotification('任务已删除，请点击底部的"保存所有设置"按钮保存更改');
+            }
+        }
+
+        // 添加切换调度类型输入框的函数
+        function toggleScheduleInput() {
+            const scheduleType = document.getElementById('scheduleType').value;
+            const cronInput = document.getElementById('cronExpression').parentElement;
+            const intervalInput = document.getElementById('intervalHours').parentElement;
+            
+            if (scheduleType === 'cron') {
+                cronInput.style.display = 'block';
+                intervalInput.style.display = 'none';
+            } else {
+                cronInput.style.display = 'none';
+                intervalInput.style.display = 'block';
+            }
         }
     </script>
 </body>

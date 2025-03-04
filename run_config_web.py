@@ -122,141 +122,173 @@ def get_available_avatars() -> List[str]:
 def parse_config_groups() -> Dict[str, Dict[str, Any]]:
     """解析配置文件，将配置项按组分类"""
     from src.config import config
-
-    config_groups = {
-        "基础配置": {},
-        "图像识别API配置": {},
-        "图像生成配置": {},
-        "时间配置": {},
-        "语音配置": {},
-        "Prompt配置": {},
-    }
-
-    # 基础配置
-    config_groups["基础配置"].update(
-        {
-            "LISTEN_LIST": {
-                "value": config.user.listen_list,
-                "description": "用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)",
-            },
-            "DEEPSEEK_BASE_URL": {
-                "value": config.llm.base_url,
-                "description": "API注册地址",
-            },
-            "MODEL": {"value": config.llm.model, "description": "AI模型选择"},
-            "DEEPSEEK_API_KEY": {
-                "value": config.llm.api_key,
-                "description": "API密钥",
-            },
-            "MAX_TOKEN": {
-                "value": config.llm.max_tokens,
-                "description": "回复最大token数",
-                "type": "number",
-            },
-            "TEMPERATURE": {
-                "value": float(config.llm.temperature),  # 确保是浮点数
-                "type": "number",
-                "description": "温度参数",
-                "min": 0.0,
-                "max": 1.7,
-            },
+    
+    try:
+        # 基础配置组
+        config_groups = {
+            "基础配置": {},
+            "图像识别API配置": {},
+            "图像生成配置": {},
+            "时间配置": {},
+            "语音配置": {},
+            "Prompt配置": {},
         }
-    )
 
-    # 图像识别API配置
-    config_groups["图像识别API配置"].update(
-        {
-            "MOONSHOT_API_KEY": {
-                "value": config.media.image_recognition.api_key,
-                "description": "Moonshot API密钥（用于图片和表情包识别）\n API申请https://platform.moonshot.cn/console/api-keys （免费15元额度）",
-            },
-            "MOONSHOT_BASE_URL": {
-                "value": config.media.image_recognition.base_url,
-                "description": "Moonshot API基础URL",
-            },
-            "MOONSHOT_TEMPERATURE": {
-                "value": config.media.image_recognition.temperature,
-                "description": "Moonshot温度参数",
-            },
-            "MOONSHOT_MODEL": {
-                "value": config.media.image_recognition.model,
-                "description": "Moonshot AI模型",
+        # 基础配置
+        config_groups["基础配置"].update(
+            {
+                "LISTEN_LIST": {
+                    "value": config.user.listen_list,
+                    "description": "用户列表(请配置要和bot说话的账号的昵称或者群名，不要写备注！)",
+                },
+                "DEEPSEEK_BASE_URL": {
+                    "value": config.llm.base_url,
+                    "description": "API注册地址",
+                },
+                "MODEL": {"value": config.llm.model, "description": "AI模型选择"},
+                "DEEPSEEK_API_KEY": {
+                    "value": config.llm.api_key,
+                    "description": "API密钥",
+                },
+                "MAX_TOKEN": {
+                    "value": config.llm.max_tokens,
+                    "description": "回复最大token数",
+                    "type": "number",
+                },
+                "TEMPERATURE": {
+                    "value": float(config.llm.temperature),  # 确保是浮点数
+                    "type": "number",
+                    "description": "温度参数",
+                    "min": 0.0,
+                    "max": 1.7,
+                },
             }
-        }
-    )
+        )
 
-    # 图像生成配置
-    config_groups["图像生成配置"].update(
-        {
-            "IMAGE_MODEL": {
-                "value": config.media.image_generation.model,
-                "description": "图像生成模型",
-            },
-            "TEMP_IMAGE_DIR": {
-                "value": config.media.image_generation.temp_dir,
-                "description": "临时图片目录",
-            },
-        }
-    )
-
-    # 时间配置
-    config_groups["时间配置"].update(
-        {
-            "AUTO_MESSAGE": {
-                "value": config.behavior.auto_message.content,
-                "description": "自动消息内容",
-            },
-            "MIN_COUNTDOWN_HOURS": {
-                "value": config.behavior.auto_message.min_hours,
-                "description": "最小倒计时时间（小时）",
-            },
-            "MAX_COUNTDOWN_HOURS": {
-                "value": config.behavior.auto_message.max_hours,
-                "description": "最大倒计时时间（小时）",
-            },
-            "QUIET_TIME_START": {
-                "value": config.behavior.quiet_time.start,
-                "description": "安静时间开始",
-            },
-            "QUIET_TIME_END": {
-                "value": config.behavior.quiet_time.end,
-                "description": "安静时间结束",
-            },
-        }
-    )
-
-    # 语音配置
-    config_groups["语音配置"].update(
-        {
-            "TTS_API_URL": {
-                "value": config.media.text_to_speech.tts_api_url,
-                "description": "语音服务API地址",
-            },
-            "VOICE_DIR": {
-                "value": config.media.text_to_speech.voice_dir,
-                "description": "语音文件目录",
-            },
-        }
-    )
-
-    # Prompt配置
-    available_avatars = get_available_avatars()
-    config_groups["Prompt配置"].update(
-        {
-            "MAX_GROUPS": {
-                "value": config.behavior.context.max_groups,
-                "description": "最大的上下文轮数",
-            },
-            "AVATAR_DIR": {
-                "value": config.behavior.context.avatar_dir,
-                "description": "人设目录（自动包含 avatar.md 和 emojis 目录）",
-                "options": available_avatars,
-                "type": "select"
+        # 图像识别API配置
+        config_groups["图像识别API配置"].update(
+            {
+                "MOONSHOT_API_KEY": {
+                    "value": config.media.image_recognition.api_key,
+                    "description": "Moonshot API密钥（用于图片和表情包识别）\n API申请https://platform.moonshot.cn/console/api-keys （免费15元额度）",
+                },
+                "MOONSHOT_BASE_URL": {
+                    "value": config.media.image_recognition.base_url,
+                    "description": "Moonshot API基础URL",
+                },
+                "MOONSHOT_TEMPERATURE": {
+                    "value": config.media.image_recognition.temperature,
+                    "description": "Moonshot温度参数",
+                },
+                "MOONSHOT_MODEL": {
+                    "value": config.media.image_recognition.model,
+                    "description": "Moonshot AI模型",
+                }
             }
-        }
-    )
+        )
 
-    return config_groups
+        # 图像生成配置
+        config_groups["图像生成配置"].update(
+            {
+                "IMAGE_MODEL": {
+                    "value": config.media.image_generation.model,
+                    "description": "图像生成模型",
+                },
+                "TEMP_IMAGE_DIR": {
+                    "value": config.media.image_generation.temp_dir,
+                    "description": "临时图片目录",
+                },
+            }
+        )
+
+        # 时间配置
+        config_groups["时间配置"].update(
+            {
+                "AUTO_MESSAGE": {
+                    "value": config.behavior.auto_message.content,
+                    "description": "自动消息内容",
+                },
+                "MIN_COUNTDOWN_HOURS": {
+                    "value": config.behavior.auto_message.min_hours,
+                    "description": "最小倒计时时间（小时）",
+                },
+                "MAX_COUNTDOWN_HOURS": {
+                    "value": config.behavior.auto_message.max_hours,
+                    "description": "最大倒计时时间（小时）",
+                },
+                "QUIET_TIME_START": {
+                    "value": config.behavior.quiet_time.start,
+                    "description": "安静时间开始",
+                },
+                "QUIET_TIME_END": {
+                    "value": config.behavior.quiet_time.end,
+                    "description": "安静时间结束",
+                },
+            }
+        )
+
+        # 语音配置
+        config_groups["语音配置"].update(
+            {
+                "TTS_API_URL": {
+                    "value": config.media.text_to_speech.tts_api_url,
+                    "description": "语音服务API地址",
+                },
+                "VOICE_DIR": {
+                    "value": config.media.text_to_speech.voice_dir,
+                    "description": "语音文件目录",
+                },
+            }
+        )
+
+        # Prompt配置
+        available_avatars = get_available_avatars()
+        config_groups["Prompt配置"].update(
+            {
+                "MAX_GROUPS": {
+                    "value": config.behavior.context.max_groups,
+                    "description": "最大的上下文轮数",
+                },
+                "AVATAR_DIR": {
+                    "value": config.behavior.context.avatar_dir,
+                    "description": "人设目录（自动包含 avatar.md 和 emojis 目录）",
+                    "options": available_avatars,
+                    "type": "select"
+                }
+            }
+        )
+
+        # 读取定时任务配置
+        with open(os.path.join(ROOT_DIR, 'src/config/config.json'), 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+            
+        # 获取定时任务配置
+        if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
+            # 将定时任务配置添加到 config_groups 中，但不是作为 categories 的子项
+            config_groups['定时任务配置'] = {
+                'tasks': {
+                    'value': config_data['categories']['schedule_settings']['settings']['tasks']['value'],
+                    'type': 'array',
+                    'description': '定时任务列表'
+                }
+            }
+        else:
+            config_groups['定时任务配置'] = {
+                'tasks': {
+                    'value': [],
+                    'type': 'array',
+                    'description': '定时任务列表'
+                }
+            }
+
+        # 打印调试信息
+        logger.debug(f"解析后的定时任务配置: {config_groups.get('定时任务配置', {}).get('tasks', {}).get('value', [])}")
+        
+        return config_groups
+        
+    except Exception as e:
+        logger.error(f"解析配置组失败: {str(e)}")
+        return {}
 
 
 def save_config(new_config: Dict[str, Any]) -> bool:
@@ -509,27 +541,51 @@ def index():
     return redirect(url_for('dashboard'))
 
 @app.route('/save', methods=['POST'])
-def save():
+def save_config():
     """保存配置"""
     try:
-        new_config = request.json
-        logger.debug(f"接收到的配置数据: {new_config}")
+        data = request.get_json()
+        logger.debug(f"接收到的配置数据: {data}")
         
-        if new_config is not None and save_config(new_config):
-            return jsonify({
-                "status": "success", 
-                "message": "✨ 配置已成功保存并生效",
-                "title": "保存成功"  # 添加标题字段
-            })
+        # 读取当前配置
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            current_config = json.load(f)
+        
+        # 更新配置
+        for key, value in data.items():
+            if key in current_config:
+                current_config[key] = value
+            
+            # 特殊处理定时任务配置
+            if key == 'TASKS':
+                try:
+                    tasks = json.loads(value) if isinstance(value, str) else value
+                    current_config['categories']['schedule_settings']['settings']['tasks']['value'] = tasks
+                except Exception as e:
+                    logger.error(f"处理定时任务配置失败: {str(e)}")
+        
+        # 保存配置
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(current_config, f, ensure_ascii=False, indent=4)
+        
+        # 重新初始化定时任务
+        try:
+            from src.main import initialize_auto_tasks
+            initialize_auto_tasks()
+        except Exception as e:
+            logger.error(f"重新初始化定时任务失败: {str(e)}")
+        
         return jsonify({
-            "status": "error", 
-            "message": "保存失败，请重试",
-            "title": "保存失败"
+            "status": "success",
+            "message": "✨ 配置已成功保存并生效",
+            "title": "保存成功"
         })
+        
     except Exception as e:
-        logger.error(f"保存失败: {str(e)}")
+        logger.error(f"保存配置失败: {str(e)}")
         return jsonify({
-            "status": "error", 
+            "status": "error",
             "message": f"保存失败: {str(e)}",
             "title": "错误"
         })
@@ -594,10 +650,18 @@ def dashboard():
     """仪表盘页面"""
     if not session.get('logged_in'):
         return redirect(url_for('login'))
+    
+    # 读取配置
+    config_groups = {}
+    with open(os.path.join(ROOT_DIR, 'src/config/config.json'), 'r', encoding='utf-8') as f:
+        config_data = json.load(f)
+        config_groups = config_data.get('categories', {})
+    
     return render_template(
-        'dashboard.html', 
+        'dashboard.html',
         is_local=is_local_network(),
-        active_page='dashboard'
+        active_page='dashboard',
+        config_groups=config_groups  # 传递完整的配置组
     )
 
 @app.route('/system_info')
@@ -877,12 +941,24 @@ def config():
     """配置页面"""
     if not session.get('logged_in'):
         return redirect(url_for('login'))
+        
     config_groups = parse_config_groups()  # 获取配置组
+    
+    # 获取定时任务列表
+    tasks = config_groups.get('定时任务配置', {}).get('tasks', {}).get('value', [])
+    
+    # 打印详细的调试信息
+    logger.debug(f"配置组: {config_groups}")
+    logger.debug(f"定时任务配置: {config_groups.get('定时任务配置', {})}")
+    logger.debug(f"tasks 配置: {config_groups.get('定时任务配置', {}).get('tasks', {})}")
+    logger.debug(f"获取到的任务列表: {tasks}")
+    
     return render_template(
-        'config.html', 
+        'config.html',
         config_groups=config_groups,  # 传递配置组
-        is_local=is_local_network(),  # 传递本地网络状态
-        active_page='config'  # 传递当前页面标识
+        tasks_json=json.dumps(tasks, ensure_ascii=False),  # 额外传递任务列表JSON
+        is_local=is_local_network(),
+        active_page='config'
     )
 
 # 添加获取用户信息的路由
@@ -1463,7 +1539,7 @@ def main():
         pass
     
     host = '0.0.0.0'
-    port = 8501
+    port = 8502
     
     print_status("正在启动Web服务...", "info", "INTERNET")
     print("-"*50)
