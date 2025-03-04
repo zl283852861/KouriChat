@@ -4,7 +4,7 @@ from typing import List
 from services.ai.llm_service import LLMService
 from datetime import datetime
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger('main')
 
 
 class MemoryHandler:

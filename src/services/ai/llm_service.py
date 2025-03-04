@@ -23,7 +23,8 @@ from tenacity import (
 )
 import requests
 
-logger = logging.getLogger(__name__)
+# 修改logger获取方式，确保与main模块一致
+logger = logging.getLogger('main')
 
 class LLMService:
     def __init__(self, api_key: str, base_url: str, model: str,
@@ -318,7 +319,7 @@ class LLMService:
                 return clean_content or ""
 
         except Exception as e:
-            logger.error("深度求索服务调用失败: %s", str(e), exc_info=True)
+            logger.error("大语言模型服务调用失败: %s", str(e), exc_info=True)
             return random.choice([
                 "好像有些小状况，请再试一次吧～",
                 "信号好像不太稳定呢（皱眉）",

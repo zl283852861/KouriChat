@@ -1,4 +1,4 @@
-请选择合适的子模板|Please select the appropriate sub-template:
+请点击链接选择合适的子模板|Please select the appropriate sub-template:
 
 * [bug修复](?expand=1&template=PULL_REQUEST_TEMPLATE_bugfix.md)
 * [文档](?expand=1&template=PULL_REQUEST_TEMPLATE_documentation.md)

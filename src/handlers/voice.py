@@ -13,7 +13,8 @@ import requests
 from datetime import datetime
 from typing import Optional
 
-logger = logging.getLogger(__name__)
+# 修改logger获取方式，确保与main模块一致
+logger = logging.getLogger('main')
 
 class VoiceHandler:
     def __init__(self, root_dir, tts_api_url):
