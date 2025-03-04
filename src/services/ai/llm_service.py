@@ -1,6 +1,6 @@
 """
-DeepSeek AI 服务模块
-提供与DeepSeek API的完整交互实现，包含以下核心功能：
+LLM AI 服务模块
+提供与LLM API的完整交互实现，包含以下核心功能：
 - API请求管理
 - 上下文对话管理
 - 响应安全处理
@@ -133,16 +133,16 @@ class LLMService:
 
         # —— 校验层级3：字段内容有效性 ——
         # 检查模型名称格式 - 支持多种模型格式
-        model_name = response["model"]
-        valid_model_prefixes = [
-            'deepseek', 'qwen', 'claude', 'chatglm', 'llama', 'gpt', 'baichuan', 
-            'mixtral', 'gemma', 'phi', 'yi', 'glm'
-        ]
+        # model_name = response["model"]
+        # valid_model_prefixes = [
+        #     'deepseek', 'qwen', 'claude', 'chatglm', 'llama', 'gpt', 'baichuan', 
+        #     'mixtral', 'gemma', 'phi', 'yi', 'glm'
+        # ]
         
-        # 检查模型名称是否符合常见命名模式
-        if not any(re.search(prefix, model_name, re.IGNORECASE) for prefix in valid_model_prefixes):
-            logger.warning("模型名称格式不常见：%s，但仍继续处理", model_name)
-            # 注意：这里改为警告而不是错误，不再拒绝响应
+        # # 检查模型名称是否符合常见命名模式
+        # if not any(re.search(prefix, model_name, re.IGNORECASE) for prefix in valid_model_prefixes):
+        #     logger.warning("模型名称格式不常见：%s，但仍继续处理", model_name)
+        #     # 注意：这里改为警告而不是错误，不再拒绝响应
 
         # 检查时间戳有效性（允许过去30年到未来5分钟）
         current_timestamp = int(time.time())
