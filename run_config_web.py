@@ -11,7 +11,7 @@ import os
 import sys
 import re
 import logging
-from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, url_for, session
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, url_for, session, g
 import importlib
 import json
 from colorama import init, Fore, Style
@@ -42,6 +42,7 @@ from src.webui.routes.avatar import avatar_bp
 bot_process = None
 bot_start_time = None
 bot_logs = Queue(maxsize=1000)
+
 
 # 配置日志
 dictConfig({
@@ -601,6 +602,9 @@ def save_config():
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(current_config, f, ensure_ascii=False, indent=4)
         
+        # 立即重新加载配置
+        g.config_data = current_config
+        
         # 重新初始化定时任务
         try:
             from src.main import initialize_auto_tasks, message_handler
@@ -727,18 +731,24 @@ def get_background():
             "message": str(e)
         })
 
-# 添加新的路由
+@app.before_request
+def load_config():
+    """在每次请求之前加载配置"""
+    try:
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            g.config_data = json.load(f)  # 使用 g 来存储配置数据
+    except Exception as e:
+        logger.error(f"加载配置失败: {str(e)}")
+
 @app.route('/dashboard')
 def dashboard():
     """仪表盘页面"""
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     
-    # 读取配置
-    config_groups = {}
-    with open(os.path.join(ROOT_DIR, 'src/config/config.json'), 'r', encoding='utf-8') as f:
-        config_data = json.load(f)
-        config_groups = config_data.get('categories', {})
+    # 使用 g 中的配置数据
+    config_groups = g.config_data.get('categories', {})
     
     return render_template(
         'dashboard.html',
@@ -1425,9 +1435,13 @@ def check_dependencies():
                     [sys.executable, '-m', 'pip', 'list'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    universal_lines=True
                 )
                 stdout, stderr = process.communicate()
+                
+                # 解码字节数据为字符串
+                stdout = stdout.decode('utf-8')
+                stderr = stderr.decode('utf-8')
+                
                 # 解析pip list的输出，只获取包名
                 installed_packages = {
                     line.split()[0].lower() 
@@ -1690,9 +1704,13 @@ def install_dependencies():
             [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_lines=True
         )
         stdout, stderr = process.communicate()
+        
+        # 解码字节数据为字符串
+        stdout = stdout.decode('utf-8')
+        stderr = stderr.decode('utf-8')
+        
         output.append(stdout if stdout else stderr)
         
         if process.returncode == 0:
