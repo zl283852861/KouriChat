@@ -10,10 +10,10 @@ echo ====================================
 echo        My Dream Moments 启动器
 echo ====================================
 echo.
-echo ╔═══════════════════════════════════╗
+echo ╔══════════════════════════════════╗
 echo ║      My Dream Moments - AI Chat   ║
 echo ║      Created with Heart by umaru  ║
-echo ╚═══════════════════════════════════╝
+echo ╚══════════════════════════════════╝
 echo.
 
 :: 检查 Python 是否已安装
@@ -67,7 +67,7 @@ if exist requirements.txt (
 echo 正在启动程序...
 python run_config_web.py
 
-:: 如果程序异常退出，暂停显示错误信息
+:: 如果发生异常退出则暂停显示错误信息
 if errorlevel 1 (
     echo 程序运行出错
     pause

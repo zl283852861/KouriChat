@@ -686,8 +686,35 @@
             return new bootstrap.Tooltip(tooltipTriggerEl)
         })
 
-        // 等待 DOM 加载完成
+        // 页面加载时初始化所有配置数据
         document.addEventListener('DOMContentLoaded', function() {
+            // 获取最新的配置数据
+            fetch('/get_all_configs')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        // 更新所有配置项
+                        updateAllConfigs(data.configs);
+                        
+                        // 更新任务列表
+                        const tasksInput = document.getElementById('TASKS');
+                        if (tasksInput && data.tasks) {
+                            tasksInput.value = JSON.stringify(data.tasks);
+                            updateTaskList();
+                        }
+                    } else {
+                        console.error('获取配置数据失败:', data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('获取配置数据请求失败:', error);
+                    // 如果请求失败，使用页面加载时的初始数据
+                    const tasksInput = document.getElementById('TASKS');
+                    if (tasksInput) {
+                        updateTaskList();
+                    }
+                });
+            
             // 获取保存按钮
             const saveButton = document.getElementById('saveButton');
             
@@ -700,16 +727,14 @@
                 // 获取所有表单数据
                 const formData = new FormData(mainForm);
                 
-                // 调试输出所有表单数据
+                // 处理表单数据
                 for (let [key, value] of formData.entries()) {
-                    console.log(`表单数据 - ${key}: ${value}`);
                     processFormValue(config, key, value);
                 }
                 
                 if (otherForm) {
                     const otherFormData = new FormData(otherForm);
                     for (let [key, value] of otherFormData.entries()) {
-                        console.log(`其他表单数据 - ${key}: ${value}`);
                         processFormValue(config, key, value);
                     }
                 }
@@ -719,14 +744,13 @@
                 if (tasksInput) {
                     try {
                         const tasksValue = tasksInput.value;
-                        console.log(`任务数据原始值: ${tasksValue}`);
                         if (tasksValue) {
                             // 解析为JSON对象并添加到配置中
                             config['TASKS'] = JSON.parse(tasksValue);
-                            console.log(`解析后的任务数据: ${JSON.stringify(config['TASKS'])}`);
                         }
                     } catch (e) {
-                        console.error(`解析任务数据失败: ${e.message}`);
+                        // 出错时使用空数组
+                        config['TASKS'] = [];
                     }
                 }
 
@@ -737,7 +761,6 @@
                     const tempValue = parseFloat(temperatureSlider.value);
                     if (!isNaN(tempValue)) {
                         config['TEMPERATURE'] = tempValue;
-                        console.log(`最终温度值: ${tempValue}`);
                     }
                 }
 
@@ -771,21 +794,65 @@
                     }
                 })
                 .catch(error => console.error('Error:', error));
-
-            // 页面加载时初始化任务列表
-            updateTaskList();
         });
+
+        // 更新所有配置项的函数
+        function updateAllConfigs(configs) {
+            // 遍历所有配置组和配置项
+            for (const groupKey in configs) {
+                const group = configs[groupKey];
+                for (const configKey in group) {
+                    const config = group[configKey];
+                    const element = document.getElementById(configKey);
+                    if (element) {
+                        // 根据元素类型设置值
+                        if (element.type === 'checkbox') {
+                            element.checked = config.value;
+                        } else if (element.tagName === 'SELECT') {
+                            element.value = config.value;
+                        } else {
+                            element.value = config.value;
+                        }
+                        
+                        // 特殊处理滑块
+                        const slider = document.getElementById(`${configKey}_slider`);
+                        if (slider) {
+                            slider.value = config.value;
+                            const display = document.getElementById(`${configKey}_display`);
+                            if (display) {
+                                display.textContent = typeof config.value === 'number' ? 
+                                    (configKey === 'TEMPERATURE' ? config.value.toFixed(1) : config.value) : 
+                                    config.value;
+                            }
+                        }
+                        
+                        // 特殊处理用户列表
+                        if (configKey === 'LISTEN_LIST' && Array.isArray(config.value)) {
+                            const userListElement = document.getElementById(`selected_users_${configKey}`);
+                            if (userListElement) {
+                                userListElement.innerHTML = '';
+                                config.value.forEach(user => {
+                                    if (user) {
+                                        const userDiv = document.createElement('div');
+                                        userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                                        userDiv.innerHTML = `
+                                            ${user}
+                                            <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('${configKey}', '${user}')">
+                                                <i class="bi bi-x-lg"></i>
+                                            </button>
+                                        `;
+                                        userListElement.appendChild(userDiv);
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // 保存配置的函数
         function saveConfig(config) {
-            // 添加调试日志
-            console.log('准备发送的配置数据:', config);
-            
-            // 特别检查任务数据
-            if (config.TASKS) {
-                console.log('任务数据:', config.TASKS);
-            }
-            
             // 发送保存请求
             fetch('/save', {
                 method: 'POST',
@@ -794,12 +861,8 @@
                 },
                 body: JSON.stringify(config)
             })
-            .then(response => {
-                console.log('响应状态:', response.status);
-                return response.json();
-            })
+            .then(response => response.json())
             .then(data => {
-                console.log('响应数据:', data);
                 if (data.status === 'success') {
                     showSaveNotification(data.message);
                 } else {
@@ -807,33 +870,23 @@
                 }
             })
             .catch(error => {
-                console.error('保存请求错误:', error);
                 showSaveNotification('保存失败：' + error, 'error');
             });
         }
 
         function processFormValue(config, key, value) {
-            // 添加调试日志
-            console.log(`处理表单值 - ${key}: ${value} (类型: ${typeof value})`);
-            
             if (key === 'LISTEN_LIST') {
                 config[key] = value.split(',').map(item => item.trim()).filter(item => item);
-                console.log(`处理后的监听列表: ${JSON.stringify(config[key])}`);
             } else if (key === 'TEMPERATURE') {
                 // 特殊处理温度参数
                 const tempValue = parseFloat(value);
                 if (!isNaN(tempValue)) {
                     config[key] = tempValue;
-                    console.log(`处理后的温度值: ${config[key]} (类型: ${typeof config[key]})`);
-                } else {
-                    console.error(`温度值解析失败: ${value}`);
                 }
             } else if (key === 'TASKS') {
                 try {
                     config[key] = JSON.parse(value);
-                    console.log(`处理后的任务数据: ${JSON.stringify(config[key])}`);
                 } catch (e) {
-                    console.error(`任务数据解析失败: ${e.message}`);
                     config[key] = [];
                 }
             } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
@@ -1148,26 +1201,6 @@
             `).join('');
         }
 
-        // 页面加载时初始化任务列表
-        document.addEventListener('DOMContentLoaded', function() {
-            // 从隐藏输入框获取任务列表
-            const tasksInput = document.getElementById('TASKS');
-            if (tasksInput) {
-                try {
-                    // 确保有初始值
-                    if (!tasksInput.value) {
-                        // 如果没有值，尝试从 tasks_json 获取
-                        const tasks = {{ tasks_json|safe }};
-                        tasksInput.value = JSON.stringify(tasks);
-                    }
-                    // 更新显示
-                    updateTaskList();
-                } catch (e) {
-                    console.error('初始化任务列表失败:', e);
-                }
-            }
-        });
-
         function deleteTask(taskId) {
             if (confirm('确定要删除这个任务吗？')) {
                 // 获取当前任务列表
@@ -1178,7 +1211,6 @@
                         tasks = JSON.parse(tasksInput.value);
                     }
                 } catch (e) {
-                    console.error('解析任务列表失败:', e);
                     return;
                 }
                 
@@ -1187,7 +1219,6 @@
                 
                 // 更新隐藏输入框的值
                 document.getElementById('TASKS').value = JSON.stringify(tasks);
-                console.log('删除后的任务数据:', document.getElementById('TASKS').value);
                 
                 // 刷新任务列表显示
                 updateTaskList();
