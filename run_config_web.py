@@ -1964,9 +1964,51 @@ def quick_setup():
 # 添加获取可用人设列表的路由
 @app.route('/get_available_avatars')
 def get_available_avatars_route():
-    """获取可用的人设列表"""
+    """获取可用的人设目录列表"""
     try:
-        avatars = get_available_avatars()
+        # 使用绝对路径
+        avatar_base_dir = os.path.join(ROOT_DIR, "data", "avatars")
+        
+        # 检查目录是否存在
+        if not os.path.exists(avatar_base_dir):
+            # 尝试创建目录
+            try:
+                os.makedirs(avatar_base_dir)
+                logger.info(f"已创建人设目录: {avatar_base_dir}")
+            except Exception as e:
+                logger.error(f"创建人设目录失败: {str(e)}")
+                return jsonify({
+                    'status': 'error',
+                    'message': f"人设目录不存在且无法创建: {str(e)}"
+                })
+        
+        # 获取所有包含 avatar.md 和 emojis 目录的有效人设目录
+        avatars = []
+        for item in os.listdir(avatar_base_dir):
+            avatar_dir = os.path.join(avatar_base_dir, item)
+            if os.path.isdir(avatar_dir):
+                avatar_md_path = os.path.join(avatar_dir, "avatar.md")
+                emojis_dir = os.path.join(avatar_dir, "emojis")
+                
+                # 检查 avatar.md 文件
+                if not os.path.exists(avatar_md_path):
+                    logger.warning(f"人设 {item} 缺少 avatar.md 文件")
+                    continue
+                
+                # 检查 emojis 目录
+                if not os.path.exists(emojis_dir):
+                    logger.warning(f"人设 {item} 缺少 emojis 目录")
+                    try:
+                        os.makedirs(emojis_dir)
+                        logger.info(f"已为人设 {item} 创建 emojis 目录")
+                    except Exception as e:
+                        logger.error(f"为人设 {item} 创建 emojis 目录失败: {str(e)}")
+                        continue
+                
+                avatars.append(f"data/avatars/{item}")
+        
+        logger.info(f"找到 {len(avatars)} 个有效人设: {avatars}")
+        
         return jsonify({
             'status': 'success',
             'avatars': avatars
@@ -2193,3 +2235,4 @@ if __name__ == '__main__':
     except Exception as e:
         print_status(f"系统错误: {str(e)}", "error", "ERROR")
         cleanup_processes()
+
