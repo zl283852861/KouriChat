@@ -552,18 +552,53 @@ def save_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             current_config = json.load(f)
         
+        # 确保 categories 和 schedule_settings 存在
+        if 'categories' not in current_config:
+            current_config['categories'] = {}
+            
+        if 'schedule_settings' not in current_config['categories']:
+            current_config['categories']['schedule_settings'] = {
+                "title": "定时任务配置",
+                "settings": {
+                    "tasks": {
+                        "value": [],
+                        "type": "array",
+                        "description": "定时任务列表"
+                    }
+                }
+            }
+        elif 'settings' not in current_config['categories']['schedule_settings']:
+            current_config['categories']['schedule_settings']['settings'] = {
+                "tasks": {
+                    "value": [],
+                    "type": "array",
+                    "description": "定时任务列表"
+                }
+            }
+        elif 'tasks' not in current_config['categories']['schedule_settings']['settings']:
+            current_config['categories']['schedule_settings']['settings']['tasks'] = {
+                "value": [],
+                "type": "array",
+                "description": "定时任务列表"
+            }
+        
         # 更新配置
         for key, value in data.items():
-            if key in current_config:
-                current_config[key] = value
-            
             # 特殊处理定时任务配置
             if key == 'TASKS':
                 try:
-                    tasks = json.loads(value) if isinstance(value, str) else value
+                    tasks = value if isinstance(value, list) else (json.loads(value) if isinstance(value, str) else [])
+                    logger.debug(f"处理任务数据: {tasks}")
                     current_config['categories']['schedule_settings']['settings']['tasks']['value'] = tasks
                 except Exception as e:
                     logger.error(f"处理定时任务配置失败: {str(e)}")
+            # 处理其他配置项
+            elif key in ['LISTEN_LIST', 'DEEPSEEK_BASE_URL', 'MODEL', 'DEEPSEEK_API_KEY', 'MAX_TOKEN', 'TEMPERATURE',
+                        'MOONSHOT_API_KEY', 'MOONSHOT_BASE_URL', 'MOONSHOT_TEMPERATURE', 'MOONSHOT_MODEL',
+                        'IMAGE_MODEL', 'TEMP_IMAGE_DIR', 'AUTO_MESSAGE', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS',
+                        'QUIET_TIME_START', 'QUIET_TIME_END', 'TTS_API_URL', 'VOICE_DIR', 'MAX_GROUPS', 'AVATAR_DIR']:
+                # 这里可以添加更多的配置项映射
+                update_config_value(current_config, key, value)
         
         # 保存配置
         with open(config_path, 'w', encoding='utf-8') as f:
@@ -571,8 +606,12 @@ def save_config():
         
         # 重新初始化定时任务
         try:
-            from src.main import initialize_auto_tasks
-            initialize_auto_tasks()
+            from src.main import initialize_auto_tasks, message_handler
+            auto_tasker = initialize_auto_tasks(message_handler)
+            if auto_tasker:
+                logger.info("成功重新初始化定时任务")
+            else:
+                logger.warning("重新初始化定时任务返回空值")
         except Exception as e:
             logger.error(f"重新初始化定时任务失败: {str(e)}")
         
@@ -589,6 +628,53 @@ def save_config():
             "message": f"保存失败: {str(e)}",
             "title": "错误"
         })
+
+def update_config_value(config_data, key, value):
+    """更新配置值到正确的位置"""
+    try:
+        # 配置项映射表
+        mapping = {
+            'LISTEN_LIST': ['categories', 'user_settings', 'settings', 'listen_list', 'value'],
+            'DEEPSEEK_BASE_URL': ['categories', 'llm_settings', 'settings', 'base_url', 'value'],
+            'MODEL': ['categories', 'llm_settings', 'settings', 'model', 'value'],
+            'DEEPSEEK_API_KEY': ['categories', 'llm_settings', 'settings', 'api_key', 'value'],
+            'MAX_TOKEN': ['categories', 'llm_settings', 'settings', 'max_tokens', 'value'],
+            'TEMPERATURE': ['categories', 'llm_settings', 'settings', 'temperature', 'value'],
+            'MOONSHOT_API_KEY': ['categories', 'media_settings', 'settings', 'image_recognition', 'api_key', 'value'],
+            'MOONSHOT_BASE_URL': ['categories', 'media_settings', 'settings', 'image_recognition', 'base_url', 'value'],
+            'MOONSHOT_TEMPERATURE': ['categories', 'media_settings', 'settings', 'image_recognition', 'temperature', 'value'],
+            'MOONSHOT_MODEL': ['categories', 'media_settings', 'settings', 'image_recognition', 'model', 'value'],
+            'IMAGE_MODEL': ['categories', 'media_settings', 'settings', 'image_generation', 'model', 'value'],
+            'TEMP_IMAGE_DIR': ['categories', 'media_settings', 'settings', 'image_generation', 'temp_dir', 'value'],
+            'TTS_API_URL': ['categories', 'media_settings', 'settings', 'text_to_speech', 'tts_api_url', 'value'],
+            'VOICE_DIR': ['categories', 'media_settings', 'settings', 'text_to_speech', 'voice_dir', 'value'],
+            'AUTO_MESSAGE': ['categories', 'behavior_settings', 'settings', 'auto_message', 'content', 'value'],
+            'MIN_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown', 'min_hours', 'value'],
+            'MAX_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown', 'max_hours', 'value'],
+            'QUIET_TIME_START': ['categories', 'behavior_settings', 'settings', 'quiet_time', 'start', 'value'],
+            'QUIET_TIME_END': ['categories', 'behavior_settings', 'settings', 'quiet_time', 'end', 'value'],
+            'MAX_GROUPS': ['categories', 'behavior_settings', 'settings', 'context', 'max_groups', 'value'],
+            'AVATAR_DIR': ['categories', 'behavior_settings', 'settings', 'context', 'avatar_dir', 'value'],
+        }
+        
+        if key in mapping:
+            path = mapping[key]
+            current = config_data
+            
+            # 遍历路径直到倒数第二个元素
+            for part in path[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            
+            # 设置最终值
+            current[path[-1]] = value
+            logger.debug(f"已更新配置 {key}: {value}")
+        else:
+            logger.warning(f"未知的配置项: {key}")
+    
+    except Exception as e:
+        logger.error(f"更新配置值失败 {key}: {str(e)}")
 
 # 添加上传处理路由
 @app.route('/upload_background', methods=['POST'])
