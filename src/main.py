@@ -158,15 +158,14 @@ class ChatBot:
                         self.message_handler.wx.SendFiles(emoji_path, chatName)
 
                 sender_name = username
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                group_info = f"在群聊里" if is_group else "私聊"
+                time_aware_content = f"[{current_time}] 该用户的昵称是：'{sender_name}'，ta{group_info}对你说 {content}"   #增加群聊中识别用户功能（结合avatar补充关键用户昵称较合适）
+                logger.info(f"格式化后的消息: {time_aware_content}")
 
                 with self.queue_lock:
                     if chatName not in self.user_queues:
-                        # 只有第一条消息添加时间戳
                         logger.info(f"创建新的消息队列 - 聊天ID: {chatName}")
-                        current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                        time_aware_content = f"[{current_time}] {content}"
-                        logger.info(f"格式化后的第一条消息: {time_aware_content}")
-                        
                         self.user_queues[chatName] = {
                             'timer': threading.Timer(5.0, self.process_user_messages, args=[chatName]),
                             'messages': [time_aware_content],

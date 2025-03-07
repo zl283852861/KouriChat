@@ -251,14 +251,46 @@ class MessageHandler:
         if is_group:
             reply = f"@{sender_name} {reply}"
 
-        # 发送文本回复
-        if '\\' in reply:
-            parts = [p.strip() for p in reply.split('\\') if p.strip()]
-            for part in parts:
-                self.wx.SendMsg(msg=part, who=chat_id)
-                time.sleep(random.randint(2, 4))
-        else:
-            self.wx.SendMsg(msg=reply, who=chat_id)
+        # 增强型智能分割器
+        delayed_reply = []
+        current_sentence = []
+        ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
+        split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
+
+        for idx, char in enumerate(reply):
+            # 处理手动分割符号（优先级最高）
+            if char in split_symbols:
+                if current_sentence:
+                    delayed_reply.append(''.join(current_sentence).strip())
+                current_sentence = []
+                continue
+
+            current_sentence.append(char)
+
+            # 处理中文标点和省略号
+            if char in ending_punctuations:
+                # 排除英文符号在短句中的误判（如英文缩写）
+                if char in {'!', '?'} and len(current_sentence) < 4:
+                    continue
+
+                # 处理连续省略号
+                if char == '…' and idx > 0 and reply[idx - 1] == '…':
+                    if len(current_sentence) >= 3:  # 至少三个点形成省略号
+                        delayed_reply.append(''.join(current_sentence).strip())
+                        current_sentence = []
+                else:
+                    delayed_reply.append(''.join(current_sentence).strip())
+                    current_sentence = []
+
+        # 处理剩余内容
+        if current_sentence:
+            delayed_reply.append(''.join(current_sentence).strip())
+        delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
+
+        # 发送分割后的文本回复
+        for part in delayed_reply:
+            self.wx.SendMsg(msg=part, who=chat_id)
+            time.sleep(random.randint(2, 4))
 
         # 检查回复中是否包含情感关键词并发送表情包
         print("\n检查情感关键词...")
@@ -316,4 +348,4 @@ class MessageHandler:
         """处理消息队列中的消息（已废弃，保留兼容）"""
         # 该方法不再使用，保留以兼容旧代码
         logger.warning("process_messages方法已废弃，使用handle_message代替")
-        pass 
+        pass
