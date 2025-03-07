@@ -245,6 +245,13 @@
         <div class="glass-panel mb-4">
             <h2>角色设定</h2>
             
+            <!-- 添加获取人设按钮 -->
+            <div class="d-flex justify-content-end mb-3">
+                <button type="button" class="btn btn-lg btn-info" id="getAvatarBtn" title="获取人设">
+                    <i class="bi bi-download me-2"></i>获取人设
+                </button>
+            </div>
+            
             <!-- 添加人设选择器 -->
             <div class="avatar-selector">
                 <label for="avatarSelector"><i class="bi bi-person-badge"></i>选择人设:</label>
@@ -344,6 +351,29 @@
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                     <button type="button" class="btn btn-danger" id="confirmDeleteBtn">删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 获取人设模态框 -->
+    <div class="modal fade" id="getAvatarModal" tabindex="-1" aria-labelledby="getAvatarModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="getAvatarModalLabel">获取人设</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>请选择获取人设的方式：</p>
+                    <div class="d-grid gap-2">
+                        <a href="https://avatars.kourichat.com/#/" class="btn btn-primary" target="_blank">
+                            前往官网下载
+                        </a>
+                        <a href="https://jq.qq.com/?_wv=1027&k=5F4Gz5K" class="btn btn-secondary" target="_blank">
+                            加入QQ群 715616260 下载
+                        </a>
+                    </div>
                 </div>
             </div>
         </div>
@@ -731,7 +761,15 @@
                     showToast('删除失败: ' + error, 'error');
                 });
             });
+
+            // 获取人设按钮点击事件
+            document.getElementById('getAvatarBtn').addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('getAvatarModal'));
+                modal.show();
+            });
         });
     </script>
+</body>
+</html>
 </body>
 </html>
