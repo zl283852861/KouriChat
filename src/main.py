@@ -5,7 +5,6 @@ import threading
 import time
 import os
 import shutil
-from services.database import Session, ChatMessage
 from config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
 from wxauto import WeChat
 import re

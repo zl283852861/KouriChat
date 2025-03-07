@@ -43,6 +43,7 @@ bot_process = None
 bot_start_time = None
 bot_logs = Queue(maxsize=1000)
 
+
 # 配置日志
 dictConfig({
     'version': 1,
@@ -1434,9 +1435,13 @@ def check_dependencies():
                     [sys.executable, '-m', 'pip', 'list'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
-                    universal_lines=True
                 )
                 stdout, stderr = process.communicate()
+                
+                # 解码字节数据为字符串
+                stdout = stdout.decode('utf-8')
+                stderr = stderr.decode('utf-8')
+                
                 # 解析pip list的输出，只获取包名
                 installed_packages = {
                     line.split()[0].lower() 
@@ -1699,9 +1704,13 @@ def install_dependencies():
             [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            universal_lines=True
         )
         stdout, stderr = process.communicate()
+        
+        # 解码字节数据为字符串
+        stdout = stdout.decode('utf-8')
+        stderr = stderr.decode('utf-8')
+        
         output.append(stdout if stdout else stderr)
         
         if process.returncode == 0:
