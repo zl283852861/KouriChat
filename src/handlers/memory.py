@@ -1,7 +1,7 @@
 import os
 import logging
 from typing import List
-from services.ai.llm_service import LLMService
+from src.services.ai.llm_service import LLMService
 from datetime import datetime
 
 logger = logging.getLogger('main')

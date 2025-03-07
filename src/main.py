@@ -12,13 +12,16 @@ from handlers.emoji import EmojiHandler
 from handlers.image import ImageHandler
 from handlers.message import MessageHandler
 from handlers.voice import VoiceHandler
-from services.ai.image_recognition_service import ImageRecognitionService
-from services.ai.llm_service import LLMService
+from src.services.ai.llm_service import LLMService
+from src.services.ai.image_recognition_service import ImageRecognitionService
 from src.handlers.memory import MemoryHandler
 from utils.logger import LoggerConfig
 from utils.console import print_status
 from colorama import init, Style
 from src.AutoTasker.autoTasker import AutoTasker
+
+# 创建一个事件对象来控制线程的终止
+stop_event = threading.Event()
 
 # 获取项目根目录
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -344,7 +347,7 @@ def message_listener():
     last_window_check = 0
     check_interval = 600
     
-    while True:
+    while not stop_event.is_set():
         try:
             current_time = time.time()
             
@@ -578,6 +581,9 @@ def main():
         # 清理资源
         if countdown_timer:
             countdown_timer.cancel()
+        
+        # 设置事件以停止线程
+        stop_event.set()
         
         # 关闭监听线程
         if listener_thread and listener_thread.is_alive():
