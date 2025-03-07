@@ -1713,7 +1713,13 @@ def install_dependencies():
         
         output.append(stdout if stdout else stderr)
         
-        if process.returncode == 0:
+        # 检查是否有实际错误，而不是"already satisfied"消息
+        has_error = process.returncode != 0 and not any(
+            msg in (stdout + stderr).lower() 
+            for msg in ['already satisfied', 'successfully installed']
+        )
+        
+        if not has_error:
             return jsonify({
                 'status': 'success',
                 'output': '\n'.join(output)
