@@ -33,8 +33,8 @@ _请描述你进行了哪些测试来验证你的更改。也请标注你测试�
 # **在提出此拉取请求时，我确认了以下几点（请复选框）：**
 
 _请剔除无关项._
+_欢迎新人在按下提交前阅读[贡献者指南](https://github.com/freeCodeCamp/how-to-contribute-to-open-source/blob/main/README-CN.md)。| Newcomers are welcome to [Contributor Guide](https://github.com/freeCodeCamp/how-to-contribute-to-open-source/blob/main/README.md) before commit._
 
-- [ ] 我已阅读并理解[贡献者指南](https://github.com/freeCodeCamp/how-to-contribute-to-open-source/blob/main/README-CN.md)。| I have read and understood the [Contributor Guide](https://github.com/freeCodeCamp/how-to-contribute-to-open-source/blob/main/README-CN.md).
 - [ ] 我对我的代码进行了自我检查, 包括是否存在重复的拉取请求。| I have performed self-checks on my code, including duplicate pull requests.
 - [ ] 我已对代码进行注释，特别是晦涩难懂的部分。| I have commented especially the hard code.
 - [ ] 我已经考虑过，并确认此PR对其他人很有价值。| I have considered and confirmed that this PR is valuable to others.
