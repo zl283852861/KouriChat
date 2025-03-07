@@ -265,9 +265,10 @@ countdown_end_time = None  # 新增倒计时结束时间
 
 def update_last_chat_time():
     """更新最后一次聊天时间"""
-    global last_chat_time
+    global last_chat_time, unanswered_count
     last_chat_time = datetime.now()
-    logger.info(f"更新最后聊天时间: {last_chat_time}")
+    unanswered_count = 0  # 重置未回复计数器
+    logger.info(f"更新最后聊天时间: {last_chat_time}，重置未回复计数器为0")
 
 def is_quiet_time() -> bool:
     """检查当前是否在安静时间段内"""
