@@ -1794,40 +1794,82 @@ def save_quick_setup():
         new_config = request.json or {}
         from src.config import config
         
-        # 获取当前配置
-        current_config = {
-            "categories": {
-                "user_settings": {
+        # 读取当前配置
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                current_config = json.load(f)
+        except:
+            current_config = {"categories": {}}
+            
+        # 确保基本结构存在
+        if "categories" not in current_config:
+            current_config["categories"] = {}
+            
+        # 更新用户设置
+        if "listen_list" in new_config:
+            if "user_settings" not in current_config["categories"]:
+                current_config["categories"]["user_settings"] = {
                     "title": "用户设置",
-                    "settings": {
-                        "listen_list": {
-                            "value": new_config.get('listen_list', []),
-                            "type": "array",
-                            "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）"
-                        }
-                    }
-                },
-                "llm_settings": {
-                    "title": "大语言模型配置",
-                    "settings": {
-                        "api_key": {
-                            "value": new_config.get('api_key', ''),
-                            "type": "string",
-                            "description": "API密钥",
-                            "is_secret": True
-                        }
-                    }
+                    "settings": {}
                 }
+            current_config["categories"]["user_settings"]["settings"]["listen_list"] = {
+                "value": new_config["listen_list"],
+                "type": "array",
+                "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）"
             }
-        }
+            
+        # 更新API设置
+        if "api_key" in new_config:
+            if "llm_settings" not in current_config["categories"]:
+                current_config["categories"]["llm_settings"] = {
+                    "title": "大语言模型配置",
+                    "settings": {}
+                }
+            current_config["categories"]["llm_settings"]["settings"]["api_key"] = {
+                "value": new_config["api_key"],
+                "type": "string",
+                "description": "API密钥",
+                "is_secret": True
+            }
+            
+            # 如果没有设置其他必要的LLM配置，设置默认值
+            if "base_url" not in current_config["categories"]["llm_settings"]["settings"]:
+                current_config["categories"]["llm_settings"]["settings"]["base_url"] = {
+                    "value": "https://api.moonshot.cn/v1",
+                    "type": "string",
+                    "description": "API基础URL"
+                }
+            if "model" not in current_config["categories"]["llm_settings"]["settings"]:
+                current_config["categories"]["llm_settings"]["settings"]["model"] = {
+                    "value": "moonshot-v1-8k",
+                    "type": "string",
+                    "description": "使用的模型"
+                }
+            if "max_tokens" not in current_config["categories"]["llm_settings"]["settings"]:
+                current_config["categories"]["llm_settings"]["settings"]["max_tokens"] = {
+                    "value": 2000,
+                    "type": "number",
+                    "description": "最大token数"
+                }
+            if "temperature" not in current_config["categories"]["llm_settings"]["settings"]:
+                current_config["categories"]["llm_settings"]["settings"]["temperature"] = {
+                    "value": 1.1,
+                    "type": "number",
+                    "description": "温度参数"
+                }
         
-        # 保存配置
-        if config.save_config(current_config):
-            return jsonify({"status": "success", "message": "设置已保存"})
-        else:
-            return jsonify({"status": "error", "message": "保存失败"})
+        # 保存更新后的配置
+        with open(config_path, 'w', encoding='utf-8') as f:
+            json.dump(current_config, f, ensure_ascii=False, indent=4)
+            
+        # 重新加载配置
+        importlib.reload(sys.modules['src.config'])
+        
+        return jsonify({"status": "success", "message": "设置已保存"})
             
     except Exception as e:
+        logger.error(f"保存快速设置失败: {str(e)}")
         return jsonify({"status": "error", "message": str(e)})
 
 @app.route('/quick_setup')
