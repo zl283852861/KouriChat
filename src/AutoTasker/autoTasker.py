@@ -9,7 +9,7 @@ import os
 logger = logging.getLogger(__name__)
 
 class AutoTasker:
-    def __init__(self, message_handler, task_file_path="data/tasks.json"):
+    def __init__(self, message_handler, task_file_path="src/config/config.json"):
         """
         初始化自动任务管理器
         
@@ -36,17 +36,17 @@ class AutoTasker:
         """从文件加载任务配置"""
         try:
             if os.path.exists(self.task_file_path):
+                logger.error(f"taskpath:{self.task_file_path}")
                 with open(self.task_file_path, 'r', encoding='utf-8') as f:
                     tasks_data = json.load(f)
                     
-                for task_id, task in tasks_data.items():
+                for task in tasks_data["categories"]["schedule_settings"]["settings"]["tasks"]["value"]:
                     self.add_task(
-                        task_id=task_id,
+                        task_id=task["task_id"],
                         chat_id=task['chat_id'],
                         content=task['content'],
                         schedule_type=task['schedule_type'],
                         schedule_time=task['schedule_time'],
-                        interval=task.get('interval'),
                         is_active=task['is_active']
                     )
                 logger.info(f"成功加载 {len(tasks_data)} 个任务")
@@ -56,25 +56,27 @@ class AutoTasker:
     def save_tasks(self):
         """保存任务配置到文件"""
         try:
-            tasks_data = {
-                task_id: {
+            tasks_data = [
+                {
+                    'task_id': task_id,
                     'chat_id': task['chat_id'],
                     'content': task['content'],
                     'schedule_type': task['schedule_type'],
                     'schedule_time': task['schedule_time'],
-                    'interval': task.get('interval'),
                     'is_active': task['is_active']
                 }
                 for task_id, task in self.tasks.items()
-            }
-            
+            ]
+            with open(self.task_file_path, 'r', encoding='utf-8') as f:
+                configJson=json.load(f)
+            configJson["categories"]["schedule_settings"]["settings"]["tasks"]["value"]=tasks_data
             with open(self.task_file_path, 'w', encoding='utf-8') as f:
-                json.dump(tasks_data, f, ensure_ascii=False, indent=4)
+                json.dump(configJson, f, ensure_ascii=False, indent=4)
             logger.info("任务配置已保存")
         except Exception as e:
             logger.error(f"保存任务失败: {str(e)}")
 
-    def add_task(self, task_id, chat_id, content, schedule_type, schedule_time, interval=None, is_active=True):
+    def add_task(self, task_id, chat_id, content, schedule_type, schedule_time,is_active=True):
         """
         添加新任务
         
@@ -84,14 +86,13 @@ class AutoTasker:
             content: 消息内容
             schedule_type: 调度类型 ('cron' 或 'interval')
             schedule_time: 调度时间 (cron表达式 或 具体时间)
-            interval: 间隔时间（秒），仅用于 interval 类型
             is_active: 是否激活任务
         """
         try:
             if schedule_type == 'cron':
                 trigger = CronTrigger.from_crontab(schedule_time)
             elif schedule_type == 'interval':
-                trigger = IntervalTrigger(seconds=interval)
+                trigger = IntervalTrigger(seconds=int(schedule_time))
             else:
                 raise ValueError(f"不支持的调度类型: {schedule_type}")
 
@@ -123,7 +124,6 @@ class AutoTasker:
                 'content': content,
                 'schedule_type': schedule_type,
                 'schedule_time': schedule_time,
-                'interval': interval,
                 'is_active': is_active,
                 'job': job
             }
@@ -162,7 +162,7 @@ class AutoTasker:
                     task[key] = value
 
             # 如果需要更新调度
-            if 'schedule_type' in kwargs or 'schedule_time' in kwargs or 'interval' in kwargs:
+            if 'schedule_type' in kwargs or 'schedule_time' in kwargs:
                 self.remove_task(task_id)
                 self.add_task(
                     task_id=task_id,
@@ -170,7 +170,6 @@ class AutoTasker:
                     content=task['content'],
                     schedule_type=task['schedule_type'],
                     schedule_time=task['schedule_time'],
-                    interval=task.get('interval'),
                     is_active=task['is_active']
                 )
             else:
