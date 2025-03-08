@@ -523,13 +523,13 @@
                                     <i class="bi bi-github me-1"></i>GitHub
                                 </a>
                                 <span class="text-muted">
-                                    <i class="bi bi-star-fill me-1 text-warning"></i>865
+                                    <i class="bi bi-star-fill me-1 text-warning"></i><span id="githubStars">-</span>
                                 </span>
                                 <span class="text-muted">
-                                    <i class="bi bi-git me-1"></i>81
+                                    <i class="bi bi-git me-1"></i><span id="githubForks">-</span>
                                 </span>
                                 <span class="text-muted">
-                                    <i class="bi bi-exclamation-circle me-1"></i>7
+                                    <i class="bi bi-exclamation-circle me-1"></i><span id="githubIssues">-</span>
                                 </span>
                             </div>
                         </div>
@@ -554,7 +554,7 @@
                 <div class="col-md-8">
                     <h5 class="mb-3">项目介绍</h5>
                     <p class="mb-3">
-                        KouriChat 是一个基于大语言模型的情感陪伴系统，支持微信器人接入，提供沉浸式角色扮演和多轮对话体验。
+                        KouriChat 是一个基于大语言模型的情感陪伴系统，支持微信机器人接入，提供沉浸式角色扮演和多轮对话体验。
                         系统采用 DeepSeek 等先进的 LLM 模型，通过精心设计的提示词和上下文管理，
                         让 AI 能够模拟更加自然、真实的情感互动。推荐使用 DeepSeek V3 模型以获得最佳体验。
                     </p>
@@ -583,9 +583,8 @@
                     <h5 class="mb-3">快速链接</h5>
                     <div class="list-group">
                         <a href="https://github.com/KouriChat/KouriChat/issues" target="_blank" 
-                           class="list-group-item list-group-item-action d-flex justify-content-between align-items-center" rel="noopener">
-                            <span><i class="bi bi-exclamation-circle me-2"></i>问题反馈</span>
-                            <span class="badge bg-primary rounded-pill">7</span>
+                           class="list-group-item list-group-item-action" rel="noopener">
+                            <i class="bi bi-exclamation-circle me-2"></i>问题反馈
                         </a>
                         <a href="https://kourichat.com/" target="_blank" 
                            class="list-group-item list-group-item-action" rel="noopener">
@@ -780,7 +779,7 @@
                 </div>
             </div>
 
-            <div class="glass-panel">
+            <!-- <div class="glass-panel">
                 <h4 class="mb-4">
                     <i class="bi bi-person-circle me-2"></i>用户信息
                     <button class="btn btn-sm btn-outline-primary float-end" onclick="updateUserInfo()">
@@ -838,7 +837,7 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </div> -->
         </div>
     </div>
 
@@ -891,8 +890,8 @@
                         <li><i class="bi bi-envelope me-2"></i>yangchenglin2004@foxmail.com</li>
                         <li><i class="bi bi-people me-2"></i>QQ群：715616260</li>
                         <li><i class="bi bi-person me-2"></i>作者：umaru-233</li>
-                        <li><i class="bi bi-star me-2"></i>Stars：865</li>
-                        <li><i class="bi bi-git me-2"></i>Forks：81</li>
+                        <li><i class="bi bi-star me-2"></i>Stars：<span id="footerGithubStars">-</span></li>
+                        <li><i class="bi bi-git me-2"></i>Forks：<span id="footerGithubForks">-</span></li>
                     </ul>
                 </div>
             </div>
@@ -1337,7 +1336,7 @@
             setInterval(updateSystemInfo, 2000);
             
             // 初始化用户信息（只执行一次）
-            updateUserInfo();
+            // updateUserInfo();
             
             // 初始化背景
             fetch('/get_background')
@@ -1554,88 +1553,60 @@
             statusText.textContent = '正在安装依赖，请耐心等待...';
             spinnerDiv.classList.remove('d-none');
             
-            // 使用 execute_command 路由来执行 pip install 命令
-            fetch('/execute_command', {
+            fetch('/install_dependencies', {
                 method: 'POST',
                 headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({ 
-                    command: 'python -m pip install -r requirements.txt'
-                })
-            })
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('网络响应失败');
+                    'Content-Type': 'application/json'
                 }
-                return response.json();
             })
-            .then(data => {
-                // 确保输出内容存在
-                const output = (data && typeof data === 'object') ? (data.output || data.error || '无输出') : '无输出';
-                
-                // 在日志区域显示完整输出
-                const logsElement = document.querySelector('.logs');
-                if (logsElement) {
-                    const logLine = document.createElement('div');
-                    logLine.className = 'log-line';
-                    
-                    // 判断输出中是否包含 pip 更新提示
-                    const isPipUpdateNotice = output.includes('A new release of pip is available');
-                    
-                    // 如果是 pip 更新提示，使用不同的样式显示
-                    if (isPipUpdateNotice) {
-                        const lines = output.split('\n');
-                        const formattedOutput = lines.map(line => {
-                            if (line.includes('[notice]')) {
-                                return `<span class="text-info">${line}</span>`;
-                            }
-                            return line;
-                        }).join('\n');
-                        logLine.innerHTML = `<span class="command-output">${formattedOutput}</span>`;
-                    } else {
-                        logLine.innerHTML = `<span class="command-output">${output}</span>`;
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('网络响应失败');
                     }
+                    return response.json();
+                })
+                .then(data => {
+                    const output = data.output || '';
+                    const isSuccess = data.status === 'success' || 
+                        output.toLowerCase().includes('already satisfied') || 
+                        output.toLowerCase().includes('successfully installed');
                     
-                    logsElement.appendChild(logLine);
-                    scrollToBottom();
-                }
-
-                // 如果输出包含 Successfully installed 或只有 pip 更新提示，则认为安装成功
-                const isSuccess = output.includes('Successfully installed') || 
-                               (output.includes('A new release of pip is available') && !output.includes('ERROR:'));
-
-                if (isSuccess) {
+                    if (isSuccess) {
+                        statusDiv.classList.remove('alert-info');
+                        statusDiv.classList.add('alert-success');
+                        spinnerDiv.classList.add('d-none');
+                        statusText.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>依赖安装成功！';
+                        
+                        // 延迟200ms后检查依赖
+                        setTimeout(checkDependencies, 200);
+                        
+                        // 3秒后自动隐藏成功提示
+                        setTimeout(() => {
+                            statusDiv.classList.add('d-none');
+                        }, 3000);
+                    } else {
+                        throw new Error(output || '安装依赖失败');
+                    }
+                })
+                .catch(error => {
                     statusDiv.classList.remove('alert-info');
-                    statusDiv.classList.add('alert-success');
+                    statusDiv.classList.add('alert-danger');
                     spinnerDiv.classList.add('d-none');
-                    statusText.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>依赖安装成功！';
+                    statusText.innerHTML = `<i class="bi bi-x-circle-fill me-2"></i>错误: ${error.message}`;
                     
-                    // 延迟200ms后检查依赖
-                    setTimeout(checkDependencies, 200);
-                } else {
-                    throw new Error(output || '安装依赖失败');
-                }
-            })
-            .catch(error => {
-                statusDiv.classList.remove('alert-info');
-                statusDiv.classList.add('alert-danger');
-                spinnerDiv.classList.add('d-none');
-                statusText.innerHTML = `<i class="bi bi-x-circle-fill me-2"></i>错误: ${error.message}`;
-                
-                // 在日志区域显示错误
-                const logsElement = document.querySelector('.logs');
-                if (logsElement) {
-                    const logLine = document.createElement('div');
-                    logLine.className = 'log-line';
-                    logLine.innerHTML = `<span class="command-error">依赖安装失败: ${error.message}</span>`;
-                    logsElement.appendChild(logLine);
-                    scrollToBottom();
-                }
-            })
-            .finally(() => {
-                isCheckingDependencies = false;
-            });
+                    // 在日志区域显示错误
+                    const logsElement = document.querySelector('.logs');
+                    if (logsElement) {
+                        const logLine = document.createElement('div');
+                        logLine.className = 'log-line';
+                        logLine.innerHTML = `<span class="command-error">依赖安装失败: ${error.message}</span>`;
+                        logsElement.appendChild(logLine);
+                        scrollToBottom();
+                    }
+                })
+                .finally(() => {
+                    isCheckingDependencies = false;
+                });
         }
 
         // 检查依赖函数
@@ -1654,7 +1625,16 @@
                 .then(data => {
                     if (data.status === 'success') {
                         updateDependencyStatus(data);
-                        statusDiv.classList.add('d-none');
+                        // 修改这里：不再隐藏状态div，而是显示成功信息
+                        statusDiv.classList.remove('alert-info');
+                        statusDiv.classList.add('alert-success');
+                        spinnerDiv.classList.add('d-none');
+                        statusText.innerHTML = '<i class="bi bi-check-circle-fill me-2"></i>依赖检查完成！';
+                        
+                        // 3秒后自动隐藏成功提示
+                        setTimeout(() => {
+                            statusDiv.classList.add('d-none');
+                        }, 3000);
                     } else {
                         throw new Error(data.message);
                     }
@@ -1706,6 +1686,42 @@
         // 页面加载时自动检查依赖
         document.addEventListener('DOMContentLoaded', function() {
             checkDependencies();
+        });
+
+        // 更新 GitHub 统计信息
+        function updateGitHubStats() {
+            const headers = {
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'KouriChat-WebUI'
+            };
+            
+            fetch('https://api.github.com/repos/KouriChat/KouriChat', { headers })
+                .then(response => response.json())
+                .then(data => {
+                    // 更新顶部统计信息
+                    document.getElementById('githubStars').textContent = data.stargazers_count || '-';
+                    document.getElementById('githubForks').textContent = data.forks_count || '-';
+                    document.getElementById('githubIssues').textContent = data.open_issues_count || '-';
+                    
+                    // 更新页脚统计信息
+                    document.getElementById('footerGithubStars').textContent = data.stargazers_count || '-';
+                    document.getElementById('footerGithubForks').textContent = data.forks_count || '-';
+                })
+                .catch(error => {
+                    console.error('获取 GitHub 统计信息失败:', error);
+                    // 在获取失败时显示破折号
+                    ['githubStars', 'githubForks', 'githubIssues', 
+                     'footerGithubStars', 'footerGithubForks'].forEach(id => {
+                        document.getElementById(id).textContent = '-';
+                    });
+                });
+        }
+
+        // 页面加载时获取统计信息
+        document.addEventListener('DOMContentLoaded', function() {
+            updateGitHubStats();
+            // 每30分钟更新一次统计信息
+            setInterval(updateGitHubStats, 1800000);
         });
     </script>
 </body>

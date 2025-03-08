@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 import re
 import time
-from services.ai.llm_service import LLMService
+from src.services.ai.llm_service import LLMService
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
