@@ -15,7 +15,7 @@ from handlers.voice import VoiceHandler
 from src.services.ai.llm_service import LLMService
 from src.services.ai.image_recognition_service import ImageRecognitionService
 from src.handlers.memory import MemoryHandler
-from utils.logger import LoggerConfig
+from src.utils.logger import LoggerConfig
 from utils.console import print_status
 from colorama import init, Style
 from src.AutoTasker.autoTasker import AutoTasker
@@ -53,11 +53,11 @@ init()
 class ChatBot:
     def __init__(self, message_handler, moonshot_ai):
         self.message_handler = message_handler
+        self.message_handler = message_handler
         self.moonshot_ai = moonshot_ai
         self.user_queues = {}  # 将user_queues移到类的实例变量
         self.queue_lock = threading.Lock()  # 将queue_lock也移到类的实例变量
-        self.unanswered_counters = {}  # 新增：每个用户的未回复计数器
-        self.last_message_times = {}  # 新增：记录每个用户最后一条消息的时间
+        # self.unanswered_counters = {}  # 新增：每个用户的未回复计数器, 移动到MessageHandler
 
         # 获取机器人的微信名称
         self.wx = WeChat()
@@ -68,7 +68,7 @@ class ChatBot:
         """处理用户消息队列"""
         try:
             logger.info(f"开始处理消息队列 - 聊天ID: {chat_id}")
-            
+
             with self.queue_lock:
                 if chat_id not in self.user_queues:
                     logger.warning(f"未找到消息队列: {chat_id}")
@@ -78,14 +78,14 @@ class ChatBot:
                 sender_name = user_data['sender_name']
                 username = user_data['username']
                 is_group = user_data.get('is_group', False)
-                
+
             logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
-            logger.info(f"消息内容: {messages}")
+            # logger.info(f"消息内容: {messages}") # 移除重复的日志
 
             # 合并消息内容
             # 检查是否包含图片识别结果
             is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
-            
+
             if len(messages) > 1:
                 # 第一条消息已经包含时间戳（由handle_wxauto_message保证）
                 # 直接合并所有消息，不需要额外处理
@@ -103,7 +103,13 @@ class ChatBot:
                 is_image_recognition=is_image_recognition
             )
             logger.info(f"消息已处理 - 聊天ID: {chat_id}")
-            
+
+            # 处理完用户消息后，重置计数器
+            with self.queue_lock:
+                if username in self.message_handler.unanswered_counters:
+                    self.message_handler.unanswered_counters[username] = 0
+                    logger.info(f"用户 {username} 的未回复计数器已重置")
+
         except Exception as e:
             logger.error(f"处理消息队列失败: {str(e)}", exc_info=True)
 
@@ -112,25 +118,14 @@ class ChatBot:
             username = msg.sender
             content = getattr(msg, 'content', None) or getattr(msg, 'text', None)
 
-            # 更新用户最后一条消息的时间
-            self.last_message_times[username] = datetime.now()
-            logger.info(f"更新用户 {username} 的最后消息时间: {self.last_message_times[username]}")
-
-            # 如果用户之前有未回复计数，且用户在 5 分钟内回复，则重置计数器
-            if username in self.unanswered_counters:
-                last_message_time = self.last_message_times.get(username)
-                if last_message_time and (datetime.now() - last_message_time).total_seconds() <= 300:  # 5 分钟
-                    logger.info(f"用户 {username} 在 5 分钟内回复，重置未回复计数器")
-                    self.unanswered_counters[username] = 0
-
             # 添加详细日志
             logger.info(f"收到消息 - 来源: {chatName}, 发送者: {username}, 是否群聊: {is_group}")
             logger.info(f"原始消息内容: {content}")
-            
+
             img_path = None
             is_emoji = False
             is_image_recognition = False  # 新增标记，用于标识是否是图片识别结果
-            
+
             # 如果是群聊@消息，移除@机器人的部分
             if is_group and self.robot_name and content:
                 logger.info(f"处理群聊@消息 - 机器人名称: {self.robot_name}")
@@ -139,8 +134,8 @@ class ChatBot:
                 logger.info(f"移除@后的消息内容: {content}")
                 if original_content == content:
                     logger.info("未检测到@机器人，但是继续处理")
-                    
-            
+
+
             if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
                 logger.info(f"检测到图片消息: {content}")
                 img_path = content
@@ -196,10 +191,25 @@ class ChatBot:
                         logger.info(f"更新现有消息队列 - 聊天ID: {chatName}")
                         self.user_queues[chatName]['timer'].cancel()
                         self.user_queues[chatName]['messages'].append(content)
-                        logger.info(f"添加后续消息(无时间戳): {content}")
-                        self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName])
-                        self.user_queues[chatName]['timer'].start()
+                        self.user_queues[chatName]['timer'].cancel() # 取消之前的计时器
+                        self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName]) # 重新创建
+                        self.user_queues[chatName]['timer'].start() # 重新启动
                         logger.info("消息队列更新完成")
+
+                    # 启动或取消未回复消息计时器
+                    if username in self.message_handler.unanswered_timers:
+                        self.message_handler.unanswered_timers[username].cancel()
+                        logger.info(f"取消用户 {username} 的未回复计时器")
+
+                    # 5分钟后增加未回复计数器
+                    def increase_counter_after_delay(username):
+                        with self.queue_lock:
+                            self.message_handler.increase_unanswered_counter(username)
+
+                    timer = threading.Timer(300.0, increase_counter_after_delay, args=[username])
+                    timer.start()
+                    self.message_handler.unanswered_timers[username] = timer
+                    logger.info(f"为用户 {username} 启动未回复计时器")
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
@@ -231,6 +241,13 @@ memory_handler = MemoryHandler(
     temperature=TEMPERATURE,    # 从config.py获取
     max_groups=MAX_GROUPS       # 从config.py获取
 )
+moonshot_ai = ImageRecognitionService(
+    api_key=config.media.image_recognition.api_key,
+    base_url=config.media.image_recognition.base_url,
+    temperature=config.media.image_recognition.temperature,
+    model=config.media.image_recognition.model
+)
+
 moonshot_ai = ImageRecognitionService(
     api_key=config.media.image_recognition.api_key,
     base_url=config.media.image_recognition.base_url,
@@ -271,18 +288,9 @@ for i in listen_list:
 wait = 1
 
 # 全局变量
-last_chat_time = None
 countdown_timer = None
 is_countdown_running = False
-unanswered_count = 0  # 新增未回复计数器
 countdown_end_time = None  # 新增倒计时结束时间
-
-def update_last_chat_time():
-    """更新最后一次聊天时间"""
-    global last_chat_time, unanswered_count
-    last_chat_time = datetime.now()
-    unanswered_count = 0  # 重置未回复计数器
-    logger.info(f"更新最后聊天时间: {last_chat_time}，重置未回复计数器为0")
 
 def is_quiet_time() -> bool:
     """检查当前是否在安静时间段内"""
@@ -310,8 +318,6 @@ def get_random_countdown_time():
 
 def auto_send_message():
     """自动发送消息"""
-    global unanswered_count  # 引用全局变量
-
     if is_quiet_time():
         logger.info("当前处于安静时间，跳过自动发送消息")
         start_countdown()
@@ -321,13 +327,13 @@ def auto_send_message():
         user_id = random.choice(listen_list)
         if user_id not in chat_bot.unanswered_counters:
             chat_bot.unanswered_counters[user_id] = 0
-        chat_bot.unanswered_counters[user_id] += 1  # 每次发送消息时增加未回复计数
-        reply_content = f"{config.behavior.auto_message.content} 这是对方第{chat_bot.unanswered_counters[user_id]}次未回复你, 你可以选择模拟对方未回复后的小脾气"
+        chat_bot.unanswered_counters[user_id] += 1
+        reply_content = f"{config.behavior.auto_message.content} (未回复消息计数变化: +1)"
         logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(
                 chat_id=user_id,
-                content=reply_content,  # 使用更新后的内容
+                content=reply_content,
                 sender_name="System",
                 username="System",
                 is_group=False
@@ -545,6 +551,29 @@ def main():
             print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
 
         avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+        prompt_path = os.path.join(avatar_dir, "avatar.md")
+        if not os.path.exists(prompt_path):
+            with open(prompt_path, "w", encoding="utf-8") as f:
+                f.write("# 核心人格\n[默认内容]")
+            print_status(f"创建人设提示文件", "warning", "WARNING")
+        # 启动消息监听线程
+        print_status("启动消息监听线程...", "info", "ANTENNA")
+        listener_thread = threading.Thread(target=message_listener)
+        listener_thread.daemon = True  # 确保线程是守护线程
+        listener_thread.start()
+        print_status("消息监听已启动", "success", "CHECK")
+
+        # 启动自动消息
+        print_status("启动自动消息系统...", "info", "CLOCK")
+        start_countdown()
+        print_status("自动消息系统已启动", "success", "CHECK")
+        
+        print("-" * 50)
+        print_status("系统初始化完成", "success", "STAR_2")
+        print("=" * 50)
+        
+        # 初始化自动任务系统
+        auto_tasker = initialize_auto_tasks(message_handler)
         prompt_path = os.path.join(avatar_dir, "avatar.md")
         if not os.path.exists(prompt_path):
             with open(prompt_path, "w", encoding="utf-8") as f:
