@@ -56,7 +56,9 @@ class ChatBot:
         self.moonshot_ai = moonshot_ai
         self.user_queues = {}  # 将user_queues移到类的实例变量
         self.queue_lock = threading.Lock()  # 将queue_lock也移到类的实例变量
-        
+        self.unanswered_counters = {}  # 新增：每个用户的未回复计数器
+        self.last_message_times = {}  # 新增：记录每个用户最后一条消息的时间
+
         # 获取机器人的微信名称
         self.wx = WeChat()
         self.robot_name = self.wx.A_MyIcon.Name  # 移除括号，直接访问Name属性
@@ -109,7 +111,18 @@ class ChatBot:
         try:
             username = msg.sender
             content = getattr(msg, 'content', None) or getattr(msg, 'text', None)
-            
+
+            # 更新用户最后一条消息的时间
+            self.last_message_times[username] = datetime.now()
+            logger.info(f"更新用户 {username} 的最后消息时间: {self.last_message_times[username]}")
+
+            # 如果用户之前有未回复计数，且用户在 5 分钟内回复，则重置计数器
+            if username in self.unanswered_counters:
+                last_message_time = self.last_message_times.get(username)
+                if last_message_time and (datetime.now() - last_message_time).total_seconds() <= 300:  # 5 分钟
+                    logger.info(f"用户 {username} 在 5 分钟内回复，重置未回复计数器")
+                    self.unanswered_counters[username] = 0
+
             # 添加详细日志
             logger.info(f"收到消息 - 来源: {chatName}, 发送者: {username}, 是否群聊: {is_group}")
             logger.info(f"原始消息内容: {content}")
@@ -303,11 +316,13 @@ def auto_send_message():
         logger.info("当前处于安静时间，跳过自动发送消息")
         start_countdown()
         return
-        
+
     if listen_list:
         user_id = random.choice(listen_list)
-        unanswered_count += 1  # 每次发送消息时增加未回复计数
-        reply_content = f"{config.behavior.auto_message.content} 这是对方第{unanswered_count}次未回复你, 你可以选择模拟对方未回复后的小脾气"
+        if user_id not in chat_bot.unanswered_counters:
+            chat_bot.unanswered_counters[user_id] = 0
+        chat_bot.unanswered_counters[user_id] += 1  # 每次发送消息时增加未回复计数
+        reply_content = f"{config.behavior.auto_message.content} 这是对方第{chat_bot.unanswered_counters[user_id]}次未回复你, 你可以选择模拟对方未回复后的小脾气"
         logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(
