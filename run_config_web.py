@@ -37,12 +37,17 @@ from datetime import timedelta
 from src.utils.console import print_status
 from src.avatar_manager import avatar_manager  # 导入角色设定管理器
 from src.webui.routes.avatar import avatar_bp
+import ctypes
+import win32api
+import win32con
+import win32job
+import win32process
 
 # 在文件开头添加全局变量声明
 bot_process = None
 bot_start_time = None
 bot_logs = Queue(maxsize=1000)
-
+job_object = None  # 添加全局作业对象变量
 
 # 配置日志
 dictConfig({
@@ -288,249 +293,6 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
         logger.error(f"解析配置组失败: {str(e)}")
         return {}
 
-
-def save_config(new_config: Dict[str, Any]) -> bool:
-    """保存新的配置到文件"""
-    try:
-        from src.config import (
-            UserSettings,
-            LLMSettings,
-            ImageRecognitionSettings,
-            ImageGenerationSettings,
-            TextToSpeechSettings,
-            MediaSettings,
-            AutoMessageSettings,
-            QuietTimeSettings,
-            ContextSettings,
-            BehaviorSettings,
-            config
-        )
-
-        # 添加调试日志，查看接收到的所有参数
-        logger.debug("接收到的所有配置参数:")
-        for key, value in new_config.items():
-            logger.debug(f"{key}: {value} (类型: {type(value)})")
-
-        # 特别处理温度参数
-        temperature = float(new_config.get("TEMPERATURE", 1.1))
-        logger.debug(f"处理后的温度参数: {temperature} (类型: {type(temperature)})")
-
-        # 构建所有新的配置对象
-        llm_settings = LLMSettings(
-            api_key=new_config.get("DEEPSEEK_API_KEY", ""),
-            base_url=new_config.get("DEEPSEEK_BASE_URL", ""),
-            model=new_config.get("MODEL", ""),
-            max_tokens=int(new_config.get("MAX_TOKEN", 2000)),
-            temperature=temperature  # 使用处理后的温度值
-        )
-
-        media_settings = MediaSettings(
-            image_recognition=ImageRecognitionSettings(
-                api_key=new_config.get("MOONSHOT_API_KEY", ""),
-                base_url=new_config.get("MOONSHOT_BASE_URL", ""),
-                temperature=float(new_config.get("MOONSHOT_TEMPERATURE", 1.1)),
-                model=new_config.get("MOONSHOT_MODEL", ""),
-            ),
-            image_generation=ImageGenerationSettings(
-                model=new_config.get("IMAGE_MODEL", ""),
-                temp_dir=new_config.get("TEMP_IMAGE_DIR", ""),
-            ),
-            text_to_speech=TextToSpeechSettings(
-                tts_api_url=new_config.get("TTS_API_URL", ""),
-                voice_dir=new_config.get("VOICE_DIR", ""),
-            )
-        )
-
-        behavior_settings = BehaviorSettings(
-            auto_message=AutoMessageSettings(
-                content=new_config.get("AUTO_MESSAGE", ""),
-                min_hours=float(new_config.get("MIN_COUNTDOWN_HOURS", 1)),
-                max_hours=float(new_config.get("MAX_COUNTDOWN_HOURS", 3)),
-            ),
-            quiet_time=QuietTimeSettings(
-                start=new_config.get("QUIET_TIME_START", ""),
-                end=new_config.get("QUIET_TIME_END", ""),
-            ),
-            context=ContextSettings(
-                max_groups=int(new_config.get("MAX_GROUPS", 15)),
-                avatar_dir=new_config.get("AVATAR_DIR", ""),
-            ),
-        )
-
-        # 构建JSON结构
-        config_data = {
-            "categories": {
-                "user_settings": {
-                    "title": "用户设置",
-                    "settings": {
-                        "listen_list": {
-                            "value": UserSettings(listen_list=new_config.get("LISTEN_LIST", [])).listen_list,
-                            "type": "array",
-                            "description": "要监听的用户列表（请使用微信昵称，不要使用备注名）",
-                        }
-                    },
-                },
-                "llm_settings": {
-                    "title": "大语言模型配置",
-                    "settings": {
-                        "api_key": {
-                            "value": llm_settings.api_key,
-                            "type": "string",
-                            "description": "API密钥",
-                            "is_secret": True,
-                        },
-                        "base_url": {
-                            "value": llm_settings.base_url,
-                            "type": "string",
-                            "description": "DeepSeek API基础URL",
-                        },
-                        "model": {
-                            "value": llm_settings.model,
-                            "type": "string",
-                            "description": "使用的AI模型名称",
-                            "options": [
-                                "deepseek-ai/DeepSeek-V3",
-                                "Pro/deepseek-ai/DeepSeek-V3",
-                                "Pro/deepseek-ai/DeepSeek-R1",
-                            ],
-                        },
-                        "max_tokens": {
-                            "value": llm_settings.max_tokens,
-                            "type": "number",
-                            "description": "回复最大token数量",
-                        },
-                        "temperature": {
-                            "value": temperature,
-                            "type": "number",
-                            "description": "AI回复的温度值",
-                            "min": 0.0,
-                            "max": 1.7
-                        },
-                    },
-                },
-                "media_settings": {
-                    "title": "媒体设置",
-                    "settings": {
-                        "image_recognition": {
-                            "api_key": {
-                                "value": media_settings.image_recognition.api_key,
-                                "type": "string",
-                                "description": "图像识别 AI API 密钥（用于图片和表情包识别）",
-                                "is_secret": True,
-                            },
-                            "base_url": {
-                                "value": media_settings.image_recognition.base_url,
-                                "type": "string",
-                                "description": "图像识别 AI API 基础 URL",
-                            },
-                            "temperature": {
-                                "value": media_settings.image_recognition.temperature,
-                                "type": "number",
-                                "description": "图像识别 AI 的温度值",
-                                "min": 0,
-                                "max": 2,
-                            },
-                            "model": {
-                                "value": media_settings.image_recognition.model,
-                                "type": "string",
-                                "description": "图像识别 AI 模型",
-                            },
-                        },
-                        "image_generation": {
-                            "model": {
-                                "value": media_settings.image_generation.model,
-                                "type": "string",
-                                "description": "图像生成模型",
-                            },
-                            "temp_dir": {
-                                "value": media_settings.image_generation.temp_dir,
-                                "type": "string",
-                                "description": "临时图片存储目录",
-                            },
-                        },
-                        "text_to_speech": {
-                            "tts_api_url": {
-                                "value": media_settings.text_to_speech.tts_api_url,
-                                "type": "string",
-                                "description": "TTS服务API地址",
-                            },
-                            "voice_dir": {
-                                "value": media_settings.text_to_speech.voice_dir,
-                                "type": "string",
-                                "description": "语音文件存储目录",
-                            },
-                        }
-                    },
-                },
-                "behavior_settings": {
-                    "title": "行为设置",
-                    "settings": {
-                        "auto_message": {
-                            "content": {
-                                "value": behavior_settings.auto_message.content,
-                                "type": "string",
-                                "description": "自动消息内容",
-                            },
-                            "countdown": {
-                                "min_hours": {
-                                    "value": behavior_settings.auto_message.min_hours,
-                                    "type": "number",
-                                    "description": "最小倒计时时间（小时）",
-                                },
-                                "max_hours": {
-                                    "value": behavior_settings.auto_message.max_hours,
-                                    "type": "number",
-                                    "description": "最大倒计时时间（小时）",
-                                },
-                            },
-                        },
-                        "quiet_time": {
-                            "start": {
-                                "value": behavior_settings.quiet_time.start,
-                                "type": "string",
-                                "description": "安静时间开始",
-                            },
-                            "end": {
-                                "value": behavior_settings.quiet_time.end,
-                                "type": "string",
-                                "description": "安静时间结束",
-                            },
-                        },
-                        "context": {
-                            "max_groups": {
-                                "value": behavior_settings.context.max_groups,
-                                "type": "number",
-                                "description": "最大上下文轮数",
-                            },
-                            "avatar_dir": {
-                                "value": behavior_settings.context.avatar_dir,
-                                "type": "string",
-                                "description": "人设目录（自动包含 avatar.md 和 emojis 目录）",
-                            },
-                        },
-                    },
-                },
-            }
-        }
-
-        # 在保存前记录最终的温度配置
-        final_temp = config_data["categories"]["llm_settings"]["settings"]["temperature"]["value"]
-        logger.debug(f"最终保存到JSON的温度值: {final_temp} (类型: {type(final_temp)})")
-
-        # 使用 Config 类的方法保存配置
-        if not config.save_config(config_data):
-            logger.error("保存配置失败")
-            return False
-
-        # 重新加载配置模块
-        importlib.reload(sys.modules["src.config"])
-        
-        logger.debug("配置已成功保存和重新加载")
-        return True
-        
-    except Exception as e:
-        logger.error(f"保存配置失败: {str(e)}")
-        return False
 
 
 @app.route('/')
@@ -865,7 +627,7 @@ def confirm_update():
 @app.route('/start_bot')
 def start_bot():
     """启动机器人"""
-    global bot_process, bot_start_time
+    global bot_process, bot_start_time, job_object
     try:
         if bot_process and bot_process.poll() is None:
             return jsonify({
@@ -885,7 +647,7 @@ def start_bot():
         if sys.platform.startswith('win'):
             CREATE_NEW_PROCESS_GROUP = 0x00000200
             DETACHED_PROCESS = 0x00000008
-            creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
+            creationflags = CREATE_NEW_PROCESS_GROUP
             preexec_fn = None
         else:
             creationflags = 0
@@ -904,6 +666,14 @@ def start_bot():
             creationflags=creationflags if sys.platform.startswith('win') else 0,
             preexec_fn=preexec_fn
         )
+        
+        # 将机器人进程添加到作业对象
+        if sys.platform.startswith('win') and job_object:
+            try:
+                win32job.AssignProcessToJobObject(job_object, bot_process._handle)
+                logger.info(f"已将机器人进程 (PID: {bot_process.pid}) 添加到作业对象")
+            except Exception as e:
+                logger.error(f"将机器人进程添加到作业对象失败: {str(e)}")
         
         # 记录启动时间
         bot_start_time = datetime.datetime.now()
@@ -1520,9 +1290,11 @@ def cleanup_processes():
     """清理所有相关进程"""
     try:
         # 清理机器人进程
-        global bot_process
+        global bot_process, job_object
         if bot_process:
             try:
+                logger.info(f"正在终止机器人进程 (PID: {bot_process.pid})...")
+                
                 # 获取进程组
                 parent = psutil.Process(bot_process.pid)
                 children = parent.children(recursive=True)
@@ -1530,22 +1302,40 @@ def cleanup_processes():
                 # 终止子进程
                 for child in children:
                     try:
+                        logger.info(f"正在终止子进程 (PID: {child.pid})...")
                         child.terminate()
                     except:
-                        child.kill()
+                        try:
+                            logger.info(f"正在强制终止子进程 (PID: {child.pid})...")
+                            child.kill()
+                        except Exception as e:
+                            logger.error(f"终止子进程 (PID: {child.pid}) 失败: {str(e)}")
                 
                 # 终止主进程
                 bot_process.terminate()
                 
                 # 等待进程结束
-                gone, alive = psutil.wait_procs(children + [parent], timeout=3)
+                try:
+                    gone, alive = psutil.wait_procs(children + [parent], timeout=3)
+                    
+                    # 强制结束仍在运行的进程
+                    for p in alive:
+                        try:
+                            logger.info(f"正在强制终止进程 (PID: {p.pid})...")
+                            p.kill()
+                        except Exception as e:
+                            logger.error(f"强制终止进程 (PID: {p.pid}) 失败: {str(e)}")
+                except Exception as e:
+                    logger.error(f"等待进程结束失败: {str(e)}")
                 
-                # 强制结束仍在运行的进程
-                for p in alive:
+                # 如果在Windows上，使用taskkill强制终止进程树
+                if sys.platform.startswith('win'):
                     try:
-                        p.kill()
-                    except:
-                        pass
+                        logger.info(f"使用taskkill终止进程树 (PID: {bot_process.pid})...")
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)], 
+                                     capture_output=True)
+                    except Exception as e:
+                        logger.error(f"使用taskkill终止进程失败: {str(e)}")
                 
                 bot_process = None
                 
@@ -1553,24 +1343,31 @@ def cleanup_processes():
                 logger.error(f"清理机器人进程失败: {str(e)}")
         
         # 清理当前进程的所有子进程
-        current_process = psutil.Process()
-        children = current_process.children(recursive=True)
-        for child in children:
-            try:
-                child.terminate()
-            except:
+        try:
+            current_process = psutil.Process()
+            children = current_process.children(recursive=True)
+            
+            for child in children:
                 try:
-                    child.kill()
+                    logger.info(f"正在终止子进程 (PID: {child.pid})...")
+                    child.terminate()
                 except:
-                    pass
-        
-        # 等待所有子进程结束
-        gone, alive = psutil.wait_procs(children, timeout=3)
-        for p in alive:
-            try:
-                p.kill()
-            except:
-                pass
+                    try:
+                        logger.info(f"正在强制终止子进程 (PID: {child.pid})...")
+                        child.kill()
+                    except Exception as e:
+                        logger.error(f"终止子进程 (PID: {child.pid}) 失败: {str(e)}")
+            
+            # 等待所有子进程结束
+            gone, alive = psutil.wait_procs(children, timeout=3)
+            for p in alive:
+                try:
+                    logger.info(f"正在强制终止进程 (PID: {p.pid})...")
+                    p.kill()
+                except Exception as e:
+                    logger.error(f"强制终止进程 (PID: {p.pid}) 失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"清理子进程失败: {str(e)}")
                 
     except Exception as e:
         logger.error(f"清理进程失败: {str(e)}")
@@ -1607,6 +1404,52 @@ def open_browser(port):
     # 创建新线程来打开浏览器
     threading.Thread(target=_open_browser, daemon=True).start()
 
+def create_job_object():
+    global job_object
+    try:
+        if sys.platform.startswith('win'):
+            # 创建作业对象
+            job_object = win32job.CreateJobObject(None, "KouriChatBotJob")
+            
+            # 设置作业对象的扩展限制信息
+            info = win32job.QueryInformationJobObject(
+                job_object, win32job.JobObjectExtendedLimitInformation
+            )
+            
+            # 设置当所有进程句柄关闭时终止作业
+            info['BasicLimitInformation']['LimitFlags'] = win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+            
+            # 应用设置
+            win32job.SetInformationJobObject(
+                job_object, win32job.JobObjectExtendedLimitInformation, info
+            )
+            
+            # 将当前进程添加到作业对象
+            current_process = win32process.GetCurrentProcess()
+            win32job.AssignProcessToJobObject(job_object, current_process)
+            
+            logger.info("已创建作业对象并将当前进程添加到作业中")
+            return True
+    except Exception as e:
+        logger.error(f"创建作业对象失败: {str(e)}")
+    return False
+
+# 添加控制台关闭事件处理
+def setup_console_control_handler():
+    try:
+        if sys.platform.startswith('win'):
+            def handler(dwCtrlType):
+                if dwCtrlType in (win32con.CTRL_CLOSE_EVENT, win32con.CTRL_LOGOFF_EVENT, win32con.CTRL_SHUTDOWN_EVENT):
+                    logger.info("检测到控制台关闭事件，正在清理进程...")
+                    cleanup_processes()
+                    return True
+                return False
+                
+            win32api.SetConsoleCtrlHandler(handler, True)
+            logger.info("已设置控制台关闭事件处理器")
+    except Exception as e:
+        logger.error(f"设置控制台关闭事件处理器失败: {str(e)}")
+
 def main():
     """主函数"""
     from src.config import config
@@ -1618,6 +1461,12 @@ def main():
     print("\n" + "="*50)
     print_status("配置管理系统启动中...", "info", "LAUNCH")
     print("-"*50)
+    
+    # 创建作业对象来管理子进程
+    create_job_object()
+    
+    # 设置控制台关闭事件处理
+    setup_console_control_handler()
     
     # 检查必要目录
     print_status("检查系统目录...", "info", "FILE")
