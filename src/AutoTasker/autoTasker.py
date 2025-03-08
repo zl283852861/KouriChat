@@ -36,7 +36,6 @@ class AutoTasker:
         """从文件加载任务配置"""
         try:
             if os.path.exists(self.task_file_path):
-                logger.error(f"taskpath:{self.task_file_path}")
                 with open(self.task_file_path, 'r', encoding='utf-8') as f:
                     tasks_data = json.load(f)
                     
