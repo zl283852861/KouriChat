@@ -182,7 +182,7 @@ KouriChat/
 
 - **开发讨论**：[功能建议 & Bug反馈](https://jq.qq.com/?_wv=1027&k=5z4Q0i7o)
 - **视频教程**：[哔哩哔哩频道](https://space.bilibili.com/209397245)
-- **技术文档**：[KouriChat Wiki](https://kourichat.com/docs.html)
+- **技术文档**：[KouriChat Wiki](https://kourichat.com/docs)
 - **商务合作**：[yangchenglin2004@foxmail.com](mailto:yangchenglin2004@foxmail.com)
 
 ---
