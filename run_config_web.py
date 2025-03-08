@@ -896,7 +896,7 @@ def start_bot():
             [sys.executable, 'run.py'],
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
-            universal_newlines=True,
+            text=True,
             bufsize=1,
             env=env,
             encoding='utf-8',
@@ -1059,57 +1059,57 @@ def config():
         active_page='config'
     )
 
-# 添加获取用户信息的路由
-@app.route('/user_info')
-def get_user_info():
-    """获取用户账户信息"""
-    try:
-        from src.config import config
-        api_key = config.llm.api_key
-        base_url = config.llm.base_url.rstrip('/')
+# # 添加获取用户信息的路由
+# @app.route('/user_info')
+# def get_user_info():
+#     """获取用户账户信息"""
+#     try:
+#         from src.config import config
+#         api_key = config.llm.api_key
+#         base_url = config.llm.base_url.rstrip('/')
         
-        # 确保使用正确的API端点
-        if 'siliconflow.cn' in base_url:
-            api_url = f"{base_url}/user/info"
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': '当前API不支持查询用户信息'
-            })
+#         # 确保使用正确的API端点
+#         if 'siliconflow.cn' in base_url:
+#             api_url = f"{base_url}/user/info"
+#         else:
+#             return jsonify({
+#                 'status': 'error',
+#                 'message': '当前API不支持查询用户信息'
+#             })
         
-        headers = {
-            'Authorization': f'Bearer {api_key}',
-            'Content-Type': 'application/json'
-        }
+#         headers = {
+#             'Authorization': f'Bearer {api_key}',
+#             'Content-Type': 'application/json'
+#         }
         
-        response = requests.get(api_url, headers=headers, timeout=10)
+#         response = requests.get(api_url, headers=headers, timeout=10)
         
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('status') is True and data.get('data'):  # 修改判断条件
-                user_data = data['data']
-                return jsonify({
-                    'status': 'success',
-                    'data': {
-                        'balance': user_data.get('balance', '0'),
-                        'total_balance': user_data.get('totalBalance', '0'),
-                        'charge_balance': user_data.get('chargeBalance', '0'),
-                        'name': user_data.get('name', 'Unknown'),
-                        'email': user_data.get('email', 'Unknown'),
-                        'status': user_data.get('status', 'Unknown')
-                    }
-                })
+#         if response.status_code == 200:
+#             data = response.json()
+#             if data.get('status') is True and data.get('data'):  # 修改判断条件
+#                 user_data = data['data']
+#                 return jsonify({
+#                     'status': 'success',
+#                     'data': {
+#                         'balance': user_data.get('balance', '0'),
+#                         'total_balance': user_data.get('totalBalance', '0'),
+#                         'charge_balance': user_data.get('chargeBalance', '0'),
+#                         'name': user_data.get('name', 'Unknown'),
+#                         'email': user_data.get('email', 'Unknown'),
+#                         'status': user_data.get('status', 'Unknown')
+#                     }
+#                 })
             
-        return jsonify({
-            'status': 'error',
-            'message': f"API返回错误: {response.text}"
-        })
+#         return jsonify({
+#             'status': 'error',
+#             'message': f"API返回错误: {response.text}"
+#         })
         
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f"获取用户信息失败: {str(e)}"
-        })
+#     except Exception as e:
+#         return jsonify({
+#             'status': 'error',
+#             'message': f"获取用户信息失败: {str(e)}"
+#         })
 
 # 在 app 初始化后添加
 @app.route('/static/<path:filename>')
@@ -1227,7 +1227,7 @@ type - 显示文件内容
                 [sys.executable, 'run.py'],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                universal_newlines=True,
+                text=True,
                 bufsize=1,
                 env=env,
                 encoding='utf-8',
@@ -1342,7 +1342,7 @@ type - 显示文件内容
                     [sys.executable, 'run.py'],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
-                    universal_newlines=True,
+                    text=True,
                     bufsize=1,
                     env=env,
                     encoding='utf-8',
@@ -1372,6 +1372,7 @@ type - 显示文件内容
                     shell=True,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
+                    text=True,
                     encoding='utf-8',
                     errors='replace'
                 )
