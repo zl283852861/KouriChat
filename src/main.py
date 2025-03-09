@@ -62,7 +62,7 @@ class ChatBot:
         # 获取机器人的微信名称
         self.wx = WeChat()
         self.robot_name = self.wx.A_MyIcon.Name  # 移除括号，直接访问Name属性
-        logger.info(f"机器人名称: {self.robot_name}")
+        # logger.info(f"机器人名称: {self.robot_name}")
 
     def process_user_messages(self, chat_id):
         """处理用户消息队列"""
