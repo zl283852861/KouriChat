@@ -3,7 +3,7 @@
     "update_url": "https://static.kourichat.com/models/latest.json",
     "api_providers": [
         {
-            "id": "kourichat",
+            "id": "kourichat(官方推荐)",
             "name": "KouriChat API",
             "url": "https://api.kourichat.com/v1",
             "register_url": "https://api.kourichat.com/",
@@ -27,7 +27,7 @@
             "priority": 3
         },
         {
-            "id": "ollama",
+            "id": "ollama(不推荐)",
             "name": "本地 Ollama",
             "url": "http://localhost:11434/api/chat",
             "register_url": "https://ollama.ai",
@@ -35,7 +35,7 @@
             "priority": 4
         },
         {
-            "id": "sealos",
+            "id": "sealos(速度快)",
             "name": "Sealos AI",
             "url": "https://aiproxy.bja.sealos.run/v1",
             "register_url": "https://bja.sealos.run/?uid=xTYRWw1vvT",
