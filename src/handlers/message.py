@@ -11,7 +11,7 @@
 import logging
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from openai import OpenAI
 from wxauto import WeChat
@@ -60,6 +60,8 @@ class MessageHandler:
         self.emoji_handler = emoji_handler
         self.voice_handler = voice_handler
         self.memory_handler = memory_handler
+        self.unanswered_counters = {}
+        self.unanswered_timers = {}  # 新增：存储每个用户的计时器
 
     def save_message(self, sender_id: str, sender_name: str, message: str, reply: str):
         """保存聊天记录到数据库和短期记忆"""
@@ -77,7 +79,7 @@ class MessageHandler:
             # 新增短期记忆保存
             self.memory_handler.add_short_memory(message, reply)
         except Exception as e:
-            print(f"保存消息失败: {str(e)}")
+            logger.error(f"保存消息失败: {str(e)}", exc_info=True)
 
     def get_api_response(self, message: str, user_id: str) -> str:
         """获取 API 回复（含记忆增强）"""
@@ -145,16 +147,15 @@ class MessageHandler:
                 
         except Exception as e:
             logger.error(f"处理消息失败: {str(e)}", exc_info=True)
-            print(f"\n处理消息时出现错误: {str(e)}")
             return None
-    
+
     def _handle_voice_request(self, content, chat_id, sender_name, username, is_group):
         """处理语音请求"""
         logger.info("处理语音请求")
         reply = self.get_api_response(content, chat_id)
         if "</think>" in reply:
             reply = reply.split("</think>", 1)[1].strip()
-        
+
         voice_path = self.voice_handler.generate_voice(reply)
         if voice_path:
             try:
@@ -173,12 +174,12 @@ class MessageHandler:
             if is_group:
                 reply = f"@{sender_name} {reply}"
             self.wx.SendMsg(msg=reply, who=chat_id)
-        
+
         # 异步保存消息记录
-        threading.Thread(target=self.save_message, 
+        threading.Thread(target=self.save_message,
                        args=(username, sender_name, content, reply)).start()
         return reply
-        
+
     def _handle_random_image_request(self, content, chat_id, sender_name, username, is_group):
         """处理随机图片请求"""
         logger.info("处理随机图片请求")
@@ -196,17 +197,17 @@ class MessageHandler:
                         os.remove(image_path)
                 except Exception as e:
                     logger.error(f"删除临时图片失败: {str(e)}")
-            
+
             if is_group:
                 reply = f"@{sender_name} {reply}"
             self.wx.SendMsg(msg=reply, who=chat_id)
-            
+
             # 异步保存消息记录
-            threading.Thread(target=self.save_message, 
+            threading.Thread(target=self.save_message,
                            args=(username, sender_name, content, reply)).start()
             return reply
         return None
-            
+
     def _handle_image_generation_request(self, content, chat_id, sender_name, username, is_group):
         """处理图像生成请求"""
         logger.info("处理画图请求")
@@ -224,13 +225,13 @@ class MessageHandler:
                         os.remove(image_path)
                 except Exception as e:
                     logger.error(f"删除临时图片失败: {str(e)}")
-            
+
             if is_group:
                 reply = f"@{sender_name} {reply}"
             self.wx.SendMsg(msg=reply, who=chat_id)
-            
+
             # 异步保存消息记录
-            threading.Thread(target=self.save_message, 
+            threading.Thread(target=self.save_message,
                            args=(username, sender_name, content, reply)).start()
             return reply
         return None
@@ -239,10 +240,8 @@ class MessageHandler:
         """处理普通文本消息"""
         logger.info("处理普通文本回复")
 
-        # 50% 概率选择不回答消息
-        if random.random() < 0.5:  # 50% 的概率
-            logger.info("程序选择不回答此消息")
-            return  # 直接返回，不发送任何消息
+        # 获取或初始化未回复计数器
+        counter = self.unanswered_counters.get(username, 0)
 
         # 定义结束关键词
         end_keywords = [
@@ -255,88 +254,85 @@ class MessageHandler:
         is_end_of_conversation = any(keyword in content for keyword in end_keywords)
         if is_end_of_conversation:
             # 如果检测到结束关键词，在消息末尾添加提示
-            content += "\n结合上文，给出最简短的结束语"
-            logger.info(f"检测到对话结束关键词，标记为自然结束对话")
+            content += "\n请以你的身份回应用户的结束语。"
+            logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
 
-        # 获取 API 回复
+        # 获取 API 回复, 需要传入 username
         reply = self.get_api_response(content, chat_id)
         if "</think>" in reply:
             think_content, reply = reply.split("</think>", 1)
-            print("\n思考过程:")
-            print(think_content.strip())
-            print("\nAI回复:")
-            print(reply.strip())
+            logger.info("\n思考过程:")
+            logger.info(think_content.strip())
+            logger.info(reply.strip())
         else:
-            print("\nAI回复:")
-            print(reply)
+            logger.info("\nAI回复:") # 修改此处
+            logger.info(reply) 
 
         if is_group:
             reply = f"@{sender_name} {reply}"
 
-        # 增强型智能分割器
-        delayed_reply = []
-        current_sentence = []
-        ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
-        split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
+        try:
+            # 增强型智能分割器
+            delayed_reply = []
+            current_sentence = []
+            ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
+            split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
 
-        for idx, char in enumerate(reply):
-            # 处理手动分割符号（优先级最高）
-            if char in split_symbols:
-                if current_sentence:
-                    delayed_reply.append(''.join(current_sentence).strip())
-                current_sentence = []
-                continue
-
-            current_sentence.append(char)
-
-            # 处理中文标点和省略号
-            if char in ending_punctuations:
-                # 排除英文符号在短句中的误判（如英文缩写）
-                if char in {'!', '?'} and len(current_sentence) < 4:
+            for idx, char in enumerate(reply):
+                # 处理手动分割符号（优先级最高）
+                if char in split_symbols:
+                    if current_sentence:
+                        delayed_reply.append(''.join(current_sentence).strip())
+                    current_sentence = []
                     continue
 
-                # 处理连续省略号
-                if char == '…' and idx > 0 and reply[idx - 1] == '…':
-                    if len(current_sentence) >= 3:  # 至少三个点形成省略号
+                current_sentence.append(char)
+
+                # 处理中文标点和省略号
+                if char in ending_punctuations:
+                    # 排除英文符号在短句中的误判（如英文缩写）
+                    if char in {'!', '?'} and len(current_sentence) < 4:
+                        continue
+
+                    # 处理连续省略号
+                    if char == '…' and idx > 0 and reply[idx - 1] == '…':
+                        if len(current_sentence) >= 3:  # 至少三个点形成省略号
+                            delayed_reply.append(''.join(current_sentence).strip())
+                            current_sentence = []
+                    else:
                         delayed_reply.append(''.join(current_sentence).strip())
                         current_sentence = []
-                else:
-                    delayed_reply.append(''.join(current_sentence).strip())
-                    current_sentence = []
 
-        # 处理剩余内容
-        if current_sentence:
-            delayed_reply.append(''.join(current_sentence).strip())
-        delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
+            # 处理剩余内容
+            if current_sentence:
+                delayed_reply.append(''.join(current_sentence).strip())
+            delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
 
-        # 发送分割后的文本回复
-        for part in delayed_reply:
-            self.wx.SendMsg(msg=part, who=chat_id)
-            time.sleep(random.randint(2, 4))
+            # 发送分割后的文本回复, 并控制时间间隔
+            for part in delayed_reply:
+                self.wx.SendMsg(msg=part, who=chat_id)
+                time.sleep(random.uniform(0.5, 1.5))  # 稍微增加一点随机性
 
-        # 检查回复中是否包含情感关键词并发送表情包
-        print("\n检查情感关键词...")
-        logger.info("开始检查AI回复的情感关键词")
-        emotion_detected = False
+            # 检查回复中是否包含情感关键词并发送表情包
+            logger.info("开始检查AI回复的情感关键词")
+            emotion_detected = False
 
-        try:
+        
             if not hasattr(self.emoji_handler, 'emotion_map'):
                 logger.error("emoji_handler 缺少 emotion_map 属性")
                 return reply
 
             for emotion, keywords in self.emoji_handler.emotion_map.items():
-                if not keywords:  # 跳过空的关键词列表（如 neutral）
+                if not keywords:  # 跳过空的关键词列表
                     continue
 
                 if any(keyword in reply for keyword in keywords):
                     emotion_detected = True
-                    print(f"检测到情感: {emotion}")
                     logger.info(f"在回复中检测到情感: {emotion}")
 
                     emoji_path = self.emoji_handler.get_emotion_emoji(reply)
                     if emoji_path:
                         try:
-                            print(f"发送情感表情包: {emoji_path}")
                             self.wx.SendFiles(filepath=emoji_path, who=chat_id)
                             logger.info(f"已发送情感表情包: {emoji_path}")
                         except Exception as e:
@@ -346,35 +342,39 @@ class MessageHandler:
                     break
 
             if not emotion_detected:
-                print("未检测到明显情感")
                 logger.info("未在回复中检测到明显情感")
 
         except Exception as e:
-            logger.error(f"情感检测过程发生错误: {str(e)}")
-            print(f"情感检测失败: {str(e)}")
+            logger.error(f"消息处理过程中发生错误: {str(e)}")
 
         # 异步保存消息记录
         threading.Thread(target=self.save_message,
                          args=(username, sender_name, content, reply)).start()
+         # 重置计数器（如果大于0）
+        if self.unanswered_counters.get(username, 0) > 0:
+            self.unanswered_counters[username] = 0
+            logger.info(f"用户 {username} 的未回复计数器已重置")
 
-        # 如果不是自然结束对话，则更新未回复计数器
-        if not is_end_of_conversation:
-            if username not in self.unanswered_counters:
-                self.unanswered_counters[username] = 0
-            self.unanswered_counters[username] += 1
-            logger.info(f"用户 {username} 未回复计数器增加: {self.unanswered_counters[username]}")
 
         return reply
 
-    def add_to_queue(self, chat_id: str, content: str, sender_name: str, 
+    def increase_unanswered_counter(self, username: str):
+        """增加未回复计数器"""
+        with self.queue_lock:
+            if username in self.unanswered_counters:
+                self.unanswered_counters[username] += 1
+            else:
+                self.unanswered_counters[username] = 1
+            logger.info(f"用户 {username} 的未回复计数器增加到 {self.unanswered_counters[username]}")
+
+
+    def add_to_queue(self, chat_id: str, content: str, sender_name: str,
                     username: str, is_group: bool = False):
         """添加消息到队列（已废弃，保留兼容）"""
-        # 直接处理消息，不再使用队列
         logger.info("直接处理消息，跳过队列")
         return self.handle_user_message(content, chat_id, sender_name, username, is_group)
-        
+
     def process_messages(self, chat_id: str):
         """处理消息队列中的消息（已废弃，保留兼容）"""
-        # 该方法不再使用，保留以兼容旧代码
         logger.warning("process_messages方法已废弃，使用handle_message代替")
         pass
