@@ -33,11 +33,6 @@ class MemoryHandler:
         self.max_groups = max_groups
         self.model = model
 
-        # 移除瞬时记忆相关的初始化
-        self.memory_layers = {
-            'instant': os.path.join(self.memory_dir, "instant_memory.txt"),
-            'working': os.path.join(self.memory_dir, "working_memory.txt")
-        }
 
         # 初始化文件和目录
         os.makedirs(self.memory_dir, exist_ok=True)
@@ -47,8 +42,7 @@ class MemoryHandler:
         """初始化所有记忆文件"""
         files_to_check = [
             self.short_memory_path,
-            self.long_memory_buffer_path,
-            *self.memory_layers.values()
+            self.long_memory_buffer_path
         ]
         for f in files_to_check:
             if not os.path.exists(f):
@@ -70,17 +64,15 @@ class MemoryHandler:
         """添加短期记忆（兼容原有调用）"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         try:
-            logger.debug(f"开始写入短期记忆文件: {self.short_memory_path}")
+            # 新增情感标记
+            emotion = self._detect_emotion(message)
+            logger.debug(f"开始写入短期记忆文件: {self.short_memory_path},emotion:{emotion}")
             with open(self.short_memory_path, "a", encoding="utf-8") as f:
                 f.write(f"[{timestamp}] 用户: {message}\n")
                 f.write(f"[{timestamp}] bot: {reply}\n\n")
             logger.info(f"成功写入短期记忆: 用户 - {message}, bot - {reply}")
         except Exception as e:
             logger.error(f"写入短期记忆文件失败: {str(e)}")
-
-        # 新增情感标记
-        emotion = self._detect_emotion(message)
-        self._add_instant_memory(f"用户: {message}", emotion)
 
         # 检查是否包含关键词
         if any(keyword in message for keyword in KEYWORDS):
