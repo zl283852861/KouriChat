@@ -4,7 +4,7 @@ import random
 from typing import List
 from datetime import datetime
 from src.services.ai.llm_service import LLMService
-from textblob import TextBlob
+import jieba
 
 logger = logging.getLogger('main')
 
@@ -26,7 +26,6 @@ class MemoryHandler:
         self.memory_dir = os.path.join(root_dir, "data", "memory")
         self.short_memory_path = os.path.join(self.memory_dir, "short_memory.txt")
         self.long_memory_buffer_path = os.path.join(self.memory_dir, "long_memory_buffer.txt")
-        self.high_priority_memory_path = os.path.join(self.memory_dir, "high_priority_memory.txt") # 新增
         self.api_key = api_key
         self.base_url = base_url
         self.max_token = max_token
@@ -34,7 +33,7 @@ class MemoryHandler:
         self.max_groups = max_groups
         self.model = model
 
-        # 新增记忆层
+        # 移除瞬时记忆相关的初始化
         self.memory_layers = {
             'working': os.path.join(self.memory_dir, "working_memory.txt")
         }
@@ -43,26 +42,11 @@ class MemoryHandler:
         os.makedirs(self.memory_dir, exist_ok=True)
         self._init_files()
 
-        # 新增：情感权重
-        self.emotion_weights = {
-            'neutral': 1,
-            'happy': 2,
-            'sad': 2,
-            'anger': 3,  # 愤怒情绪权重更高
-            'surprise': 2,
-            'fear': 2,
-            'disgust': 2,
-        }
-
-        # 新增： 消息重复计数
-        self.memory_counts = {}
-
     def _init_files(self):
         """初始化所有记忆文件"""
         files_to_check = [
             self.short_memory_path,
             self.long_memory_buffer_path,
-            self.high_priority_memory_path, # 新增
             *self.memory_layers.values()
         ]
         for f in files_to_check:
@@ -91,57 +75,92 @@ class MemoryHandler:
                 f.write(f"[{timestamp}] bot: {reply}\n\n")
             logger.info(f"成功写入短期记忆: 用户 - {message}, bot - {reply}")
         except Exception as e:
-            logger.error(f"写入短期记忆文件失败: {str(e)}", exc_info=True)
+            logger.error(f"写入短期记忆文件失败: {str(e)}")
 
-        # 检查是否包含关键词, 并获取情感
-        emotion = self._detect_emotion(message)
-        if any(keyword in message for keyword in KEYWORDS) or emotion != 'neutral':
-            self._add_high_priority_memory(message, emotion) # 传入 emotion
+        # 移除新增情感标记和添加瞬时记忆部分
+        # 检查是否包含关键词
+        if any(keyword in message for keyword in KEYWORDS):
+            self._add_high_priority_memory(message)
 
-        # 增加消息的重复计数 (这里为了简化，直接使用原消息作为 key)
-        if message in self.memory_counts:
-            self.memory_counts[message] += 1
-        else:
-            self.memory_counts[message] = 1
-        logger.info(f"消息 '{message}' 的重复计数: {self.memory_counts[message]}")
-
-    def _add_high_priority_memory(self, message: str, emotion: str): # 修改
+    def _add_high_priority_memory(self, message: str):
         """添加高优先级记忆"""
         try:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             high_priority_path = os.path.join(self.memory_dir, "high_priority_memory.txt")
-            logger.info(f"开始写入高优先级记忆文件: {high_priority_path}")
+            logger.debug(f"开始写入高优先级记忆文件: {high_priority_path}")
             with open(high_priority_path, 'a', encoding='utf-8') as f:
-                f.write(f"[{timestamp}] 情感: {emotion}, 消息: {message}\n") # 写入情感
+                f.write(f"[{timestamp}] 高优先级: {message}\n")
             logger.info(f"成功写入高优先级记忆: {message}")
         except Exception as e:
             logger.error(f"写入高优先级记忆文件失败: {str(e)}", exc_info=True)
 
-    def _detect_emotion(self, text: str) -> str: # 新增
-        """情感分析"""
-        # 这里只是简单示例, 实际应用中需要更强大的情感分析模型
-        analysis = TextBlob(text)
-        # 使用 TextBlob 的情感极性 (polarity) 和主观性 (subjectivity)
-        polarity = analysis.sentiment.polarity
-        subjectivity = analysis.sentiment.subjectivity
+    def _detect_emotion(self, text: str) -> str:
+        """基于词典的情感分析"""
 
-        # 根据极性和主观性判断情感
-        if polarity > 0.5 and subjectivity > 0.5:
+        # 加载情感词典
+        positive_words = self._load_wordlist('src/handlers/emodata/正面情绪词.txt')
+        negative_words = self._load_wordlist('src/handlers/emodata/负面情绪词.txt')
+        negation_words = self._load_wordlist('src/handlers/emodata/否定词表.txt')
+        degree_words = self._load_wordlist('src/handlers/emodata/程度副词.txt')
+
+        # 修正程度副词
+        degree_dict = {}
+        for word in degree_words:
+            parts = word.strip().split(',')  # 假设格式为 "词语,权重"
+            if len(parts) == 2:
+                degree_dict[parts[0].strip()] = float(parts[1].strip())
+
+        # 分词
+        words = list(jieba.cut(text))
+
+        # 情感计算
+        score = 0
+        negation_count = 0  # 否定词计数
+        for i, word in enumerate(words):
+            if word in positive_words:
+                # 考虑程度副词
+                degree = 1.0
+                for j in range(i - 1, max(-1, i - 4), -1):  # 向前查找最多3个词
+                    if words[j] in degree_dict:
+                        degree *= degree_dict[words[j]]
+                        break
+                # 考虑否定词
+                if negation_count % 2 == 1:
+                    degree *= -1.0
+                score += degree
+
+            elif word in negative_words:
+                degree = 1.0
+                for j in range(i - 1, max(-1, i - 4), -1):
+                    if words[j] in degree_dict:
+                        degree *= degree_dict[words[j]]
+                        break
+
+                if negation_count % 2 == 1:
+                    degree *= -1.0
+                score -= degree
+
+            elif word in negation_words:
+                negation_count += 1
+
+        # 情感分类
+        if score > 0.5:
             return 'happy'
-        elif polarity > 0 and subjectivity > 0.5:
-            return 'happy'
-        elif polarity < -0.5 and subjectivity > 0.5:
-            return 'anger'  # 强烈的负面情感
-        elif polarity < 0 and subjectivity > 0.5:
-            return 'sad'
-        elif -0.5 <= polarity <= 0.5 and subjectivity > 0.5:
-            return 'surprise'
-        elif polarity < -0.3 and subjectivity < 0.5:  # 区分 fear 和 disgust
-            return 'fear'
-        elif polarity < 0 and subjectivity < 0.5:
-            return 'disgust'
-        else:
+        elif score < -0.5:
+            return 'anger'  # 负面情绪比较强烈
+        elif -0.5 <= score <= 0.5:
             return 'neutral'
+        else:
+            return 'sad'  # 负面情绪
+
+    def _load_wordlist(self, filepath: str) -> List[str]:
+        """加载词表文件"""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            logger.error(f"加载词表文件失败: {filepath} - {str(e)}")
+            return []
 
     def summarize_memories(self):
         """总结短期记忆到长期记忆（保持原有逻辑）"""
@@ -158,19 +177,10 @@ class MemoryHandler:
             while retries < max_retries:
                 try:
                     deepseek = self._get_deepseek_client()
-                    # 优化提示，更明确地指示LLM考虑情感和重复
-                    prompt = (
-                        "请将以下对话记录总结为最重要的几条长期记忆，总结内容应包含地点，事件，人物（如果对话记录中有的话）用中文简要表述。\n"
-                        "注意：请特别关注以下几点：\n"
-                        "1. 具有强烈情感的消息（如愤怒、高兴）应优先考虑。\n"
-                        "2. 被多次提及的消息应优先考虑。\n"
-                        "3. 包含关键词（如 '记住'、'别忘了' 等）的消息应优先考虑。\n\n"
-                        "对话记录：\n" + "".join(lines[-30:])
-                    )
                     summary = deepseek.get_response(
-                        message=prompt,
+                        message="".join(lines[-30:]),
                         user_id="system",
-                        system_prompt="总结以下对话："  # 可以保留之前的 system_prompt
+                        system_prompt="请将以下对话记录总结为最重要的几条长期记忆，总结内容应包含地点，事件，人物（如果对话记录中有的话）用中文简要表述："
                     )
                     logger.debug(f"总结结果:\n{summary}")
 
@@ -194,7 +204,7 @@ class MemoryHandler:
                             f.write(summary + "\n\n")
                         logger.info(f"成功将总结结果写入长期记忆缓冲区: {summary}")
                     except Exception as e:
-                        logger.error(f"写入长期记忆缓冲区文件失败: {str(e)}", exc_info=True)
+                        logger.error(f"写入长期记忆缓冲区文件失败: {str(e)}")
 
                     # 清空短期记忆
                     try:
@@ -202,7 +212,7 @@ class MemoryHandler:
                         open(self.short_memory_path, "w").close()
                         logger.info("记忆总结完成，已写入长期记忆缓冲区，短期记忆已清空")
                     except Exception as e:
-                        logger.error(f"清空短期记忆文件失败: {str(e)}", exc_info=True)
+                        logger.error(f"清空短期记忆文件失败: {str(e)}")
                     break  # 成功后退出循环
 
                 except Exception as e:
@@ -233,7 +243,7 @@ class MemoryHandler:
                     memories = [line.strip() for line in f if line.strip()]
 
                 # 调试：打印文件内容
-                logger.debug(f"长期记忆缓冲区条目数: {len(memories)}")
+                logger.debug(f"长期记忆缓冲区内容: {memories}")
 
                 if not memories:
                     logger.debug("长期记忆缓冲区为空")
@@ -247,7 +257,7 @@ class MemoryHandler:
                 )
 
                 # 调试：打印模型响应
-                logger.debug(f"模型返回相关记忆条数: {len(response.splitlines())}")
+                logger.debug(f"模型响应: {response}")
 
                 # 检查是否需要重试
                 retry_sentences = [
@@ -291,3 +301,5 @@ class MemoryHandler:
                 logger.info("已完成长期记忆维护")
             except Exception as e:
                 logger.error(f"长期记忆维护失败: {str(e)}", exc_info=True)
+
+        # 移除瞬时记忆归档部分
