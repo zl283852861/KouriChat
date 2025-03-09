@@ -3,8 +3,8 @@
     "update_url": "https://static.kourichat.com/models/latest.json",
     "api_providers": [
         {
-            "id": "kourichat(官方推荐)",
-            "name": "KouriChat API",
+            "id": "kourichat",
+            "name": "KouriChat API(官方推荐)",
             "url": "https://api.kourichat.com/v1",
             "register_url": "https://api.kourichat.com/",
             "status": "active",
@@ -20,23 +20,23 @@
         },
         {
             "id": "deepseek",
-            "name": "DeepSeek API",
+            "name": "DeepSeek API（服务器繁忙）",
             "url": "https://api.deepseek.com/v1",
             "register_url": "https://platform.deepseek.com",
             "status": "active", 
             "priority": 3
         },
         {
-            "id": "ollama(不推荐)",
-            "name": "本地 Ollama",
+            "id": "ollama",
+            "name": "本地 Ollama(不推荐效果差)",
             "url": "http://localhost:11434/api/chat",
             "register_url": "https://ollama.ai",
             "status": "active",
             "priority": 4
         },
         {
-            "id": "sealos(速度快)",
-            "name": "Sealos AI",
+            "id": "sealos",
+            "name": "Sealos AI(速度更快)",
             "url": "https://aiproxy.bja.sealos.run/v1",
             "register_url": "https://bja.sealos.run/?uid=xTYRWw1vvT",
             "status": "active",
