@@ -4,7 +4,7 @@
     "api_providers": [
         {
             "id": "kourichat",
-            "name": "KouriChat API",
+            "name": "KouriChat API(官方推荐)",
             "url": "https://api.kourichat.com/v1",
             "register_url": "https://api.kourichat.com/",
             "status": "active",
@@ -20,7 +20,7 @@
         },
         {
             "id": "deepseek",
-            "name": "DeepSeek API",
+            "name": "DeepSeek API（服务器繁忙）",
             "url": "https://api.deepseek.com/v1",
             "register_url": "https://platform.deepseek.com",
             "status": "active", 
@@ -28,7 +28,7 @@
         },
         {
             "id": "ollama",
-            "name": "本地 Ollama",
+            "name": "本地 Ollama(不推荐效果差)",
             "url": "http://localhost:11434/api/chat",
             "register_url": "https://ollama.ai",
             "status": "active",
@@ -36,7 +36,7 @@
         },
         {
             "id": "sealos",
-            "name": "Sealos AI",
+            "name": "Sealos AI(速度更快)",
             "url": "https://aiproxy.bja.sealos.run/v1",
             "register_url": "https://bja.sealos.run/?uid=xTYRWw1vvT",
             "status": "active",

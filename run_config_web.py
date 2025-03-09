@@ -42,6 +42,7 @@ import win32api
 import win32con
 import win32job
 import win32process
+from src.Wechat_Login_Clicker.Wechat_Login_Clicker import click_wechat_buttons
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -2137,6 +2138,22 @@ def get_all_configs():
         return jsonify({
             'status': 'error',
             'message': str(e)
+        })
+
+@app.route('/click_wechat_buttons', methods=['POST'])
+def handle_wechat_login():
+    """处理微信登录按钮点击"""
+    try:
+        click_wechat_buttons()
+        return jsonify({
+            'status': 'success',
+            'message': '微信登录操作已执行'
+        })
+    except Exception as e:
+        logger.error(f"执行微信登录操作失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': f'操作失败: {str(e)}'
         })
 
 if __name__ == '__main__':

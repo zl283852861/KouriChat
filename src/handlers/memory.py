@@ -35,6 +35,7 @@ class MemoryHandler:
 
         # 移除瞬时记忆相关的初始化
         self.memory_layers = {
+            'instant': os.path.join(self.memory_dir, "instant_memory.txt"),
             'working': os.path.join(self.memory_dir, "working_memory.txt")
         }
 
@@ -77,7 +78,10 @@ class MemoryHandler:
         except Exception as e:
             logger.error(f"写入短期记忆文件失败: {str(e)}")
 
-        # 移除新增情感标记和添加瞬时记忆部分
+        # 新增情感标记
+        emotion = self._detect_emotion(message)
+        self._add_instant_memory(f"用户: {message}", emotion)
+
         # 检查是否包含关键词
         if any(keyword in message for keyword in KEYWORDS):
             self._add_high_priority_memory(message)
@@ -92,7 +96,7 @@ class MemoryHandler:
                 f.write(f"[{timestamp}] 高优先级: {message}\n")
             logger.info(f"成功写入高优先级记忆: {message}")
         except Exception as e:
-            logger.error(f"写入高优先级记忆文件失败: {str(e)}", exc_info=True)
+            logger.error(f"写入高优先级记忆文件失败: {str(e)}")
 
     def _detect_emotion(self, text: str) -> str:
         """基于词典的情感分析"""
