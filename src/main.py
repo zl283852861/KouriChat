@@ -57,6 +57,7 @@ class ChatBot:
         self.moonshot_ai = moonshot_ai
         self.user_queues = {}  # 将user_queues移到类的实例变量
         self.queue_lock = threading.Lock()  # 将queue_lock也移到类的实例变量
+        self.ai_last_reply_time = {}  # 新增：记录 AI 最后回复的时间
         # self.unanswered_counters = {}  # 新增：每个用户的未回复计数器, 移动到MessageHandler
 
         # 获取机器人的微信名称
@@ -68,7 +69,6 @@ class ChatBot:
         """处理用户消息队列"""
         try:
             logger.info(f"开始处理消息队列 - 聊天ID: {chat_id}")
-
             with self.queue_lock:
                 if chat_id not in self.user_queues:
                     logger.warning(f"未找到消息队列: {chat_id}")
@@ -80,20 +80,15 @@ class ChatBot:
                 is_group = user_data.get('is_group', False)
 
             logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
-            # logger.info(f"消息内容: {messages}") # 移除重复的日志
 
             # 合并消息内容
-            # 检查是否包含图片识别结果
             is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
-
             if len(messages) > 1:
-                # 第一条消息已经包含时间戳（由handle_wxauto_message保证）
-                # 直接合并所有消息，不需要额外处理
                 content = "\n".join(messages)
             else:
                 content = messages[0]
 
-            # 直接调用MessageHandler的handle_user_message方法
+            # 直接调用 MessageHandler 的 handle_user_message 方法
             self.message_handler.handle_user_message(
                 content=content,
                 chat_id=chat_id,
@@ -104,11 +99,19 @@ class ChatBot:
             )
             logger.info(f"消息已处理 - 聊天ID: {chat_id}")
 
-            # 处理完用户消息后，重置计数器
+            # 记录 AI 最后回复的时间
+            self.ai_last_reply_time[username] = time.time()
+
+            # 处理完用户消息后，检查是否需要重置计数器
             with self.queue_lock:
                 if username in self.message_handler.unanswered_counters:
-                    self.message_handler.unanswered_counters[username] = 0
-                    logger.info(f"用户 {username} 的未回复计数器已重置")
+                    if username in self.ai_last_reply_time:
+                        elapsed_time = time.time() - self.ai_last_reply_time[username]
+                        if elapsed_time <= 5 * 60:  # 检查是否在 5 分钟内
+                            self.message_handler.unanswered_counters[username] = 0
+                            logger.info(f"用户 {username} 的未回复计数器已重置")
+                        else:
+                            logger.info(f"用户 {username} 在 5 分钟后回复，计数器不重置")
 
         except Exception as e:
             logger.error(f"处理消息队列失败: {str(e)}", exc_info=True)
@@ -638,7 +641,7 @@ def main():
         print_status("正在关闭系统...", "warning", "STOP")
         print_status("系统已退出", "info", "BYE")
         print("\n")
-
+#
 if __name__ == '__main__':
     try:
         main()
