@@ -15,6 +15,7 @@ import shutil
 import json
 import logging
 import datetime
+import time
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -42,9 +43,12 @@ class Updater:
 
     # GitHub代理列表
     PROXY_SERVERS = [
+        "https://mirror.ghproxy.com/",
         "https://ghfast.top/",
         "https://github.moeyy.xyz/", 
         "https://git.886.be/",
+        "https://ghproxy.com/",
+        "https://gh.api.99988866.xyz/",
         ""  # 空字符串表示直接使用原始GitHub地址
     ]
 
@@ -53,6 +57,9 @@ class Updater:
         self.temp_dir = os.path.join(self.root_dir, 'temp_update')
         self.version_file = os.path.join(self.root_dir, 'version.json')
         self.current_proxy_index = 0  # 当前使用的代理索引
+        # 增加重试次数和超时设置
+        self.max_retries = 3
+        self.timeout = 15  # 增加超时时间
 
     def get_proxy_url(self, original_url: str) -> str:
         """获取当前代理URL"""
@@ -116,7 +123,8 @@ class Updater:
             'User-Agent': f'{self.REPO_NAME}-UpdateChecker'
         }
         
-        while True:
+        retry_count = 0
+        while retry_count < self.max_retries:
             try:
                 # 获取远程 version.json 文件内容
                 version_url = f"https://raw.githubusercontent.com/{self.REPO_OWNER}/{self.REPO_NAME}/{self.REPO_BRANCH}/version.json"
@@ -126,7 +134,7 @@ class Updater:
                 response = requests.get(
                     proxied_url,
                     headers=headers,
-                    timeout=10,
+                    timeout=self.timeout,
                     verify=True
                 )
                 response.raise_for_status()
@@ -150,9 +158,35 @@ class Updater:
                     except (ValueError, AttributeError):
                         # 如果是 commit hash 或无法解析的版本号，返回 (0, 0, 0)
                         return (0, 0, 0)
+                
+                # 记录版本信息到日志
+                logger.info(f"当前版本: {current_version}, 远程版本: {latest_version}")
+                logger.info(f"当前版本元组: {parse_version(current_version)}, 远程版本元组: {parse_version(latest_version)}")
+                
+                # 直接从GitHub API获取最新的release版本
+                try:
+                    release_url = self.get_proxy_url(f"{self.GITHUB_API}/releases/latest")
+                    release_response = requests.get(
+                        release_url,
+                        headers=headers,
+                        timeout=self.timeout
+                    )
+                    
+                    if release_response.status_code == 200:
+                        release_info = release_response.json()
+                        github_version = release_info.get('tag_name', '').strip('v')
+                        if github_version:
+                            logger.info(f"GitHub最新release版本: {github_version}")
+                            latest_version = github_version
+                except Exception as e:
+                    logger.warning(f"获取GitHub最新release版本失败: {str(e)}")
+                    # 继续使用从version.json获取的版本
 
                 current_ver_tuple = parse_version(current_version)
                 latest_ver_tuple = parse_version(latest_version)
+                
+                # 记录版本比较结果
+                logger.info(f"版本比较结果: {latest_ver_tuple > current_ver_tuple} (远程版本 > 当前版本)")
 
                 # 只有当最新版本大于当前版本时才返回更新信息
                 if latest_ver_tuple > current_ver_tuple:
@@ -161,7 +195,7 @@ class Updater:
                     response = requests.get(
                         release_url,
                         headers=headers,
-                        timeout=10
+                        timeout=self.timeout
                     )
                     
                     if response.status_code == 404:
@@ -190,16 +224,26 @@ class Updater:
                 
             except (requests.RequestException, json.JSONDecodeError) as e:
                 logger.warning(f"使用当前代理检查更新失败: {str(e)}")
+                retry_count += 1
+                
+                if retry_count < self.max_retries:
+                    logger.info(f"第{retry_count}次重试失败，等待1秒后重试...")
+                    time.sleep(1)
+                    
                 if self.try_next_proxy():
                     logger.info(f"正在切换到下一个代理服务器...")
+                    retry_count = 0  # 重置重试计数器，因为切换了新代理
                     continue
-                else:
-                    logger.error("所有代理服务器均已尝试失败")
-                    return {
-                        'has_update': False,
-                        'error': "检查更新失败：无法连接到更新服务器",
-                        'output': "检查更新失败：无法连接到更新服务器"
-                    }
+                elif retry_count >= self.max_retries:
+                    logger.error(f"已达到最大重试次数({self.max_retries})，更新检查失败")
+                    break
+        
+        # 如果所有尝试都失败
+        return {
+            'has_update': False,
+            'error': "检查更新失败：无法连接到更新服务器",
+            'output': "检查更新失败：无法连接到更新服务器"
+        }
 
     def download_update(self, download_url: str) -> bool:
         """下载更新包"""
@@ -208,7 +252,8 @@ class Updater:
             'User-Agent': f'{self.REPO_NAME}-UpdateChecker'
         }
         
-        while True:
+        retry_count = 0
+        while retry_count < self.max_retries:
             try:
                 proxied_url = self.get_proxy_url(download_url)
                 logger.info(f"正在从 {proxied_url} 下载更新...")
@@ -216,32 +261,70 @@ class Updater:
                 response = requests.get(
                     proxied_url,
                     headers=headers,
-                    timeout=30,
+                    timeout=self.timeout * 2,  # 下载需要更长的超时时间
                     stream=True
                 )
                 response.raise_for_status()
                 
+                # 确保临时目录存在
                 os.makedirs(self.temp_dir, exist_ok=True)
                 zip_path = os.path.join(self.temp_dir, 'update.zip')
                 
+                # 使用二进制模式写入文件
                 with open(zip_path, 'wb') as f:
                     for chunk in response.iter_content(chunk_size=8192):
                         if chunk:
                             f.write(chunk)
+                logger.info(f"更新包下载完成: {zip_path}")
                 return True
                 
             except requests.RequestException as e:
                 logger.warning(f"使用当前代理下载更新失败: {str(e)}")
+                retry_count += 1
+                
+                if retry_count < self.max_retries:
+                    logger.info(f"第{retry_count}次重试失败，等待2秒后重试...")
+                    time.sleep(2)  # 下载失败后等待更长时间
+                    
                 if self.try_next_proxy():
-                    logger.info("正在切换到下一个代理服务器...")
+                    logger.info(f"正在切换到下一个代理服务器...")
+                    retry_count = 0  # 重置重试计数器，因为切换了新代理
                     continue
-                else:
-                    logger.error("所有代理服务器均已尝试失败")
-                    return False
+                elif retry_count >= self.max_retries:
+                    logger.error(f"已达到最大重试次数({self.max_retries})，下载更新失败")
+                    break
+        
+        # 如果所有尝试都失败
+        return False
 
     def should_skip_file(self, file_path: str) -> bool:
         """检查是否应该跳过更新某个文件"""
-        return any(skip_file in file_path for skip_file in self.SKIP_FILES)
+        # 规范化路径分隔符，统一处理Windows和Unix风格路径
+        normalized_path = file_path.replace('\\', '/').lower()
+        
+        # 检查是否是data/memory目录或其子目录
+        if 'data/memory' in normalized_path:
+            return True
+            
+        # 检查是否是avatars目录或其子目录
+        if 'data/avatars' in normalized_path:
+            return True
+            
+        # 检查是否是config.json文件
+        if normalized_path.endswith('config.json') or normalized_path.endswith('config.json.template'):
+            return True
+        
+        # 检查是否是用户数据文件
+        if 'data/database' in normalized_path:
+            return True
+            
+        # 检查其他需要跳过的文件
+        for skip_file in self.SKIP_FILES:
+            skip_file = skip_file.replace('\\', '/').lower()
+            if skip_file in normalized_path:
+                return True
+                
+        return False
 
     def backup_current_version(self) -> bool:
         """备份当前版本"""
@@ -285,21 +368,46 @@ class Updater:
             zip_path = os.path.join(self.temp_dir, 'update.zip')
             extract_dir = os.path.join(self.temp_dir, 'extracted')
             
+            logger.info(f"正在解压更新包到: {extract_dir}")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_dir)
             
+            # 查找实际的项目根目录（GitHub下载的zip通常会有一个额外的顶级目录）
+            root_contents = os.listdir(extract_dir)
+            if len(root_contents) == 1 and os.path.isdir(os.path.join(extract_dir, root_contents[0])):
+                extract_dir = os.path.join(extract_dir, root_contents[0])
+                logger.info(f"检测到顶级目录，更新实际根目录为: {extract_dir}")
+            
             # 复制新文件
+            updated_files_count = 0
+            skipped_files_count = 0
+            
             for root, dirs, files in os.walk(extract_dir):
                 relative_path = os.path.relpath(root, extract_dir)
                 target_dir = os.path.join(self.root_dir, relative_path)
                 
                 for file in files:
-                    if not self.should_skip_file(file):
-                        src_file = os.path.join(root, file)
-                        dst_file = os.path.join(target_dir, file)
-                        os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+                    src_file = os.path.join(root, file)
+                    dst_file = os.path.join(target_dir, file)
+                    
+                    # 检查完整路径是否应该跳过
+                    relative_file_path = os.path.join(relative_path, file)
+                    if self.should_skip_file(relative_file_path):
+                        logger.debug(f"跳过文件: {relative_file_path}")
+                        skipped_files_count += 1
+                        continue
+                    
+                    # 确保目标目录存在
+                    os.makedirs(os.path.dirname(dst_file), exist_ok=True)
+                    
+                    # 复制文件
+                    try:
                         shutil.copy2(src_file, dst_file)
+                        updated_files_count += 1
+                    except Exception as e:
+                        logger.error(f"复制文件失败 {src_file} -> {dst_file}: {str(e)}")
             
+            logger.info(f"更新完成: 更新了 {updated_files_count} 个文件，跳过了 {skipped_files_count} 个文件")
             return True
         except Exception as e:
             logger.error(f"更新失败: {str(e)}")
@@ -448,4 +556,4 @@ if __name__ == "__main__":
         print("\n用户取消更新")
     except Exception as e:
         print(f"\n发生错误: {str(e)}")
-        input("按回车键退出...") 
+        input("按回车键退出...")

@@ -376,10 +376,8 @@ def save_config():
                 logger.info("成功重新初始化定时任务")
             else:
                 logger.warning("重新初始化定时任务返回空值")
-        # except Exception as e:
-        #     logger.error(f"重新初始化定时任务失败: {str(e)}")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"重新初始化定时任务失败: {str(e)}")
         
         return jsonify({
             "status": "success",
@@ -1212,9 +1210,16 @@ def check_dependencies():
                 )
                 stdout, stderr = process.communicate()
                 
-                # 解码字节数据为字符串
-                stdout = stdout.decode('utf-8')
-                stderr = stderr.decode('utf-8')
+                # 解码字节数据为字符串，添加错误处理
+                try:
+                    stdout = stdout.decode('utf-8', errors='replace')
+                except Exception:
+                    stdout = str(stdout)
+                    
+                try:
+                    stderr = stderr.decode('utf-8', errors='replace')
+                except Exception:
+                    stderr = str(stderr)
                 
                 # 解析pip list的输出，只获取包名
                 installed_packages = {
@@ -1226,23 +1231,42 @@ def check_dependencies():
                 logger.debug(f"已安装的包: {installed_packages}")
                 
                 # 读取requirements.txt，只获取有效的包名
-                with open(requirements_path, 'r', encoding='utf-8') as f:
-                    required_packages = set()
-                    for line in f:
-                        line = line.strip()
-                        # 跳过无效行：空行、注释、镜像源配置、-r 开头的文件包含
-                        if (not line or 
-                            line.startswith('#') or 
-                            line.startswith('-i ') or 
-                            line.startswith('-r ') or
-                            line.startswith('--')):
-                            continue
-                            
-                        # 只取包名，忽略版本信息和其他选项
-                        pkg = line.split('=')[0].split('>')[0].split('<')[0].split('~')[0].split('[')[0]
-                        pkg = pkg.strip().lower()
-                        if pkg:  # 确保包名不为空
-                            required_packages.add(pkg)
+                required_packages = set()
+                # 尝试多种编码读取requirements.txt文件
+                encodings_to_try = ['utf-8', 'gbk', 'latin-1', 'cp1252']
+                requirements_content = None
+                
+                for encoding in encodings_to_try:
+                    try:
+                        with open(requirements_path, 'r', encoding=encoding) as f:
+                            requirements_content = f.read()
+                        logger.debug(f"成功使用{encoding}编码读取requirements.txt")
+                        break
+                    except UnicodeDecodeError:
+                        continue
+                    except Exception as e:
+                        logger.error(f"读取requirements.txt时出错: {str(e)}")
+                        break
+                
+                if requirements_content is None:
+                    raise Exception("无法读取requirements.txt文件，尝试了多种编码均失败")
+                
+                # 解析requirements.txt内容
+                for line in requirements_content.splitlines():
+                    line = line.strip()
+                    # 跳过无效行：空行、注释、镜像源配置、-r 开头的文件包含
+                    if (not line or 
+                        line.startswith('#') or 
+                        line.startswith('-i ') or 
+                        line.startswith('-r ') or
+                        line.startswith('--')):
+                        continue
+                        
+                    # 只取包名，忽略版本信息和其他选项
+                    pkg = line.split('=')[0].split('>')[0].split('<')[0].split('~')[0].split('[')[0]
+                    pkg = pkg.strip().lower()
+                    if pkg:  # 确保包名不为空
+                        required_packages.add(pkg)
                 
                 logger.debug(f"需要的包: {required_packages}")
                 
@@ -1552,6 +1576,40 @@ def install_dependencies():
                 'status': 'error',
                 'message': '找不到requirements.txt文件'
             })
+        
+        # 尝试多种编码读取requirements.txt文件
+        encodings_to_try = ['utf-8', 'gbk', 'latin-1', 'cp1252']
+        requirements_content = None
+        used_encoding = None
+        
+        for encoding in encodings_to_try:
+            try:
+                with open(requirements_path, 'r', encoding=encoding) as f:
+                    requirements_content = f.read()
+                used_encoding = encoding
+                logger.debug(f"成功使用{encoding}编码读取requirements.txt")
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                logger.error(f"读取requirements.txt时出错: {str(e)}")
+                break
+        
+        if requirements_content is None:
+            return jsonify({
+                'status': 'error',
+                'message': '无法读取requirements.txt文件，尝试了多种编码均失败'
+            })
+        
+        # 如果编码不是UTF-8，则尝试转换为UTF-8保存
+        if used_encoding != 'utf-8':
+            try:
+                with open(requirements_path, 'w', encoding='utf-8') as f:
+                    f.write(requirements_content)
+                output.append(f"检测到requirements.txt文件编码问题（{used_encoding}），已自动转换为UTF-8")
+            except Exception as e:
+                logger.warning(f"尝试转换requirements.txt编码失败: {str(e)}")
+                # 继续使用原始文件
             
         process = subprocess.Popen(
             [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
@@ -1560,9 +1618,16 @@ def install_dependencies():
         )
         stdout, stderr = process.communicate()
         
-        # 解码字节数据为字符串
-        stdout = stdout.decode('utf-8')
-        stderr = stderr.decode('utf-8')
+        # 解码字节数据为字符串，添加错误处理
+        try:
+            stdout = stdout.decode('utf-8', errors='replace')
+        except Exception:
+            stdout = str(stdout)
+            
+        try:
+            stderr = stderr.decode('utf-8', errors='replace')
+        except Exception:
+            stderr = str(stderr)
         
         output.append(stdout if stdout else stderr)
         
@@ -1585,6 +1650,7 @@ def install_dependencies():
             })
             
     except Exception as e:
+        logger.error(f"安装依赖时出错: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)

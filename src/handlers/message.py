@@ -82,40 +82,55 @@ class MessageHandler:
             logger.error(f"保存消息失败: {str(e)}", exc_info=True)
 
     def get_api_response(self, message: str, user_id: str) -> str:
-        """获取 API 回复（含记忆增强）"""
+        """获取 API 回复（含优先级记忆增强）"""
         avatar_dir = os.path.join(self.root_dir, config.behavior.context.avatar_dir)
         prompt_path = os.path.join(avatar_dir, "avatar.md")
         original_content = ""
 
         try:
-            # 步骤1：读取原始提示内容
+            # 步骤1：读取原始提示内容（人设内容，最高优先级）
             with open(prompt_path, "r", encoding="utf-8") as f:
                 original_content = f.read()
-                logger.debug(f"原始提示文件大小: {len(original_content)} bytes")
+                logger.debug(f"原始人设提示文件大小: {len(original_content)} bytes")
 
-            # 步骤2：获取相关记忆并构造临时提示
+            # 步骤2：获取相关记忆（第二优先级）
             relevant_memories = self.memory_handler.get_relevant_memories(message)
-            memory_prompt = "\n# 动态记忆注入\n" + "\n".join(relevant_memories) if relevant_memories else ""
-            logger.debug(f"注入记忆条数: {len(relevant_memories)}")
+            
+            # 步骤3：构建优先级提示结构
+            # 优先级顺序：人设内容 > 记忆内容 > 上下文内容
+            if relevant_memories:
+                # 添加记忆优先级标记
+                memory_prompt = "\n# 动态记忆注入（优先级说明）\n"
+                memory_prompt += "以下是与当前对话相关的记忆内容，请在回复时优先考虑人设内容，其次参考这些记忆，最后才是上下文内容。\n"
+                memory_prompt += "\n".join(relevant_memories)
+                logger.debug(f"注入记忆条数: {len(relevant_memories)}")
+            else:
+                memory_prompt = ""
+                logger.debug("没有找到相关记忆")
 
-            # 步骤3：写入临时记忆
+            # 步骤4：写入临时提示（按优先级组织）
             with open(prompt_path, "w", encoding="utf-8") as f:
+                # 确保人设内容在最前面（最高优先级）
                 f.write(f"{original_content}\n{memory_prompt}")
 
-            # 步骤4：确保文件内容已刷新
+            # 步骤5：确保文件内容已刷新
             with open(prompt_path, "r", encoding="utf-8") as f:
                 full_prompt = f.read()
-                logger.debug(f"临时提示内容样例:\n{full_prompt[:200]}...")  # 显示前200字符
+                logger.debug(f"优先级提示内容样例:\n{full_prompt[:200]}...")  # 显示前200字符
 
-            # 调用API
-            return self.deepseek.get_response(message, user_id, full_prompt)
+            # 步骤6：添加优先级指令到系统提示
+            priority_instruction = "\n# 回复优先级指南\n请在回复时遵循以下优先级顺序：\n1. 人设内容（最高优先级）\n2. 记忆内容（中等优先级）\n3. 上下文内容（最低优先级）\n这样可以确保回复既符合角色设定，又能根据记忆进行个性化，同时避免在同一话题上循环。\n"
+            enhanced_prompt = full_prompt + priority_instruction
+            
+            # 调用API（上下文内容由LLM服务自动管理，优先级最低）
+            return self.deepseek.get_response(message, user_id, enhanced_prompt)
 
         except Exception as e:
-            logger.error(f"动态记忆注入失败: {str(e)}")
+            logger.error(f"优先级动态记忆注入失败: {str(e)}")
             return self.deepseek.get_response(message, user_id, original_content)  # 降级处理
 
         finally:
-            # 步骤5：恢复原始内容（无论是否出错）
+            # 步骤7：恢复原始内容（无论是否出错）
             try:
                 with open(prompt_path, "w", encoding="utf-8") as f:
                     f.write(original_content)
