@@ -79,7 +79,7 @@ class ChatBot:
                 username = user_data['username']
                 is_group = user_data.get('is_group', False)
 
-            logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
+            logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)-1}, 是否群聊: {is_group}")
 
             # 合并消息内容
             is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
@@ -202,17 +202,17 @@ class ChatBot:
                     # 启动或取消未回复消息计时器
                     if username in self.message_handler.unanswered_timers:
                         self.message_handler.unanswered_timers[username].cancel()
-                        logger.info(f"取消用户 {username} 的未回复计时器")
+                        #logger.info(f"取消用户 {username} 的未回复计时器")
 
-                    # 5分钟后增加未回复计数器
+                    # 30分钟后增加未回复计数
                     def increase_counter_after_delay(username):
                         with self.queue_lock:
                             self.message_handler.increase_unanswered_counter(username)
 
-                    timer = threading.Timer(300.0, increase_counter_after_delay, args=[username])
+                    timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
                     timer.start()
                     self.message_handler.unanswered_timers[username] = timer
-                    logger.info(f"为用户 {username} 启动未回复计时器")
+                    #logger.info(f"为用户 {username} 启动未回复计时器")
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
