@@ -390,6 +390,6 @@ class MemoryHandler:
                     f.seek(0)
                     f.writelines(keep_lines)
                     f.truncate()
-                logger.info("已完成高优先级记忆维护"
-
-        # 移除瞬时记忆归档部分
+                logger.info("已完成高优先级记忆维护")
+            except Exception as e:
+                logger.error(f"高优先级记忆维护失败: {str(e)}", exc_info=True)
