@@ -376,8 +376,10 @@ def save_config():
                 logger.info("成功重新初始化定时任务")
             else:
                 logger.warning("重新初始化定时任务返回空值")
-        except Exception as e:
-            logger.error(f"重新初始化定时任务失败: {str(e)}")
+        # except Exception as e:
+        #     logger.error(f"重新初始化定时任务失败: {str(e)}")
+        except Exception:
+            pass
         
         return jsonify({
             "status": "success",
