@@ -21,6 +21,7 @@ import os
 from services.ai.llm_service import LLMService
 from handlers.memory import MemoryHandler
 from config import config
+import re
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
@@ -238,6 +239,14 @@ class MessageHandler:
 
     def _handle_text_message(self, content, chat_id, sender_name, username, is_group):
         """处理普通文本消息"""
+        # 添加正则表达式过滤时间戳
+        time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
+        content = re.sub(time_pattern, '', content)
+        
+        # 或者更通用的模式，匹配 [数字] 格式
+        general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
+        content = re.sub(general_pattern, '', content)
+        
         logger.info("处理普通文本回复")
 
         # 获取或初始化未回复计数器
