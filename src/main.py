@@ -331,7 +331,19 @@ def auto_send_message():
         if user_id not in chat_bot.unanswered_counters:
             chat_bot.unanswered_counters[user_id] = 0
         chat_bot.unanswered_counters[user_id] += 1
-        reply_content = f"{config.behavior.auto_message.content} (未回复消息计数变化: +1)"
+
+        # 获取上下文内容
+        memories = chat_bot.memory_handler.get_relevant_memories(f"与{user_id}的最近对话")
+        if memories:
+            # 根据上下文生成个性化消息
+            reply_content = chat_bot.smart_message_generator.generate_smart_message(
+                config.behavior.auto_message.content, 
+                user_id
+            )
+        else:
+            # 默认消息
+            reply_content = f"{config.behavior.auto_message.content} (未回复消息计数变化: +1)"
+
         logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(
