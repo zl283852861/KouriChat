@@ -107,7 +107,7 @@ class ChatBot:
                 if username in self.message_handler.unanswered_counters:
                     if username in self.ai_last_reply_time:
                         elapsed_time = time.time() - self.ai_last_reply_time[username]
-                        if elapsed_time <= 5 * 60:  # 检查是否在 5 分钟内
+                        if elapsed_time <= 30 * 60:  # 检查是否在 30 分钟内
                             self.message_handler.unanswered_counters[username] = 0
                             logger.info(f"用户 {username} 的未回复计数器已重置")
                         else:
