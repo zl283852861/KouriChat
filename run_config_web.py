@@ -136,7 +136,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             "基础配置": {},
             "图像识别API配置": {},
             "图像生成配置": {},
-            "时间配置": {},
+            "主动消息配置": {},
             "语音配置": {},
             "Prompt配置": {},
         }
@@ -208,8 +208,8 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             }
         )
 
-        # 时间配置
-        config_groups["时间配置"].update(
+        # 主动消息配置
+        config_groups["主动消息配置"].update(
             {
                 "AUTO_MESSAGE": {
                     "value": config.behavior.auto_message.content,
@@ -2094,24 +2094,24 @@ def get_all_configs():
             if 'behavior_settings' in config_data['categories'] and 'settings' in config_data['categories']['behavior_settings']:
                 behavior = config_data['categories']['behavior_settings']['settings']
                 
-                # 时间配置
-                configs['时间配置'] = {}
+                # 主动消息配置
+                configs['主动消息配置'] = {}
                 if 'auto_message' in behavior:
                     auto_msg = behavior['auto_message']
                     if 'content' in auto_msg:
-                        configs['时间配置']['AUTO_MESSAGE'] = {'value': auto_msg['content'].get('value', '')}
+                        configs['主动消息配置']['AUTO_MESSAGE'] = {'value': auto_msg['content'].get('value', '')}
                     if 'countdown' in auto_msg:
                         if 'min_hours' in auto_msg['countdown']:
-                            configs['时间配置']['MIN_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['min_hours'].get('value', 1)}
+                            configs['主动消息配置']['MIN_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['min_hours'].get('value', 1)}
                         if 'max_hours' in auto_msg['countdown']:
-                            configs['时间配置']['MAX_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['max_hours'].get('value', 3)}
+                            configs['主动消息配置']['MAX_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['max_hours'].get('value', 3)}
                 
                 if 'quiet_time' in behavior:
                     quiet = behavior['quiet_time']
                     if 'start' in quiet:
-                        configs['时间配置']['QUIET_TIME_START'] = {'value': quiet['start'].get('value', '')}
+                        configs['主动消息配置']['QUIET_TIME_START'] = {'value': quiet['start'].get('value', '')}
                     if 'end' in quiet:
-                        configs['时间配置']['QUIET_TIME_END'] = {'value': quiet['end'].get('value', '')}
+                        configs['主动消息配置']['QUIET_TIME_END'] = {'value': quiet['end'].get('value', '')}
                 
                 # Prompt配置
                 configs['Prompt配置'] = {}
