@@ -265,7 +265,7 @@ class MessageHandler:
             logger.info(think_content.strip())
             logger.info(reply.strip())
         else:
-            logger.info("\nAI回复:") # 修改此处
+            logger.info("\nAI回复:") 
             logger.info(reply) 
 
         if is_group:
