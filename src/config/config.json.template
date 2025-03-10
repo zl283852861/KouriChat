@@ -27,7 +27,7 @@
                     "description": "DeepSeek API基础URL"
                 },
                 "model": {
-                    "value": "Pro/deepseek-ai/DeepSeek-V3",
+                    "value": "deepseek-ai/DeepSeek-V3",
                     "type": "string",
                     "description": "使用的AI模型名称",
                     "options": [
@@ -164,4 +164,4 @@
             }
         }
     }
-} 
+}

@@ -57,18 +57,18 @@ class ChatBot:
         self.moonshot_ai = moonshot_ai
         self.user_queues = {}  # 将user_queues移到类的实例变量
         self.queue_lock = threading.Lock()  # 将queue_lock也移到类的实例变量
+        self.ai_last_reply_time = {}  # 新增：记录 AI 最后回复的时间
         # self.unanswered_counters = {}  # 新增：每个用户的未回复计数器, 移动到MessageHandler
 
         # 获取机器人的微信名称
         self.wx = WeChat()
         self.robot_name = self.wx.A_MyIcon.Name  # 移除括号，直接访问Name属性
-        logger.info(f"机器人名称: {self.robot_name}")
+        # logger.info(f"机器人名称: {self.robot_name}")
 
     def process_user_messages(self, chat_id):
         """处理用户消息队列"""
         try:
             logger.info(f"开始处理消息队列 - 聊天ID: {chat_id}")
-
             with self.queue_lock:
                 if chat_id not in self.user_queues:
                     logger.warning(f"未找到消息队列: {chat_id}")
@@ -79,21 +79,16 @@ class ChatBot:
                 username = user_data['username']
                 is_group = user_data.get('is_group', False)
 
-            logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
-            # logger.info(f"消息内容: {messages}") # 移除重复的日志
+            logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)-1}, 是否群聊: {is_group}")
 
             # 合并消息内容
-            # 检查是否包含图片识别结果
             is_image_recognition = any("发送了图片：" in msg or "发送了表情包：" in msg for msg in messages)
-
             if len(messages) > 1:
-                # 第一条消息已经包含时间戳（由handle_wxauto_message保证）
-                # 直接合并所有消息，不需要额外处理
                 content = "\n".join(messages)
             else:
                 content = messages[0]
 
-            # 直接调用MessageHandler的handle_user_message方法
+            # 直接调用 MessageHandler 的 handle_user_message 方法
             self.message_handler.handle_user_message(
                 content=content,
                 chat_id=chat_id,
@@ -104,11 +99,19 @@ class ChatBot:
             )
             logger.info(f"消息已处理 - 聊天ID: {chat_id}")
 
-            # 处理完用户消息后，重置计数器
+            # 记录 AI 最后回复的时间
+            self.ai_last_reply_time[username] = time.time()
+
+            # 处理完用户消息后，检查是否需要重置计数器
             with self.queue_lock:
                 if username in self.message_handler.unanswered_counters:
-                    self.message_handler.unanswered_counters[username] = 0
-                    logger.info(f"用户 {username} 的未回复计数器已重置")
+                    if username in self.ai_last_reply_time:
+                        elapsed_time = time.time() - self.ai_last_reply_time[username]
+                        if elapsed_time <= 30 * 60:  # 检查是否在 30 分钟内
+                            self.message_handler.unanswered_counters[username] = 0
+                            logger.info(f"用户 {username} 的未回复计数器已重置")
+                        else:
+                            logger.info(f"用户 {username} 在 5 分钟后回复，计数器不重置")
 
         except Exception as e:
             logger.error(f"处理消息队列失败: {str(e)}", exc_info=True)
@@ -199,17 +202,17 @@ class ChatBot:
                     # 启动或取消未回复消息计时器
                     if username in self.message_handler.unanswered_timers:
                         self.message_handler.unanswered_timers[username].cancel()
-                        logger.info(f"取消用户 {username} 的未回复计时器")
+                        #logger.info(f"取消用户 {username} 的未回复计时器")
 
-                    # 5分钟后增加未回复计数器
+                    # 30分钟后增加未回复计数
                     def increase_counter_after_delay(username):
                         with self.queue_lock:
                             self.message_handler.increase_unanswered_counter(username)
 
-                    timer = threading.Timer(300.0, increase_counter_after_delay, args=[username])
+                    timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
                     timer.start()
                     self.message_handler.unanswered_timers[username] = timer
-                    logger.info(f"为用户 {username} 启动未回复计时器")
+                    #logger.info(f"为用户 {username} 启动未回复计时器")
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
@@ -328,7 +331,19 @@ def auto_send_message():
         if user_id not in chat_bot.unanswered_counters:
             chat_bot.unanswered_counters[user_id] = 0
         chat_bot.unanswered_counters[user_id] += 1
-        reply_content = f"{config.behavior.auto_message.content} (未回复消息计数变化: +1)"
+
+        # 获取上下文内容
+        memories = chat_bot.memory_handler.get_relevant_memories(f"与{user_id}的最近对话")
+        if memories:
+            # 根据上下文生成个性化消息
+            reply_content = chat_bot.smart_message_generator.generate_smart_message(
+                config.behavior.auto_message.content, 
+                user_id
+            )
+        else:
+            # 默认消息
+            reply_content = f"{config.behavior.auto_message.content} (未回复消息计数变化: +1)"
+
         logger.info(f"自动发送消息到 {user_id}: {reply_content}")
         try:
             message_handler.add_to_queue(
@@ -638,7 +653,7 @@ def main():
         print_status("正在关闭系统...", "warning", "STOP")
         print_status("系统已退出", "info", "BYE")
         print("\n")
-
+#
 if __name__ == '__main__':
     try:
         main()

@@ -4,7 +4,7 @@ import random
 from typing import List
 from datetime import datetime
 from src.services.ai.llm_service import LLMService
-from textblob import TextBlob
+import jieba
 
 logger = logging.getLogger('main')
 
@@ -26,7 +26,6 @@ class MemoryHandler:
         self.memory_dir = os.path.join(root_dir, "data", "memory")
         self.short_memory_path = os.path.join(self.memory_dir, "short_memory.txt")
         self.long_memory_buffer_path = os.path.join(self.memory_dir, "long_memory_buffer.txt")
-        self.high_priority_memory_path = os.path.join(self.memory_dir, "high_priority_memory.txt") # 新增
         self.api_key = api_key
         self.base_url = base_url
         self.max_token = max_token
@@ -34,36 +33,16 @@ class MemoryHandler:
         self.max_groups = max_groups
         self.model = model
 
-        # 新增记忆层
-        self.memory_layers = {
-            'working': os.path.join(self.memory_dir, "working_memory.txt")
-        }
 
         # 初始化文件和目录
         os.makedirs(self.memory_dir, exist_ok=True)
         self._init_files()
 
-        # 新增：情感权重
-        self.emotion_weights = {
-            'neutral': 1,
-            'happy': 2,
-            'sad': 2,
-            'anger': 3,  # 愤怒情绪权重更高
-            'surprise': 2,
-            'fear': 2,
-            'disgust': 2,
-        }
-
-        # 新增： 消息重复计数
-        self.memory_counts = {}
-
     def _init_files(self):
         """初始化所有记忆文件"""
         files_to_check = [
             self.short_memory_path,
-            self.long_memory_buffer_path,
-            self.high_priority_memory_path, # 新增
-            *self.memory_layers.values()
+            self.long_memory_buffer_path
         ]
         for f in files_to_check:
             if not os.path.exists(f):
@@ -85,63 +64,99 @@ class MemoryHandler:
         """添加短期记忆（兼容原有调用）"""
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         try:
-            logger.debug(f"开始写入短期记忆文件: {self.short_memory_path}")
+            # 新增情感标记
+            emotion = self._detect_emotion(message)
+            logger.debug(f"开始写入短期记忆文件: {self.short_memory_path},emotion:{emotion}")
             with open(self.short_memory_path, "a", encoding="utf-8") as f:
                 f.write(f"[{timestamp}] 用户: {message}\n")
                 f.write(f"[{timestamp}] bot: {reply}\n\n")
             logger.info(f"成功写入短期记忆: 用户 - {message}, bot - {reply}")
         except Exception as e:
-            logger.error(f"写入短期记忆文件失败: {str(e)}", exc_info=True)
+            logger.error(f"写入短期记忆文件失败: {str(e)}")
 
-        # 检查是否包含关键词, 并获取情感
-        emotion = self._detect_emotion(message)
-        if any(keyword in message for keyword in KEYWORDS) or emotion != 'neutral':
-            self._add_high_priority_memory(message, emotion) # 传入 emotion
+        # 检查是否包含关键词
+        if any(keyword in message for keyword in KEYWORDS):
+            self._add_high_priority_memory(message)
 
-        # 增加消息的重复计数 (这里为了简化，直接使用原消息作为 key)
-        if message in self.memory_counts:
-            self.memory_counts[message] += 1
-        else:
-            self.memory_counts[message] = 1
-        logger.info(f"消息 '{message}' 的重复计数: {self.memory_counts[message]}")
-
-    def _add_high_priority_memory(self, message: str, emotion: str): # 修改
+    def _add_high_priority_memory(self, message: str):
         """添加高优先级记忆"""
         try:
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             high_priority_path = os.path.join(self.memory_dir, "high_priority_memory.txt")
-            logger.info(f"开始写入高优先级记忆文件: {high_priority_path}")
+            logger.debug(f"开始写入高优先级记忆文件: {high_priority_path}")
             with open(high_priority_path, 'a', encoding='utf-8') as f:
-                f.write(f"[{timestamp}] 情感: {emotion}, 消息: {message}\n") # 写入情感
+                f.write(f"[{timestamp}] 高优先级: {message}\n")
             logger.info(f"成功写入高优先级记忆: {message}")
         except Exception as e:
-            logger.error(f"写入高优先级记忆文件失败: {str(e)}", exc_info=True)
+            logger.error(f"写入高优先级记忆文件失败: {str(e)}")
 
-    def _detect_emotion(self, text: str) -> str: # 新增
-        """情感分析"""
-        # 这里只是简单示例, 实际应用中需要更强大的情感分析模型
-        analysis = TextBlob(text)
-        # 使用 TextBlob 的情感极性 (polarity) 和主观性 (subjectivity)
-        polarity = analysis.sentiment.polarity
-        subjectivity = analysis.sentiment.subjectivity
+    def _detect_emotion(self, text: str) -> str:
+        """基于词典的情感分析"""
 
-        # 根据极性和主观性判断情感
-        if polarity > 0.5 and subjectivity > 0.5:
+        # 加载情感词典
+        positive_words = self._load_wordlist('src/handlers/emodata/正面情绪词.txt')
+        negative_words = self._load_wordlist('src/handlers/emodata/负面情绪词.txt')
+        negation_words = self._load_wordlist('src/handlers/emodata/否定词表.txt')
+        degree_words = self._load_wordlist('src/handlers/emodata/程度副词.txt')
+
+        # 修正程度副词
+        degree_dict = {}
+        for word in degree_words:
+            parts = word.strip().split(',')  # 假设格式为 "词语,权重"
+            if len(parts) == 2:
+                degree_dict[parts[0].strip()] = float(parts[1].strip())
+
+        # 分词
+        words = list(jieba.cut(text))
+
+        # 情感计算
+        score = 0
+        negation_count = 0  # 否定词计数
+        for i, word in enumerate(words):
+            if word in positive_words:
+                # 考虑程度副词
+                degree = 1.0
+                for j in range(i - 1, max(-1, i - 4), -1):  # 向前查找最多3个词
+                    if words[j] in degree_dict:
+                        degree *= degree_dict[words[j]]
+                        break
+                # 考虑否定词
+                if negation_count % 2 == 1:
+                    degree *= -1.0
+                score += degree
+
+            elif word in negative_words:
+                degree = 1.0
+                for j in range(i - 1, max(-1, i - 4), -1):
+                    if words[j] in degree_dict:
+                        degree *= degree_dict[words[j]]
+                        break
+
+                if negation_count % 2 == 1:
+                    degree *= -1.0
+                score -= degree
+
+            elif word in negation_words:
+                negation_count += 1
+
+        # 情感分类
+        if score > 0.5:
             return 'happy'
-        elif polarity > 0 and subjectivity > 0.5:
-            return 'happy'
-        elif polarity < -0.5 and subjectivity > 0.5:
-            return 'anger'  # 强烈的负面情感
-        elif polarity < 0 and subjectivity > 0.5:
-            return 'sad'
-        elif -0.5 <= polarity <= 0.5 and subjectivity > 0.5:
-            return 'surprise'
-        elif polarity < -0.3 and subjectivity < 0.5:  # 区分 fear 和 disgust
-            return 'fear'
-        elif polarity < 0 and subjectivity < 0.5:
-            return 'disgust'
-        else:
+        elif score < -0.5:
+            return 'anger'  # 负面情绪比较强烈
+        elif -0.5 <= score <= 0.5:
             return 'neutral'
+        else:
+            return 'sad'  # 负面情绪
+
+    def _load_wordlist(self, filepath: str) -> List[str]:
+        """加载词表文件"""
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                return [line.strip() for line in f if line.strip()]
+        except Exception as e:
+            logger.error(f"加载词表文件失败: {filepath} - {str(e)}")
+            return []
 
     def summarize_memories(self):
         """总结短期记忆到长期记忆（保持原有逻辑）"""
@@ -158,19 +173,10 @@ class MemoryHandler:
             while retries < max_retries:
                 try:
                     deepseek = self._get_deepseek_client()
-                    # 优化提示，更明确地指示LLM考虑情感和重复
-                    prompt = (
-                        "请将以下对话记录总结为最重要的几条长期记忆，总结内容应包含地点，事件，人物（如果对话记录中有的话）用中文简要表述。\n"
-                        "注意：请特别关注以下几点：\n"
-                        "1. 具有强烈情感的消息（如愤怒、高兴）应优先考虑。\n"
-                        "2. 被多次提及的消息应优先考虑。\n"
-                        "3. 包含关键词（如 '记住'、'别忘了' 等）的消息应优先考虑。\n\n"
-                        "对话记录：\n" + "".join(lines[-30:])
-                    )
                     summary = deepseek.get_response(
-                        message=prompt,
+                        message="".join(lines[-30:]),
                         user_id="system",
-                        system_prompt="总结以下对话："  # 可以保留之前的 system_prompt
+                        system_prompt="请将以下对话记录总结为最重要的几条长期记忆，总结内容应包含地点，事件，人物（如果对话记录中有的话）用中文简要表述："
                     )
                     logger.debug(f"总结结果:\n{summary}")
 
@@ -194,7 +200,7 @@ class MemoryHandler:
                             f.write(summary + "\n\n")
                         logger.info(f"成功将总结结果写入长期记忆缓冲区: {summary}")
                     except Exception as e:
-                        logger.error(f"写入长期记忆缓冲区文件失败: {str(e)}", exc_info=True)
+                        logger.error(f"写入长期记忆缓冲区文件失败: {str(e)}")
 
                     # 清空短期记忆
                     try:
@@ -202,7 +208,7 @@ class MemoryHandler:
                         open(self.short_memory_path, "w").close()
                         logger.info("记忆总结完成，已写入长期记忆缓冲区，短期记忆已清空")
                     except Exception as e:
-                        logger.error(f"清空短期记忆文件失败: {str(e)}", exc_info=True)
+                        logger.error(f"清空短期记忆文件失败: {str(e)}")
                     break  # 成功后退出循环
 
                 except Exception as e:
@@ -214,6 +220,20 @@ class MemoryHandler:
 
     def get_relevant_memories(self, query: str) -> List[str]:
         """获取相关记忆（增加调试日志）"""
+        # 检查高优先级记忆文件是否存在
+        high_priority_path = os.path.join(self.memory_dir, "high_priority_memory.txt")
+        high_priority_memories = []
+        
+        # 尝试读取高优先级记忆
+        if os.path.exists(high_priority_path):
+            try:
+                with open(high_priority_path, "r", encoding="utf-8") as f:
+                    high_priority_memories = [line.strip() for line in f if line.strip()]
+                logger.debug(f"高优先级记忆数量: {len(high_priority_memories)}")
+            except Exception as e:
+                logger.error(f"读取高优先级记忆文件失败: {str(e)}")
+        
+        # 检查长期记忆缓冲区是否存在
         if not os.path.exists(self.long_memory_buffer_path):
             logger.warning("长期记忆缓冲区不存在，尝试创建...")
             try:
@@ -221,6 +241,13 @@ class MemoryHandler:
                     logger.info("长期记忆缓冲区文件已创建。")
             except Exception as e:
                 logger.error(f"创建长期记忆缓冲区文件失败: {str(e)}")
+                # 如果有高优先级记忆，仍然返回
+                if high_priority_memories:
+                    # 筛选与查询相关的高优先级记忆
+                    relevant_high_priority = self._filter_relevant_memories(high_priority_memories, query)
+                    if relevant_high_priority:
+                        logger.info(f"返回 {len(relevant_high_priority)} 条高优先级相关记忆")
+                        return relevant_high_priority
                 return []
 
         # 调试：打印文件路径
@@ -229,25 +256,45 @@ class MemoryHandler:
         max_retries = 3  # 设置最大重试次数
         for retry_count in range(max_retries):
             try:
+                # 读取长期记忆
                 with open(self.long_memory_buffer_path, "r", encoding="utf-8") as f:
-                    memories = [line.strip() for line in f if line.strip()]
+                    long_memories = [line.strip() for line in f if line.strip()]
 
                 # 调试：打印文件内容
-                logger.debug(f"长期记忆缓冲区条目数: {len(memories)}")
+                logger.debug(f"长期记忆缓冲区内容数量: {len(long_memories)}")
 
-                if not memories:
-                    logger.debug("长期记忆缓冲区为空")
+                # 如果没有任何记忆，但有高优先级记忆，则返回高优先级记忆
+                if not long_memories and not high_priority_memories:
+                    logger.debug("所有记忆缓冲区为空")
                     return []
-
+                
+                # 构建优先级记忆列表
+                # 1. 高优先级记忆（权重最高）
+                # 2. 长期记忆（权重中等）
+                prioritized_memories = []
+                
+                # 筛选与查询相关的高优先级记忆
+                if high_priority_memories:
+                    relevant_high_priority = self._filter_relevant_memories(high_priority_memories, query)
+                    if relevant_high_priority:
+                        prioritized_memories.extend(relevant_high_priority)
+                        logger.info(f"添加了 {len(relevant_high_priority)} 条高优先级相关记忆")
+                
+                # 如果已经有足够的高优先级记忆，可以直接返回
+                if len(prioritized_memories) >= 3:
+                    logger.info("高优先级记忆足够，直接返回")
+                    return prioritized_memories[:3]  # 最多返回3条
+                
+                # 否则，继续获取长期记忆
                 deepseek = self._get_deepseek_client()
                 response = deepseek.get_response(
-                    message="\n".join(memories[-20:]),
+                    message="\n".join(long_memories[-20:]),
                     user_id="retrieval",
-                    system_prompt=f"请从以下记忆中找到与'{query}'最相关的条目，按相关性排序返回最多3条:"
+                    system_prompt=f"请从以下记忆中找到与'{query}'最相关的条目，按相关性排序返回最多{3 - len(prioritized_memories)}条:"
                 )
 
                 # 调试：打印模型响应
-                logger.debug(f"模型返回相关记忆条数: {len(response.splitlines())}")
+                logger.debug(f"模型响应: {response}")
 
                 # 检查是否需要重试
                 retry_sentences = [
@@ -261,10 +308,18 @@ class MemoryHandler:
                         continue  # 重试
                     else:
                         logger.error(f"达到最大重试次数：最后一次响应为 {response}")
+                        # 如果有高优先级记忆，仍然返回
+                        if prioritized_memories:
+                            return prioritized_memories
                         return []
                 else:
-                    # 返回处理后的响应
-                    return [line.strip() for line in response.split("\n") if line.strip()]
+                    # 处理响应并添加到优先级记忆列表
+                    long_memory_results = [line.strip() for line in response.split("\n") if line.strip()]
+                    prioritized_memories.extend(long_memory_results)
+                    
+                    # 返回最终的优先级记忆列表
+                    logger.info(f"返回总计 {len(prioritized_memories)} 条优先级记忆")
+                    return prioritized_memories
 
             except Exception as e:
                 logger.error(f"第 {retry_count + 1} 次尝试失败: {str(e)}")
@@ -272,10 +327,42 @@ class MemoryHandler:
                     continue
                 else:
                     logger.error(f"达到最大重试次数: {str(e)}")
-                return []
+                    # 如果有高优先级记忆，仍然返回
+                    if prioritized_memories:
+                        return prioritized_memories
+                    return []
 
+        # 如果所有重试都失败，但有高优先级记忆，仍然返回
+        if high_priority_memories:
+            relevant_high_priority = self._filter_relevant_memories(high_priority_memories, query)
+            if relevant_high_priority:
+                return relevant_high_priority[:3]  # 最多返回3条
         return []
 
+    def _filter_relevant_memories(self, memories: List[str], query: str) -> List[str]:
+        """根据查询筛选相关记忆"""
+        # 简单实现：检查记忆中是否包含查询中的关键词
+        # 实际应用中可以使用更复杂的相关性算法
+        query_words = set(jieba.cut(query))
+        relevant_memories = []
+        
+        for memory in memories:
+            # 去除时间戳和标签
+            if '] 高优先级: ' in memory:
+                memory_content = memory.split('] 高优先级: ', 1)[1]
+            else:
+                memory_content = memory
+                
+            # 计算相关性分数
+            memory_words = set(jieba.cut(memory_content))
+            common_words = query_words.intersection(memory_words)
+            
+            # 如果有共同词或者查询词在记忆中，认为相关
+            if common_words or any(word in memory_content for word in query_words):
+                relevant_memories.append(memory_content)
+                
+        return relevant_memories[:3]  # 最多返回3条
+        
     def maintain_memories(self, max_entries=100):
         """记忆文件维护"""
         # 长期记忆轮替
@@ -291,3 +378,18 @@ class MemoryHandler:
                 logger.info("已完成长期记忆维护")
             except Exception as e:
                 logger.error(f"长期记忆维护失败: {str(e)}", exc_info=True)
+                
+        # 高优先级记忆维护
+        high_priority_path = os.path.join(self.memory_dir, "high_priority_memory.txt")
+        if os.path.exists(high_priority_path) and os.path.getsize(high_priority_path) > 512 * 1024:  # 512KB
+            try:
+                logger.debug(f"开始维护高优先级记忆文件: {high_priority_path}")
+                with open(high_priority_path, 'r+', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    keep_lines = lines[-max_entries:]  # 保留最后N条
+                    f.seek(0)
+                    f.writelines(keep_lines)
+                    f.truncate()
+                logger.info("已完成高优先级记忆维护")
+            except Exception as e:
+                logger.error(f"高优先级记忆维护失败: {str(e)}", exc_info=True)

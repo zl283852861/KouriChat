@@ -385,8 +385,13 @@
             <!-- 左侧基础配置 -->
             <div class="col-md-6 pe-md-2">
                 <div class="config-section h-100">
-                    <h4 class="mb-4">
-                        <i class="bi bi-gear-fill me-2"></i>基础配置
+                    <h4 class="mb-4 d-flex justify-content-between align-items-center">
+                        <div>
+                            <i class="bi bi-gear-fill me-2"></i>基础配置
+                        </div>
+                        <button type="button" class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#historyConfigModal">
+                            <i class="bi bi-clock-history me-2"></i>历史配置
+                        </button>
                     </h4>
                     <form id="configForm">
                         {% for group_name, configs in config_groups.items() %}
@@ -453,8 +458,7 @@
                                 <h2 class="accordion-header">
                                     <button class="accordion-button collapsed" type="button" 
                                             data-bs-toggle="collapse" 
-                                            data-bs-target="#schedule-settings"
-                                            style="color: rgb(0, 0, 0); ">
+                                            data-bs-target="#schedule-settings">
                                         定时任务配置
                                     </button>
                                 </h2>
@@ -668,6 +672,32 @@
         </div>
     </div>
 
+    <!-- 添加历史配置模态框 -->
+    <div class="modal fade" id="historyConfigModal" tabindex="-1" aria-labelledby="historyConfigModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="historyConfigModalLabel">
+                        <i class="bi bi-clock-history me-2"></i>历史配置
+                    </h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="list-group" id="historyConfigList">
+                        <!-- 历史配置列表将通过JavaScript动态填充 -->
+                        <div class="text-center text-muted p-4">
+                            <i class="bi bi-inbox fs-2"></i>
+                            <p class="mt-2">暂无历史配置记录</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- 在页面中添加隐藏的配置数据 -->
     <script id="config_data" type="application/json">
         {{ config_json|safe }}
@@ -794,6 +824,14 @@
                     }
                 })
                 .catch(error => console.error('Error:', error));
+
+            // 添加到现有的DOMContentLoaded事件处理程序中
+            updateHistoryConfigList();
+            
+            // 为历史配置模态框添加显示事件
+            document.getElementById('historyConfigModal').addEventListener('show.bs.modal', function() {
+                updateHistoryConfigList();
+            });
         });
 
         // 更新所有配置项的函数
@@ -851,7 +889,260 @@
             }
         }
 
-        // 保存配置的函数
+        // 修改保存配置到cookie的函数
+        function saveConfigToCookie(config) {
+            // 提取需要保存的关键配置
+            const keyConfigs = {
+                timestamp: new Date().toISOString(),
+                LISTEN_LIST: config.LISTEN_LIST || [],
+                DEEPSEEK_API_KEY: config.DEEPSEEK_API_KEY || '',
+                DEEPSEEK_BASE_URL: config.DEEPSEEK_BASE_URL || '',
+                MODEL: config.MODEL || '',
+                MOONSHOT_API_KEY: config.MOONSHOT_API_KEY || ''
+            };
+            
+            // 检查是否有有效数据
+            const hasValidData = 
+                (keyConfigs.LISTEN_LIST && keyConfigs.LISTEN_LIST.length > 0) || 
+                keyConfigs.DEEPSEEK_API_KEY || 
+                keyConfigs.DEEPSEEK_BASE_URL ||
+                keyConfigs.MODEL || 
+                keyConfigs.MOONSHOT_API_KEY;
+            
+            if (!hasValidData) {
+                console.log('没有有效数据，不保存到cookie');
+                return;
+            }
+            
+            // 获取现有的历史配置
+            let historyConfigs = getCookieConfigs();
+            
+            // 检查是否已存在相同配置
+            const isDuplicate = historyConfigs.some(item => 
+                JSON.stringify([
+                    item.LISTEN_LIST, 
+                    item.DEEPSEEK_API_KEY, 
+                    item.DEEPSEEK_BASE_URL,
+                    item.MODEL, 
+                    item.MOONSHOT_API_KEY
+                ]) === 
+                JSON.stringify([
+                    keyConfigs.LISTEN_LIST, 
+                    keyConfigs.DEEPSEEK_API_KEY, 
+                    keyConfigs.DEEPSEEK_BASE_URL,
+                    keyConfigs.MODEL, 
+                    keyConfigs.MOONSHOT_API_KEY
+                ])
+            );
+            
+            if (isDuplicate) {
+                console.log('配置已存在，不重复保存');
+                return;
+            }
+            
+            // 限制历史记录数量为10条
+            if (historyConfigs.length >= 10) {
+                historyConfigs.pop(); // 移除最旧的配置
+            }
+            
+            // 添加新配置到历史记录开头
+            historyConfigs.unshift(keyConfigs);
+            
+            // 保存到cookie，有效期30天
+            const expiryDate = new Date();
+            expiryDate.setDate(expiryDate.getDate() + 30);
+            document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+            
+            // 更新历史配置列表显示
+            updateHistoryConfigList();
+        }
+
+        // 从cookie获取历史配置
+        function getCookieConfigs() {
+            const cookieValue = document.cookie
+                .split('; ')
+                .find(row => row.startsWith('historyConfigs='));
+            
+            if (cookieValue) {
+                try {
+                    return JSON.parse(cookieValue.split('=')[1]);
+                } catch (e) {
+                    console.error('解析历史配置失败:', e);
+                    return [];
+                }
+            }
+            
+            return [];
+        }
+
+        // 修改历史配置列表显示函数，添加更多信息显示
+        function updateHistoryConfigList() {
+            const historyConfigs = getCookieConfigs();
+            const container = document.getElementById('historyConfigList');
+            
+            if (!container) return;
+            
+            if (historyConfigs.length === 0) {
+                container.innerHTML = `
+                    <div class="text-center text-muted p-4">
+                        <i class="bi bi-inbox fs-2"></i>
+                        <p class="mt-2">暂无历史配置记录</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            container.innerHTML = historyConfigs.map((config, index) => {
+                const date = new Date(config.timestamp);
+                const formattedDate = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+                
+                return `
+                    <div class="list-group-item">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div class="me-auto">
+                                <div class="d-flex align-items-center mb-1">
+                                    <span class="badge bg-primary me-2">配置 #${index + 1}</span>
+                                    <small class="text-muted">${formattedDate}</small>
+                                </div>
+                                <div class="mb-1">监听用户: ${config.LISTEN_LIST.join(', ') || '无'}</div>
+                                <div class="mb-1">AI模型: ${config.MODEL || '未设置'}</div>
+                                <div class="mb-1">API Base URL: ${config.DEEPSEEK_BASE_URL || '未设置'}</div>
+                                <div class="mb-1">API密钥: ${config.DEEPSEEK_API_KEY ? '已设置' : '未设置'}</div>
+                                <div class="mb-1">Moonshot密钥: ${config.MOONSHOT_API_KEY ? '已设置' : '未设置'}</div>
+                            </div>
+                            <div>
+                                <button class="btn btn-danger btn-sm me-2" onclick="deleteHistoryConfig(${index})">
+                                    <i class="bi bi-trash me-1"></i>删除
+                                </button>
+                                <button class="btn btn-primary btn-sm" onclick="applyHistoryConfig(${index})">
+                                    <i class="bi bi-arrow-clockwise me-1"></i>应用
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // 修改应用历史配置函数
+        function applyHistoryConfig(index) {
+            const historyConfigs = getCookieConfigs();
+            if (index >= historyConfigs.length) return;
+            
+            const config = historyConfigs[index];
+            
+            // 应用监听用户列表
+            if (config.LISTEN_LIST && Array.isArray(config.LISTEN_LIST)) {
+                const userListElement = document.getElementById('selected_users_LISTEN_LIST');
+                const listenListInput = document.getElementById('LISTEN_LIST');
+                
+                if (userListElement && listenListInput) {
+                    // 清空现有用户
+                    userListElement.innerHTML = '';
+                    
+                    // 添加历史用户
+                    config.LISTEN_LIST.forEach(user => {
+                        if (user) {
+                            const userDiv = document.createElement('div');
+                            userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                            userDiv.innerHTML = `
+                                ${user}
+                                <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('LISTEN_LIST', '${user}')">
+                                    <i class="bi bi-x-lg"></i>
+                                </button>
+                            `;
+                            userListElement.appendChild(userDiv);
+                        }
+                    });
+                    
+                    // 更新隐藏输入框
+                    listenListInput.value = config.LISTEN_LIST.join(',');
+                }
+            }
+            
+            // 应用DeepSeek API密钥
+            if (config.DEEPSEEK_API_KEY) {
+                const apiKeyInput = document.getElementById('DEEPSEEK_API_KEY') || 
+                                   document.querySelector('input[name="DEEPSEEK_API_KEY"]');
+                if (apiKeyInput) {
+                    apiKeyInput.value = config.DEEPSEEK_API_KEY;
+                }
+            }
+            
+            // 应用DeepSeek Base URL
+            if (config.DEEPSEEK_BASE_URL) {
+                const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
+                const apiProviderSelect = document.getElementById('api_provider_select');
+                const customApiInput = document.getElementById('customApiInput');
+                
+                if (baseUrlInput && apiProviderSelect) {
+                    baseUrlInput.value = config.DEEPSEEK_BASE_URL;
+                    
+                    // 检查是否是预定义的URL
+                    const matchingOption = Array.from(apiProviderSelect.options).find(opt => {
+                        return opt.dataset.url === config.DEEPSEEK_BASE_URL;
+                    });
+                    
+                    if (matchingOption) {
+                        apiProviderSelect.value = matchingOption.value;
+                        if (customApiInput) {
+                            customApiInput.style.display = 'none';
+                        }
+                    } else {
+                        apiProviderSelect.value = 'custom';
+                        if (customApiInput) {
+                            customApiInput.style.display = 'block';
+                            const input = customApiInput.querySelector('input');
+                            if (input) {
+                                input.value = config.DEEPSEEK_BASE_URL;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 应用模型
+            if (config.MODEL) {
+                const modelInput = document.getElementById('MODEL');
+                const modelSelect = document.getElementById('model_select');
+                if (modelInput) {
+                    modelInput.value = config.MODEL;
+                    if (modelSelect) {
+                        modelSelect.value = config.MODEL;
+                        if (!Array.from(modelSelect.options).some(opt => opt.value === config.MODEL)) {
+                            modelSelect.value = 'custom';
+                            const customModelInput = document.getElementById('customModelInput');
+                            if (customModelInput) {
+                                customModelInput.style.display = 'block';
+                                const input = customModelInput.querySelector('input');
+                                if (input) input.value = config.MODEL;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // 应用Moonshot API密钥
+            if (config.MOONSHOT_API_KEY) {
+                const imgApiKeyInput = document.getElementById('MOONSHOT_API_KEY') || 
+                                      document.querySelector('input[name="MOONSHOT_API_KEY"]');
+                if (imgApiKeyInput) {
+                    imgApiKeyInput.value = config.MOONSHOT_API_KEY;
+                }
+            }
+            
+            // 关闭模态框
+            const modal = bootstrap.Modal.getInstance(document.getElementById('historyConfigModal'));
+            if (modal) modal.hide();
+            
+            // 显示提示
+            showSaveNotification('已应用历史配置，请点击保存按钮保存更改');
+            
+            // 更新任务对话框中的发送对象选项
+            updateTaskChatIdOptions();
+        }
+
+        // 修改保存配置的函数，添加保存到cookie的功能
         function saveConfig(config) {
             // 发送保存请求
             fetch('/save', {
@@ -864,13 +1155,12 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
+                    // 保存成功后，将配置保存到cookie
+                    saveConfigToCookie(config);
                     showSaveNotification(data.message);
                 } else {
                     showSaveNotification(data.message, 'error');
                 }
-            })
-            .catch(error => {
-                showSaveNotification('保存失败：' + error, 'error');
             });
         }
 
@@ -1145,7 +1435,6 @@
             
             // 更新隐藏输入框的值
             document.getElementById('TASKS').value = JSON.stringify(tasks);
-            console.log('更新后的任务数据:', document.getElementById('TASKS').value);
             
             // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.getElementById('addTaskModal'));
@@ -1239,6 +1528,28 @@
             } else {
                 cronInput.style.display = 'none';
                 intervalInput.style.display = 'block';
+            }
+        }
+
+        // 添加删除历史配置的函数
+        function deleteHistoryConfig(index) {
+            // 获取现有的历史配置
+            let historyConfigs = getCookieConfigs();
+            
+            if (index >= 0 && index < historyConfigs.length) {
+                // 删除指定索引的配置
+                historyConfigs.splice(index, 1);
+                
+                // 更新cookie
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + 30);
+                document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+                
+                // 更新显示
+                updateHistoryConfigList();
+                
+                // 显示提示
+                showSaveNotification('历史配置已删除');
             }
         }
     </script>

@@ -39,10 +39,16 @@
                         <i class="bi bi-moon-stars me-1"></i>护眼模式
                     </label>
                 </div>
+                
+                <!-- 添加微信登录按钮 -->
+                <button class="btn btn-wechat me-3" onclick="handleWechatLogin()">
+                    <i class="bi bi-wechat me-1"></i>微信重连
+                </button>
+                
                 <div>
                     <label for="backgroundInput" class="d-none">选择背景图片</label>
                     <input type="file" class="d-none" id="backgroundInput" accept="image/*">
-                    <button class="btn btn-outline-primary" type="button" onclick="handleBackgroundClick()">
+                    <button class="btn btn-primary" type="button" onclick="handleBackgroundClick()">
                         <i class="bi bi-image me-2"></i>更换背景
                     </button>
                 </div>
@@ -104,6 +110,25 @@ document.getElementById('backgroundInput').addEventListener('change', function(e
         });
     }
 });
+
+// 添加微信登录处理函数
+function handleWechatLogin() {
+    // 调用 Wechat_Login_Clicker.py 的功能
+    fetch('/click_wechat_buttons', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.status === 'success') {
+            showToast('微信登录操作已执行', 'success');
+        } else {
+            showToast(data.message || '操作失败', 'error');
+        }
+    })
+    .catch(error => {
+        showToast('操作失败：' + error, 'error');
+    });
+}
 </script>
 
 <style>
@@ -116,6 +141,8 @@ document.getElementById('backgroundInput').addEventListener('change', function(e
 .nav-item {
     position: relative;
     transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
 }
 
 .nav-item::after {
@@ -136,6 +163,11 @@ document.getElementById('backgroundInput').addEventListener('change', function(e
 
 .nav-link {
     transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    padding: 0.5rem 1rem;
 }
 
 .nav-link:hover {
@@ -183,5 +215,58 @@ document.getElementById('backgroundInput').addEventListener('change', function(e
 
 .spin {
     animation: spin 1s linear infinite;
+}
+
+/* 添加微信按钮样式 */
+.btn-wechat {
+    background-color: #07C160;
+    color: white;
+    border: none;
+    padding: 0.375rem 0.75rem;
+    border-radius: 0.375rem;
+    transition: all 0.3s ease;
+    display: flex;
+    align-items: center;
+    font-weight: 500;
+}
+
+.btn-wechat:hover {
+    background-color: #06ad56;
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(7, 193, 96, 0.3);
+}
+
+.btn-wechat:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+.btn-wechat .bi-wechat {
+    font-size: 1.1em;
+}
+
+/* 添加背景按钮的悬浮效果 */
+.btn-primary {
+    transition: all 0.3s ease;
+    align-items: center;
+    font-weight: 500;
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 2px 4px rgba(13, 110, 253, 0.3);
+}
+
+.btn-primary:active {
+    transform: translateY(0);
+    box-shadow: none;
+}
+
+/* 确保图标和文字对齐 */
+.nav-link i {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 0.25rem;
 }
 </style> 
