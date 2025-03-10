@@ -243,7 +243,7 @@ class MessageHandler:
         time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
         content = re.sub(time_pattern, '', content)
         
-        # 或者更通用的模式，匹配 [数字] 格式
+        # 更通用的模式
         general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
         content = re.sub(general_pattern, '', content)
         
