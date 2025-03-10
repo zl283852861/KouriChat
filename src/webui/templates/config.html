@@ -458,8 +458,7 @@
                                 <h2 class="accordion-header">
                                     <button class="accordion-button collapsed" type="button" 
                                             data-bs-toggle="collapse" 
-                                            data-bs-target="#schedule-settings"
-                                            style="color: rgb(0, 0, 0); ">
+                                            data-bs-target="#schedule-settings">
                                         定时任务配置
                                     </button>
                                 </h2>
@@ -1067,9 +1066,6 @@
                                    document.querySelector('input[name="DEEPSEEK_API_KEY"]');
                 if (apiKeyInput) {
                     apiKeyInput.value = config.DEEPSEEK_API_KEY;
-                    console.log('已应用DeepSeek API密钥');
-                } else {
-                    console.log('未找到DeepSeek API密钥输入框');
                 }
             }
             
@@ -1088,13 +1084,11 @@
                     });
                     
                     if (matchingOption) {
-                        // 如果是预定义URL，选择对应的选项
                         apiProviderSelect.value = matchingOption.value;
                         if (customApiInput) {
                             customApiInput.style.display = 'none';
                         }
                     } else {
-                        // 如果是自定义URL，选择custom选项并显示输入框
                         apiProviderSelect.value = 'custom';
                         if (customApiInput) {
                             customApiInput.style.display = 'block';
@@ -1104,9 +1098,6 @@
                             }
                         }
                     }
-                    console.log('已应用DeepSeek Base URL');
-                } else {
-                    console.log('未找到DeepSeek Base URL相关元素');
                 }
             }
             
@@ -1116,10 +1107,8 @@
                 const modelSelect = document.getElementById('model_select');
                 if (modelInput) {
                     modelInput.value = config.MODEL;
-                    // 如果有model_select，也更新它
                     if (modelSelect) {
                         modelSelect.value = config.MODEL;
-                        // 如果不是预定义选项，则设置为custom并显示自定义输入框
                         if (!Array.from(modelSelect.options).some(opt => opt.value === config.MODEL)) {
                             modelSelect.value = 'custom';
                             const customModelInput = document.getElementById('customModelInput');
@@ -1130,9 +1119,6 @@
                             }
                         }
                     }
-                    console.log('已应用模型选择');
-                } else {
-                    console.log('未找到模型输入框');
                 }
             }
             
@@ -1142,9 +1128,6 @@
                                       document.querySelector('input[name="MOONSHOT_API_KEY"]');
                 if (imgApiKeyInput) {
                     imgApiKeyInput.value = config.MOONSHOT_API_KEY;
-                    console.log('已应用Moonshot API密钥');
-                } else {
-                    console.log('未找到Moonshot API密钥输入框');
                 }
             }
             
@@ -1455,7 +1438,6 @@
             
             // 更新隐藏输入框的值
             document.getElementById('TASKS').value = JSON.stringify(tasks);
-            console.log('更新后的任务数据:', document.getElementById('TASKS').value);
             
             // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.getElementById('addTaskModal'));
