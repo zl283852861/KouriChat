@@ -16,21 +16,24 @@ echo ║      Created with Heart by umaru  ║
 echo ╚══════════════════════════════════╝
 echo.
 
-:: 检查 Python 是否已安装
-python --version >nul 2>&1
-if errorlevel 1 (
-    echo Python未安装，请先安装Python
-    pause
-    exit /b 1
+:: 设置临时python环境
+set "python_home=%cd%\Python310"
+if not exist "!python_home!" (
+    rem 解压Python文件
+    echo 安装python环境，请在弹出的窗口中点击开始
+    start /wait Python310.exe
+    echo Done
+    rem 构建PIP
+    Python310\python -m ensurepip
+    copy Python310\Scripts\pip3.10.exe Python310\Scripts\pip.exe
 )
-
-:: 检查 Python 版本
-for /f "tokens=2" %%I in ('python -V 2^>^&1') do set PYTHON_VERSION=%%I
-for /f "tokens=2 delims=." %%I in ("!PYTHON_VERSION!") do set MINOR_VERSION=%%I
-if !MINOR_VERSION! GEQ 13 (
-    echo 不支持 Python 3.13 及以上版本
-    echo 当前Python版本: !PYTHON_VERSION!
-    echo 请使用 Python 3.12 或更低版本
+rem 构建临时环境变量
+set "path=!python_home!;!python_home!\Scripts;!path!"
+echo 当前PATH: "!path!"
+rem 构建完成
+python --version
+if errorlevel 1 (
+    echo Python临时环境安装错误
     pause
     exit /b 1
 )

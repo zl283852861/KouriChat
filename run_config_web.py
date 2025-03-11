@@ -136,7 +136,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             "基础配置": {},
             "图像识别API配置": {},
             "图像生成配置": {},
-            "时间配置": {},
+            "主动消息配置": {},
             "语音配置": {},
             "Prompt配置": {},
         }
@@ -208,8 +208,8 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             }
         )
 
-        # 时间配置
-        config_groups["时间配置"].update(
+        # 主动消息配置
+        config_groups["主动消息配置"].update(
             {
                 "AUTO_MESSAGE": {
                     "value": config.behavior.auto_message.content,
@@ -373,9 +373,14 @@ def save_config():
             from src.main import initialize_auto_tasks, message_handler
             auto_tasker = initialize_auto_tasks(message_handler)
             if auto_tasker:
-                logger.info("成功重新初始化定时任务")
+                # 检查是否有任务
+                tasks = auto_tasker.get_all_tasks()
+                if tasks:
+                    logger.info(f"成功重新初始化定时任务，共 {len(tasks)} 个任务")
+                else:
+                    logger.info("成功重新初始化定时任务，暂无定时任务")
             else:
-                logger.warning("重新初始化定时任务返回空值")
+                logger.info("成功重新初始化定时任务，暂无定时任务")
         except Exception as e:
             logger.error(f"重新初始化定时任务失败: {str(e)}")
         
@@ -1188,81 +1193,144 @@ def check_dependencies():
     try:
         # 检查Python版本
         python_version = sys.version.split()[0]
-        
+
         # 检查pip是否安装
         pip_path = shutil.which('pip')
         has_pip = pip_path is not None
-        
+
+        # 检查并更新pip
+        try:
+            if pip_path:
+                process = subprocess.Popen(
+                    [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                stdout, stderr = process.communicate()
+                if process.returncode == 0:
+                    logger.info('pip已成功更新到最新版本')
+                else:
+                    logger.warning('pip更新失败')
+        except Exception as e:
+            logger.warning(f'pip更新过程中发生错误: {str(e)}')
+
+        pip_path = shutil.which('pip')
+        has_pip = pip_path is not None
+
         # 检查requirements.txt是否存在
         requirements_path = os.path.join(ROOT_DIR, 'requirements.txt')
         has_requirements = os.path.exists(requirements_path)
-        
+
         # 如果requirements.txt存在，检查是否所有依赖都已安装
         dependencies_status = "unknown"
         missing_deps = []
         if has_requirements and has_pip:
             try:
-                # 获取已安装的包列表
+                # 尝试使用默认镜像源安装依赖
                 process = subprocess.Popen(
-                    [sys.executable, '-m', 'pip', 'list'],
+                    [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
                 stdout, stderr = process.communicate()
-                
-                # 解码字节数据为字符串
-                stdout = stdout.decode('utf-8')
-                stderr = stderr.decode('utf-8')
-                
-                # 解析pip list的输出，只获取包名
-                installed_packages = {
-                    line.split()[0].lower() 
-                    for line in stdout.split('\n')[2:] 
-                    if line.strip()
-                }
-                
-                logger.debug(f"已安装的包: {installed_packages}")
-                
-                # 读取requirements.txt，只获取有效的包名
-                with open(requirements_path, 'r', encoding='utf-8') as f:
+                if process.returncode != 0:
+                    # 如果默认镜像源失败，尝试使用阿里云镜像源
+                    logger.info('默认镜像源安装失败，尝试使用阿里云镜像源...')
+                    process = subprocess.Popen(
+                        [sys.executable, '-m', 'pip', 'install', '-r', requirements_path, '--index-url',
+                         'https://mirrors.aliyun.com/pypi/simple'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    stdout, stderr = process.communicate()
+
+                if process.returncode == 0:
+                    process = subprocess.Popen(
+                        [sys.executable, '-m', 'pip', 'list'],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    stdout, stderr = process.communicate()
+
+                    # 解码字节数据为字符串，添加错误处理
+                    try:
+                        stdout = stdout.decode('utf-8', errors='replace')
+                    except Exception:
+                        stdout = str(stdout)
+
+                    try:
+                        stderr = stderr.decode('utf-8', errors='replace')
+                    except Exception:
+                        stderr = str(stderr)
+
+                    # 解析pip list的输出，只获取包名
+                    installed_packages = {
+                        line.split()[0].lower()
+                        for line in stdout.split('\n')[2:]
+                        if line.strip()
+                    }
+
+                    logger.debug(f"已安装的包: {installed_packages}")
+
+                    # 读取requirements.txt，只获取有效的包名
                     required_packages = set()
-                    for line in f:
+                    # 尝试多种编码读取requirements.txt文件
+                    encodings_to_try = ['utf-8', 'gbk', 'latin-1', 'cp1252']
+                    requirements_content = None
+
+                    for encoding in encodings_to_try:
+                        try:
+                            with open(requirements_path, 'r', encoding=encoding) as f:
+                                requirements_content = f.read()
+                            logger.debug(f"成功使用{encoding}编码读取requirements.txt")
+                            break
+                        except UnicodeDecodeError:
+                            continue
+                        except Exception as e:
+                            logger.error(f"读取requirements.txt时出错: {str(e)}")
+                            break
+
+                    if requirements_content is None:
+                        raise Exception("无法读取requirements.txt文件，尝试了多种编码均失败")
+
+                    # 解析requirements.txt内容
+                    for line in requirements_content.splitlines():
                         line = line.strip()
                         # 跳过无效行：空行、注释、镜像源配置、-r 开头的文件包含
-                        if (not line or 
-                            line.startswith('#') or 
-                            line.startswith('-i ') or 
-                            line.startswith('-r ') or
-                            line.startswith('--')):
+                        if (not line or
+                                line.startswith('#') or
+                                line.startswith('-i ') or
+                                line.startswith('-r ') or
+                                line.startswith('--')):
                             continue
-                            
+
                         # 只取包名，忽略版本信息和其他选项
                         pkg = line.split('=')[0].split('>')[0].split('<')[0].split('~')[0].split('[')[0]
                         pkg = pkg.strip().lower()
                         if pkg:  # 确保包名不为空
                             required_packages.add(pkg)
-                
-                logger.debug(f"需要的包: {required_packages}")
-                
-                # 检查缺失的依赖
-                missing_deps = [
-                    pkg for pkg in required_packages 
-                    if pkg not in installed_packages and not (
-                        pkg == 'wxauto' and 'wxauto-py' in installed_packages
-                    )
-                ]
-                
-                logger.debug(f"缺失的包: {missing_deps}")
-                
-                # 根据是否有缺失依赖设置状态
-                dependencies_status = "complete" if not missing_deps else "incomplete"
-                    
+
+                    logger.debug(f"需要的包: {required_packages}")
+
+                    # 检查缺失的依赖
+                    missing_deps = [
+                        pkg for pkg in required_packages
+                        if pkg not in installed_packages and not (
+                                pkg == 'wxauto' and 'wxauto-py' in installed_packages
+                        )
+                    ]
+
+                    logger.debug(f"缺失的包: {missing_deps}")
+
+                    # 根据是否有缺失依赖设置状态
+                    dependencies_status = "complete" if not missing_deps else "incomplete"
+
             except Exception as e:
                 logger.error(f"检查依赖时出错: {str(e)}")
                 dependencies_status = "error"
         else:
             dependencies_status = "complete" if not has_requirements else "incomplete"
-        
+
         return jsonify({
             'status': 'success',
             'python_version': python_version,
@@ -1550,6 +1618,40 @@ def install_dependencies():
                 'status': 'error',
                 'message': '找不到requirements.txt文件'
             })
+        
+        # 尝试多种编码读取requirements.txt文件
+        encodings_to_try = ['utf-8', 'gbk', 'latin-1', 'cp1252']
+        requirements_content = None
+        used_encoding = None
+        
+        for encoding in encodings_to_try:
+            try:
+                with open(requirements_path, 'r', encoding=encoding) as f:
+                    requirements_content = f.read()
+                used_encoding = encoding
+                logger.debug(f"成功使用{encoding}编码读取requirements.txt")
+                break
+            except UnicodeDecodeError:
+                continue
+            except Exception as e:
+                logger.error(f"读取requirements.txt时出错: {str(e)}")
+                break
+        
+        if requirements_content is None:
+            return jsonify({
+                'status': 'error',
+                'message': '无法读取requirements.txt文件，尝试了多种编码均失败'
+            })
+        
+        # 如果编码不是UTF-8，则尝试转换为UTF-8保存
+        if used_encoding != 'utf-8':
+            try:
+                with open(requirements_path, 'w', encoding='utf-8') as f:
+                    f.write(requirements_content)
+                output.append(f"检测到requirements.txt文件编码问题（{used_encoding}），已自动转换为UTF-8")
+            except Exception as e:
+                logger.warning(f"尝试转换requirements.txt编码失败: {str(e)}")
+                # 继续使用原始文件
             
         process = subprocess.Popen(
             [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
@@ -1558,9 +1660,16 @@ def install_dependencies():
         )
         stdout, stderr = process.communicate()
         
-        # 解码字节数据为字符串
-        stdout = stdout.decode('utf-8')
-        stderr = stderr.decode('utf-8')
+        # 解码字节数据为字符串，添加错误处理
+        try:
+            stdout = stdout.decode('utf-8', errors='replace')
+        except Exception:
+            stdout = str(stdout)
+            
+        try:
+            stderr = stderr.decode('utf-8', errors='replace')
+        except Exception:
+            stderr = str(stderr)
         
         output.append(stdout if stdout else stderr)
         
@@ -1583,6 +1692,7 @@ def install_dependencies():
             })
             
     except Exception as e:
+        logger.error(f"安装依赖时出错: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
@@ -2092,24 +2202,24 @@ def get_all_configs():
             if 'behavior_settings' in config_data['categories'] and 'settings' in config_data['categories']['behavior_settings']:
                 behavior = config_data['categories']['behavior_settings']['settings']
                 
-                # 时间配置
-                configs['时间配置'] = {}
+                # 主动消息配置
+                configs['主动消息配置'] = {}
                 if 'auto_message' in behavior:
                     auto_msg = behavior['auto_message']
                     if 'content' in auto_msg:
-                        configs['时间配置']['AUTO_MESSAGE'] = {'value': auto_msg['content'].get('value', '')}
+                        configs['主动消息配置']['AUTO_MESSAGE'] = {'value': auto_msg['content'].get('value', '')}
                     if 'countdown' in auto_msg:
                         if 'min_hours' in auto_msg['countdown']:
-                            configs['时间配置']['MIN_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['min_hours'].get('value', 1)}
+                            configs['主动消息配置']['MIN_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['min_hours'].get('value', 1)}
                         if 'max_hours' in auto_msg['countdown']:
-                            configs['时间配置']['MAX_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['max_hours'].get('value', 3)}
+                            configs['主动消息配置']['MAX_COUNTDOWN_HOURS'] = {'value': auto_msg['countdown']['max_hours'].get('value', 3)}
                 
                 if 'quiet_time' in behavior:
                     quiet = behavior['quiet_time']
                     if 'start' in quiet:
-                        configs['时间配置']['QUIET_TIME_START'] = {'value': quiet['start'].get('value', '')}
+                        configs['主动消息配置']['QUIET_TIME_START'] = {'value': quiet['start'].get('value', '')}
                     if 'end' in quiet:
-                        configs['时间配置']['QUIET_TIME_END'] = {'value': quiet['end'].get('value', '')}
+                        configs['主动消息配置']['QUIET_TIME_END'] = {'value': quiet['end'].get('value', '')}
                 
                 # Prompt配置
                 configs['Prompt配置'] = {}
