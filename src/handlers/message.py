@@ -28,7 +28,7 @@ logger = logging.getLogger('main')
 
 class MessageHandler:
     def __init__(self, root_dir, api_key, base_url, model, max_token, temperature, 
-                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler):
+                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler, is_qq=False):
         self.root_dir = root_dir
         self.api_key = api_key
         self.model = model
@@ -54,7 +54,8 @@ class MessageHandler:
         self.chat_contexts = {}
         
         # 微信实例
-        self.wx = WeChat()
+        if not is_qq:
+            self.wx = WeChat()
 
         # 添加 handlers
         self.image_handler = image_handler
