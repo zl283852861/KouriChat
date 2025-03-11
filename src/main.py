@@ -5,6 +5,8 @@ import threading
 import time
 import os
 import shutil
+import win32gui
+import win32con
 from config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
 from wxauto import WeChat
 import re
@@ -328,18 +330,22 @@ def auto_send_message():
 
     if listen_list:
         user_id = random.choice(listen_list)
-        if user_id not in chat_bot.unanswered_counters:
-            chat_bot.unanswered_counters[user_id] = 0
-        chat_bot.unanswered_counters[user_id] += 1
+        if user_id not in message_handler.unanswered_counters:
+            message_handler.unanswered_counters[user_id] = 0
+        message_handler.unanswered_counters[user_id] += 1
 
         # 获取上下文内容
-        memories = chat_bot.memory_handler.get_relevant_memories(f"与{user_id}的最近对话")
+        memories = memory_handler.get_relevant_memories(f"与{user_id}的最近对话")
         if memories:
             # 根据上下文生成个性化消息
-            reply_content = chat_bot.smart_message_generator.generate_smart_message(
-                config.behavior.auto_message.content, 
-                user_id
-            )
+            # 使用默认消息，因为smart_message_generator未初始化
+            reply_content = random.choice([
+                "在干嘛呢？",
+                "今天过得怎么样？",
+                "有什么新鲜事吗？",
+                "最近忙什么呢？",
+                "有空聊聊吗？"
+            ])
         else:
             # 默认消息
             reply_content = f"{config.behavior.auto_message.content} (未回复消息计数变化: +1)"
@@ -387,8 +393,39 @@ def message_listener():
             current_time = time.time()
             
             if wx is None or (current_time - last_window_check > check_interval):
+                # 先尝试激活微信窗口，确保它在前台
+                try:
+                    # 获取微信主窗口
+                    hwnd = win32gui.FindWindow(None, "微信")
+                    if hwnd != 0:
+                        # 尝试多种方法激活窗口
+                        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                        time.sleep(0.2)
+                        
+                        if win32gui.IsIconic(hwnd):
+                            win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                            time.sleep(0.2)
+                            
+                        win32gui.ShowWindow(hwnd, win32con.SW_SHOWNORMAL)
+                        time.sleep(0.2)
+                        
+                        # 尝试将窗口置于前台
+                        for _ in range(3):
+                            try:
+                                win32gui.SetForegroundWindow(hwnd)
+                                time.sleep(0.2)
+                                if win32gui.GetForegroundWindow() == hwnd:
+                                    logger.info("成功将微信窗口置于前台")
+                                    break
+                            except Exception as e:
+                                logger.debug(f"激活微信窗口失败: {str(e)}")
+                                time.sleep(0.2)
+                except Exception as e:
+                    logger.debug(f"尝试激活微信窗口时出错: {str(e)}")
+                
                 wx = WeChat()
                 if not wx.GetSessionList():
+                    logger.error("未检测到微信会话列表，请确保微信已登录")
                     time.sleep(5)
                     continue
                 last_window_check = current_time
@@ -452,7 +489,36 @@ def initialize_wx_listener():
             # 循环添加监听对象，修改savepic参数为False
             for chat_name in listen_list:
                 try:
-                    # 先检查会话是否存在
+                    # 先尝试激活微信窗口，确保它在前台
+                    try:
+                        # 获取微信主窗口
+                        hwnd = win32gui.FindWindow(None, "微信")
+                        if hwnd != 0:
+                            # 尝试多种方法激活窗口
+                            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+                            time.sleep(0.2)
+                            
+                            if win32gui.IsIconic(hwnd):
+                                win32gui.ShowWindow(hwnd, win32con.SW_SHOW)
+                                time.sleep(0.2)
+                                
+                            win32gui.ShowWindow(hwnd, win32con.SW_SHOWNORMAL)
+                            time.sleep(0.2)
+                            
+                            # 尝试将窗口置于前台
+                            for _ in range(3):
+                                try:
+                                    win32gui.SetForegroundWindow(hwnd)
+                                    time.sleep(0.2)
+                                    if win32gui.GetForegroundWindow() == hwnd:
+                                        break
+                                except Exception as e:
+                                    logger.debug(f"激活微信窗口失败: {str(e)}")
+                                    time.sleep(0.2)
+                    except Exception as e:
+                        logger.debug(f"尝试激活微信窗口时出错: {str(e)}")
+                    
+                    # 检查会话是否存在
                     if not wx.ChatWith(chat_name):
                         logger.error(f"找不到会话: {chat_name}")
                         continue
@@ -489,10 +555,15 @@ def initialize_auto_tasks(message_handler):
         auto_tasker.scheduler.remove_all_jobs()
         print_status("清空现有任务", "info", "CLEAN")
         
+        # 检查listen_list是否为空
+        if not listen_list:
+            print_status("监听列表为空，无法添加任务", "warning", "WARNING")
+            return auto_tasker
+        
         # 从配置文件读取任务信息
         if hasattr(config, 'behavior') and hasattr(config.behavior, 'schedule_settings'):
             schedule_settings = config.behavior.schedule_settings
-            if schedule_settings and schedule_settings.tasks:  # 直接检查 tasks 列表
+            if hasattr(schedule_settings, 'tasks') and schedule_settings.tasks:
                 tasks = schedule_settings.tasks
                 if tasks:
                     print_status(f"从配置文件读取到 {len(tasks)} 个任务", "info", "TASK")
@@ -501,6 +572,12 @@ def initialize_auto_tasks(message_handler):
                     # 遍历所有任务并添加
                     for task in tasks:
                         try:
+                            # 检查任务必要字段
+                            required_fields = ['task_id', 'content', 'schedule_type', 'schedule_time']
+                            if not all(hasattr(task, field) for field in required_fields):
+                                print_status(f"任务缺少必要字段: {task}", "warning", "WARNING")
+                                continue
+                                
                             # 添加定时任务
                             auto_tasker.add_task(
                                 task_id=task.task_id,
@@ -513,20 +590,23 @@ def initialize_auto_tasks(message_handler):
                             print_status(f"成功添加任务 {task.task_id}: {task.content}", "success", "CHECK")
                         except Exception as e:
                             print_status(f"添加任务 {task.task_id} 失败: {str(e)}", "error", "ERROR")
+                            logger.error(f"添加任务 {task.task_id} 失败: {str(e)}")
                     
                     print_status(f"成功添加 {tasks_added}/{len(tasks)} 个任务", "info", "TASK")
                 else:
                     print_status("配置文件中没有找到任务", "warning", "WARNING")
+            else:
+                print_status("schedule_settings.tasks 不存在或为空", "warning", "WARNING")
         else:
             print_status("未找到任务配置信息", "warning", "WARNING")
-            print_status(f"当前 behavior 属性: {dir(config.behavior)}", "info", "INFO")
         
         return auto_tasker
         
     except Exception as e:
         print_status(f"初始化自动任务系统失败: {str(e)}", "error", "ERROR")
-        logger.error(f"初始化自动任务系统失败: {str(e)}")
-        return None
+        logger.error(f"初始化自动任务系统失败: {str(e)}", exc_info=True)
+        # 返回一个空的AutoTasker实例，避免程序崩溃
+        return AutoTasker(message_handler)
 
 def main():
     try:

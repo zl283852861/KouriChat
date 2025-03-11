@@ -744,6 +744,14 @@
                         updateTaskList();
                     }
                 });
+                
+            // 确保角色设定选择框的变更能够正确保存
+            const avatarDirSelect = document.getElementById('AVATAR_DIR');
+            if (avatarDirSelect) {
+                avatarDirSelect.addEventListener('change', function() {
+                    console.log('角色设定已更改为:', this.value);
+                });
+            }
             
             // 获取保存按钮
             const saveButton = document.getElementById('saveButton');
@@ -1144,6 +1152,13 @@
 
         // 修改保存配置的函数，添加保存到cookie的功能
         function saveConfig(config) {
+            // 确保角色设定值被正确处理
+            const avatarDirSelect = document.getElementById('AVATAR_DIR');
+            if (avatarDirSelect && avatarDirSelect.value) {
+                config['AVATAR_DIR'] = avatarDirSelect.value;
+                console.log('保存角色设定:', config['AVATAR_DIR']);
+            }
+            
             // 发送保存请求
             fetch('/save', {
                 method: 'POST',

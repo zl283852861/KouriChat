@@ -132,6 +132,9 @@ def create_avatar():
         with open(avatar_file, 'w', encoding='utf-8') as f:
             f.write(template)
             
+        # 更新当前使用的角色
+        from src.config import config
+        config['AVATAR_DIR'] = avatar_name
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
@@ -201,6 +204,9 @@ def save_avatar():
         with open(avatar_file, 'w', encoding='utf-8') as f:
             f.write(content)
             
+        # 更新当前使用的角色
+        from src.config import config
+        config['AVATAR_DIR'] = avatar_name
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
@@ -229,6 +235,9 @@ def save_avatar_raw():
         with open(avatar_file, 'w', encoding='utf-8') as f:
             f.write(content)
             
+        # 更新当前使用的角色
+        from src.config import config
+        config['AVATAR_DIR'] = avatar_name
         return jsonify({'status': 'success'})
     except Exception as e:
-        return jsonify({'status': 'error', 'message': str(e)}) 
+        return jsonify({'status': 'error', 'message': str(e)})
