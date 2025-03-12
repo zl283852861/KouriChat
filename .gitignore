@@ -17,6 +17,13 @@ logs/
 wxauto文件/
 @AutomationLog.txt
 
+# Python310
+Python310/
+
+# Nonebot Local Config
+oneBotLog/
+oneBotConfig/
+
 # IntelliJ project files
 .idea
 *.iml
