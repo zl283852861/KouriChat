@@ -12,6 +12,7 @@ from handlers.emoji import EmojiHandler
 from handlers.image import ImageHandler
 from handlers.message import MessageHandler
 from handlers.voice import VoiceHandler
+from src.handlers.file import FileHandler
 from src.services.ai.llm_service import LLMService
 from src.services.ai.image_recognition_service import ImageRecognitionService
 from src.handlers.memory import MemoryHandler
@@ -126,6 +127,7 @@ class ChatBot:
             logger.info(f"原始消息内容: {content}")
 
             img_path = None
+            files_path = None
             is_emoji = False
             is_image_recognition = False  # 新增标记，用于标识是否是图片识别结果
 
@@ -145,6 +147,13 @@ class ChatBot:
                 is_emoji = False
                 content = None
 
+            if content and content.lower().endswith(('.txt', '.docx', '.doc', '.ppt', '.pptx','.xlsx','.xls')):
+                logger.info(f"检测到文件消息: {content}")
+                files_path = content
+                is_emoji = False
+                content = None
+
+
             # 检查是否是"[动画表情]"
             if content and "[动画表情]" in content:
                 logger.info("检测到动画表情")
@@ -159,6 +168,16 @@ class ChatBot:
                 logger.info(f"图片/表情识别结果: {recognized_text}")
                 content = recognized_text if content is None else f"{content} {recognized_text}"
                 is_image_recognition = True  # 标记这是图片识别结果
+            
+            if files_path:
+                logger.info(f"开始处理文件 - 路径：{files_path}")
+                target_path = files_handler.move_to_files_dir(file_path=files_path)
+                logger.info(f"当前文件已转存至 - 路径：{target_path}")
+                value = files_handler.read_file_content(target_path)
+                logger.info(f"获取到文件信息")
+                logger.info(f"文件类型:{files_handler.get_file_type(target_path)}")
+                logger.info(f"文本内容:{value}")
+                
 
             # 情感分析处理
             if content:
@@ -224,6 +243,7 @@ with open(prompt_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
 
 # 创建全局实例
+files_handler = FileHandler()
 emoji_handler = EmojiHandler(root_dir)
 image_handler = ImageHandler(
     root_dir=root_dir,
@@ -285,7 +305,7 @@ listen_list = config.user.listen_list
 
 # 循环添加监听对象
 for i in listen_list:
-    wx.AddListenChat(who=i, savepic=True)
+    wx.AddListenChat(who=i, savepic=True, savefile=True)
 
 # 消息队列接受消息时间间隔
 wait = 1
@@ -458,7 +478,7 @@ def initialize_wx_listener():
                         continue
                         
                     # 尝试添加监听，设置savepic=False
-                    wx.AddListenChat(who=chat_name, savepic=True)
+                    wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
                     logger.info(f"成功添加监听: {chat_name}")
                     time.sleep(0.5)  # 添加短暂延迟，避免操作过快
                 except Exception as e:
