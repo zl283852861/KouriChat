@@ -185,6 +185,10 @@ class MessageHandler:
             elif not is_image_recognition and self.image_handler.is_image_generation_request(content):
                 return self._handle_image_generation_request(content, chat_id, sender_name, username, is_group)
                 
+            # 检查是否为文件处理请求
+            elif content and content.lower().endswith(('.txt', '.docx', '.doc', '.ppt', '.pptx', '.xlsx', '.xls')):
+                return self._handle_file_request(content, chat_id, sender_name, username, is_group)
+                
             # 处理普通文本回复
             else:
                 return self._handle_text_message(content, chat_id, sender_name, username, is_group)
@@ -280,6 +284,7 @@ class MessageHandler:
             return reply
         return None
 
+
     def _filter_action_emotion(self, text):
         """智能过滤括号内的动作和情感描述，保留颜文字"""
         
@@ -328,6 +333,111 @@ class MessageHandler:
         text = re.sub(en_pattern, smart_filter, text)
         
         return text
+
+    def _handle_file_request(self, file_path, chat_id, sender_name, username, is_group):
+        """处理文件请求"""
+        logger.info(f"处理文件请求: {file_path}")
+        
+        try:
+            
+            from handlers.file import FileHandler
+            files_handler = FileHandler(self.root_dir)
+            
+            
+            target_path = files_handler.move_to_files_dir(file_path)
+            logger.info(f"文件已转存至: {target_path}")
+            
+            # 获取文件类型
+            file_type = files_handler.get_file_type(target_path)
+            logger.info(f"文件类型: {file_type}")
+            
+            # 读取文件内容
+            file_content = files_handler.read_file_content(target_path)
+            logger.info(f"成功读取文件内容，长度: {len(file_content)} 字符")
+            
+            
+            prompt = f"你收到了一个{file_type}文件，文件内容如下:\n\n{file_content}\n\n请帮我分析这个文件的内容，提取关键信息，根据角色设定，给出你的回答。"
+            
+            # 获取 AI 回复
+            reply = self.get_api_response(prompt, chat_id)
+            if "</think>" in reply:
+                think_content, reply = reply.split("</think>", 1)
+                logger.info("\n思考过程:")
+                logger.info(think_content.strip())
+                reply = reply.strip()
+            
+            # 在群聊中添加@
+            if is_group:
+                reply = f"@{sender_name} \n{reply}"
+            else:
+                reply = f"{reply}"
+            
+            # 发送回复
+            try:
+                # 增强型智能分割器
+                delayed_reply = []
+                current_sentence = []
+                ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
+                split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
+
+                for idx, char in enumerate(reply):
+                    # 处理手动分割符号（优先级最高）
+                    if char in split_symbols:
+                        if current_sentence:
+                            delayed_reply.append(''.join(current_sentence).strip())
+                        current_sentence = []
+                        continue
+
+                    current_sentence.append(char)
+
+                    # 处理中文标点和省略号
+                    if char in ending_punctuations:
+                        # 排除英文符号在短句中的误判（如英文缩写）
+                        if char in {'!', '?'} and len(current_sentence) < 4:
+                            continue
+
+                        # 处理连续省略号
+                        if char == '…' and idx > 0 and reply[idx - 1] == '…':
+                            if len(current_sentence) >= 3:  # 至少三个点形成省略号
+                                delayed_reply.append(''.join(current_sentence).strip())
+                                current_sentence = []
+                        else:
+                            delayed_reply.append(''.join(current_sentence).strip())
+                            current_sentence = []
+
+                # 处理剩余内容
+                if current_sentence:
+                    delayed_reply.append(''.join(current_sentence).strip())
+                delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
+
+                # 发送分割后的文本回复, 并控制时间间隔
+                for part in delayed_reply:
+                    self.wx.SendMsg(msg=part, who=chat_id)
+                    time.sleep(random.uniform(0.5, 1.5))  # 稍微增加一点随机性
+                    
+            except Exception as e:
+                logger.error(f"发送文件分析结果失败: {str(e)}")
+                self.wx.SendMsg(msg="抱歉，文件分析结果发送失败", who=chat_id)
+            
+            # 异步保存消息记录
+            threading.Thread(target=self.save_message,
+                           args=(username, sender_name, prompt, reply)).start()
+            
+            # 重置计数器（如果大于0）
+            if self.unanswered_counters.get(username, 0) > 0:
+                self.unanswered_counters[username] = 0
+                logger.info(f"用户 {username} 的未回复计数器已重置")
+            
+            return reply
+            
+        except Exception as e:
+            logger.error(f"处理文件失败: {str(e)}", exc_info=True)
+            error_msg = f"抱歉，文件处理过程中出现错误: {str(e)}"
+            if is_group:
+                error_msg = f"@{sender_name} {error_msg}"
+            self.wx.SendMsg(msg=error_msg, who=chat_id)
+            return None
+
 
     def _handle_text_message(self, content, chat_id, sender_name, username, is_group):
         """处理普通文本消息"""

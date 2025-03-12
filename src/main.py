@@ -213,7 +213,6 @@ class ChatBot:
                 if original_content == content:
                     logger.info("未检测到@机器人，但是继续处理")
 
-
             if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
                 logger.info(f"检测到图片消息: {content}")
                 img_path = content
@@ -225,7 +224,6 @@ class ChatBot:
                 files_path = content
                 is_emoji = False
                 content = None
-
 
             # 检查是否是"[动画表情]"
             if content and "[动画表情]" in content:
@@ -246,13 +244,14 @@ class ChatBot:
             
             if files_path:
                 logger.info(f"开始处理文件 - 路径：{files_path}")
-                target_path = files_handler.move_to_files_dir(file_path=files_path)
-                logger.info(f"当前文件已转存至 - 路径：{target_path}")
-                value = files_handler.read_file_content(target_path)
-                logger.info(f"获取到文件信息")
-                logger.info(f"文件类型:{files_handler.get_file_type(target_path)}")
-                logger.info(f"文本内容:{value}")
-                
+                # 调用 Message _handle_file_request 处理方法
+                return self.message_handler.handle_user_message(
+                    content=files_path,
+                    chat_id=chatName,
+                    sender_name=username,
+                    username=username,
+                    is_group=is_group
+                )
 
             # 情感分析处理
             if content:
