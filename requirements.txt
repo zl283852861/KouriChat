@@ -14,3 +14,6 @@ Werkzeug
 wxauto==3.9.11.17.5
 apscheduler
 schedule
+python-docx
+pandas
+openpyxl
