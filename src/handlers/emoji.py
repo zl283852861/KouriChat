@@ -22,8 +22,9 @@ from config import config
 logger = logging.getLogger('main')
 
 class EmojiHandler:
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, wx_instance=None):
         self.root_dir = root_dir
+        self.wx = wx_instance  # 使用传入的 WeChat 实例
         self.emoji_dir = os.path.join(root_dir, config.behavior.context.avatar_dir, "emojis")
         self.screenshot_dir = os.path.join(root_dir, 'screenshot')
         
@@ -86,7 +87,59 @@ class EmojiHandler:
             logger.error(f"获取表情包失败: {str(e)}", exc_info=True)
             return None
 
-    def capture_and_save_screenshot(self, who: str) -> str:
+    def capture_emoji_screenshot(self, username: str) -> str:
+        """捕获并保存表情包截图"""
+        try:
+            # 确保目录存在
+            emoji_dir = os.path.join(self.root_dir, "data", "emoji_cache")
+            os.makedirs(emoji_dir, exist_ok=True)
+            
+            # 生成文件名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"emoji_{username}_{timestamp}.png"
+            filepath = os.path.join(emoji_dir, filename)
+            
+            # 等待表情加载
+            time.sleep(0.5)
+            
+            # 使用 pyautogui 的安全模式
+            pyautogui.FAILSAFE = True
+            
+            # 获取当前活动窗口
+            try:
+                wx_chat = WeChat()
+                wx_chat.ChatWith(username)  # 确保切换到正确的聊天窗口
+                chat_window = pyautogui.getWindowsWithTitle(username)[0]
+                
+                # 确保窗口被前置和激活
+                if not chat_window.isActive:
+                    chat_window.activate()
+                
+                # 获取消息区域的位置（右下角）
+                window_width = chat_window.width
+                window_height = chat_window.height
+                
+                # 计算表情区域（消息区域的右侧）
+                emoji_width = 150
+                emoji_height = 150
+                emoji_x = chat_window.left + window_width - emoji_width - 50  # 右边缘偏移50像素
+                emoji_y = chat_window.top + window_height - emoji_height - 50  # 下边缘偏移50像素
+                
+                # 截取表情区域
+                screenshot = pyautogui.screenshot(region=(emoji_x, emoji_y, emoji_width, emoji_height))
+                screenshot.save(filepath)
+                
+                logger.info(f"表情包已保存: {filepath}")
+                return filepath
+            except Exception as e:
+                logger.error(f"窗口操作失败: {str(e)}")
+                return ""
+                
+        except Exception as e:
+            logger.error(f"截图失败: {str(e)}")
+            return ""
+
+    def capture_chat_screenshot(self, who: str) -> str:
         """捕获并保存聊天窗口截图"""
         try:
             # 确保截图目录存在
@@ -140,4 +193,4 @@ class EmojiHandler:
                     except Exception as e:
                         logger.error(f"删除截图失败 {file_path}: {str(e)}")
         except Exception as e:
-            logger.error(f"清理截图目录失败: {str(e)}") 
+            logger.error(f"清理截图目录失败: {str(e)}")

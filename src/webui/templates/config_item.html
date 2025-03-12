@@ -374,15 +374,52 @@
             <input type="text" class="form-control" 
                     placeholder="请输入自定义模型名称"
                     onchange="updateCustomModel(this.value)"
-                    value="{{ config.value if not config.value in ['deepseek-ai/DeepSeek-V3', 'deepseek-ai/DeepSeek-R1', 'Pro/deepseek-ai/DeepSeek-V3', 'Pro/deepseek-ai/DeepSeek-R1', 'deepseek-chat', 'deepseek-reasoner'] else '' }}">
+                    value="{{ config.value }}">
         </div>
 
-        <input type="text" class="form-control" 
+        <input type="hidden" class="form-control" 
             id="{{ key }}" name="{{ key }}" 
-            value="{{ config.value }}"
-            readonly
-            style="display: none;">
-    </div>
+            value="{{ config.value }}">
+
+        <script>
+        function updateModel(value) {
+            const modelInput = document.getElementById('MODEL');
+            const customModelInput = document.getElementById('customModelInput');
+            
+            if (value === 'custom') {
+                customModelInput.style.display = 'block';
+                // 保持当前值不变，让用户可以编辑
+                customModelInput.querySelector('input').value = modelInput.value;
+            } else {
+                customModelInput.style.display = 'none';
+                modelInput.value = value;
+            }
+        }
+
+        function updateCustomModel(value) {
+            const modelInput = document.getElementById('MODEL');
+            if (value.trim()) {
+                modelInput.value = value.trim();
+            }
+        }
+
+        // 初始化时检查是否需要显示自定义输入框
+        document.addEventListener('DOMContentLoaded', function() {
+            const modelSelect = document.getElementById('model_select');
+            const currentModel = document.getElementById('MODEL').value;
+            const customModelInput = document.getElementById('customModelInput');
+            
+            if (modelSelect && currentModel) {
+                // 检查当前值是否在预设选项中
+                const isPresetModel = Array.from(modelSelect.options).some(opt => opt.value === currentModel);
+                if (!isPresetModel) {
+                    modelSelect.value = 'custom';
+                    customModelInput.style.display = 'block';
+                    customModelInput.querySelector('input').value = currentModel;
+                }
+            }
+        });
+        </script>
 {% elif config.type == "number" %}
     {% if key == 'MAX_TOKEN' %}
         <style>
@@ -970,4 +1007,4 @@
             }
         });
     });
-</script> 
+</script>

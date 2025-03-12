@@ -32,7 +32,7 @@ def click_wechat_buttons():
     
     # 多次尝试激活窗口
     activated = False
-    for _ in range(5):  # 增加尝试次数
+    for _ in range(2):  # 增加尝试次数
         try:
             # 尝试使用不同的方法激活窗口
             win32gui.SetForegroundWindow(hwnd)
@@ -58,7 +58,7 @@ def click_wechat_buttons():
     
     # 移动鼠标并点击
     confirm_x = width // 2
-    confirm_y = height // 2 + 20
+    confirm_y = height // 2 + 50
     win32api.SetCursorPos((left + confirm_x, top + confirm_y))
     time.sleep(0.1)  # 等待鼠标移动
     win32api.mouse_event(win32con.MOUSEEVENTF_LEFTDOWN, 0, 0, 0, 0)

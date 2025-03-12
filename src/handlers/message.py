@@ -22,6 +22,7 @@ from services.ai.llm_service import LLMService
 from handlers.memory import MemoryHandler
 from config import config
 import re
+import jieba 
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
@@ -66,8 +67,19 @@ class MessageHandler:
         self.unanswered_timers = {}  # 新增：存储每个用户的计时器
 
     def save_message(self, sender_id: str, sender_name: str, message: str, reply: str):
-        """保存聊天记录到数据库和短期记忆"""
+        """保存聊天记录到数据库和记忆"""
         try:
+            # 确保sender_id不为System
+            if sender_id == "System":
+                # 尝试从消息内容中识别实际的接收者
+                if isinstance(message, str):
+                    # 如果消息以@开头，提取用户名
+                    if message.startswith('@'):
+                        sender_id = message.split()[0][1:]  # 提取@后的用户名
+                    else:
+                        # 使用默认值或其他标识
+                        sender_id = "FileHelper"
+            
             session = Session()
             chat_message = ChatMessage(
                 sender_id=sender_id,
@@ -78,61 +90,47 @@ class MessageHandler:
             session.add(chat_message)
             session.commit()
             session.close()
-            # 新增短期记忆保存
-            self.memory_handler.add_short_memory(message, reply)
+            
+            # 保存到记忆 - 移除这一行，避免重复保存
+            # self.memory_handler.add_short_memory(message, reply, sender_id)
+            logger.info(f"已保存消息到数据库 - 用户ID: {sender_id}")
         except Exception as e:
             logger.error(f"保存消息失败: {str(e)}", exc_info=True)
 
     def get_api_response(self, message: str, user_id: str) -> str:
-        """获取 API 回复（含优先级记忆增强）"""
+        """获取 API 回复（添加历史对话支持）"""
         avatar_dir = os.path.join(self.root_dir, config.behavior.context.avatar_dir)
         prompt_path = os.path.join(avatar_dir, "avatar.md")
         original_content = ""
-
+    
         try:
-            # 步骤1：读取原始提示内容（人设内容，最高优先级）
+            # 读取原始提示内容（人设内容）
             with open(prompt_path, "r", encoding="utf-8") as f:
                 original_content = f.read()
                 logger.debug(f"原始人设提示文件大小: {len(original_content)} bytes")
-
-            # 步骤2：获取相关记忆（第二优先级）
-            relevant_memories = self.memory_handler.get_relevant_memories(message)
             
-            # 步骤3：构建优先级提示结构
-            # 优先级顺序：人设内容 > 记忆内容 > 上下文内容
-            if relevant_memories:
-                # 添加记忆优先级标记
-                memory_prompt = "\n# 动态记忆注入（优先级说明）\n"
-                memory_prompt += "以下是与当前对话相关的记忆内容，请在回复时优先考虑人设内容，其次参考这些记忆，最后才是上下文内容。\n"
-                memory_prompt += "\n".join(relevant_memories)
-                logger.debug(f"注入记忆条数: {len(relevant_memories)}")
-            else:
-                memory_prompt = ""
-                logger.debug("没有找到相关记忆")
-
-            # 步骤4：写入临时提示（按优先级组织）
-            with open(prompt_path, "w", encoding="utf-8") as f:
-                # 确保人设内容在最前面（最高优先级）
-                f.write(f"{original_content}\n{memory_prompt}")
-
-            # 步骤5：确保文件内容已刷新
-            with open(prompt_path, "r", encoding="utf-8") as f:
-                full_prompt = f.read()
-                logger.debug(f"优先级提示内容样例:\n{full_prompt[:200]}...")  # 显示前200字符
-
-            # 步骤6：添加优先级指令到系统提示
-            priority_instruction = "\n# 回复优先级指南\n请在回复时遵循以下优先级顺序：\n1. 人设内容（最高优先级）\n2. 记忆内容（中等优先级）\n3. 上下文内容（最低优先级）\n这样可以确保回复既符合角色设定，又能根据记忆进行个性化，同时避免在同一话题上循环。\n"
-            enhanced_prompt = full_prompt + priority_instruction
+            # 获取最近的对话历史
+            recent_history = self.memory_handler.get_recent_memory(user_id, max_count=5)  # 获取最近5轮对话
             
-            # 调用API（上下文内容由LLM服务自动管理，优先级最低）
-            return self.deepseek.get_response(message, user_id, enhanced_prompt)
-
+            # 构建带有历史记录的上下文
+            context = original_content + "\n\n最近的对话记录：\n"
+            for hist in recent_history:
+                context += f"用户: {hist['message']}\n"
+                context += f"AI: {hist['reply']}\n"
+            
+            # 添加当前用户的输入
+            context += f"\n用户: {message}\n"
+            logger.debug(f"完整上下文大小: {len(context)} bytes")
+            
+            # 调用API获取回复
+            return self.deepseek.get_response(message, user_id, context)
+    
         except Exception as e:
-            logger.error(f"优先级动态记忆注入失败: {str(e)}")
+            logger.error(f"获取API回复失败: {str(e)}")
             return self.deepseek.get_response(message, user_id, original_content)  # 降级处理
-
+    
         finally:
-            # 步骤7：恢复原始内容（无论是否出错）
+            # 恢复原始内容
             try:
                 with open(prompt_path, "w", encoding="utf-8") as f:
                     f.write(original_content)
@@ -140,11 +138,40 @@ class MessageHandler:
                 logger.error(f"恢复提示文件失败: {str(restore_error)}")
 
     def handle_user_message(self, content: str, chat_id: str, sender_name: str, 
-                     username: str, is_group: bool = False, is_image_recognition: bool = False):
+                 username: str, is_group: bool = False, is_image_recognition: bool = False):
         """统一的消息处理入口"""
         try:
+            # 验证并修正用户ID
+            if not username or username == "System":
+                # 从聊天ID中提取用户名，移除可能的群聊标记
+                username = chat_id.split('@')[0] if '@' in chat_id else chat_id
+                # 如果是文件传输助手，使用特定ID
+                if username == "filehelper":
+                    username = "FileHelper"
+                sender_name = sender_name or username
+                
             logger.info(f"处理消息 - 发送者: {sender_name}, 聊天ID: {chat_id}, 是否群聊: {is_group}")
             logger.info(f"消息内容: {content}")
+            
+            # 增加重复消息检测
+            message_key = f"{chat_id}_{username}_{hash(content)}"
+            current_time = time.time()
+            
+            # 检查是否是短时间内的重复消息
+            if hasattr(self, '_handled_messages'):
+                # 清理超过60秒的旧记录
+                self._handled_messages = {k: v for k, v in self._handled_messages.items() 
+                                     if current_time - v < 60}
+                
+                if message_key in self._handled_messages:
+                    if current_time - self._handled_messages[message_key] < 5:  # 5秒内的重复消息
+                        logger.warning(f"MessageHandler检测到短时间内重复消息，已忽略: {content[:20]}...")
+                        return None
+            else:
+                self._handled_messages = {}
+                
+            # 记录当前消息处理时间
+            self._handled_messages[message_key] = current_time
             
             # 检查是否为语音请求
             if self.voice_handler.is_voice_request(content):
@@ -253,6 +280,55 @@ class MessageHandler:
             return reply
         return None
 
+    def _filter_action_emotion(self, text):
+        """智能过滤括号内的动作和情感描述，保留颜文字"""
+        
+        def is_emoticon(text):
+            """判断是否为颜文字"""
+            # 定义颜文字常用字符
+            emoticon_chars = set('（()）~～‿⁀∀︿⌒▽△□◇○●ˇ＾∇＿゜◕ω・ノ丿╯╰つ⊂＼／┌┐┘└°△▲▽▼◇◆○●◎■□▢▣▤▥▦▧▨▩♡♥ღ☆★✡⁂✧✦❈❇✴✺✹✸✷✶✵✳✲✱✰✯✮✭✬✫✪✩✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁✀✿✾✽✼✻✺✹✸✷✶✵✴✳✲✱✰✯✮✭✬✫✪✩✨✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁❤♪♫♬♩♭♮♯°○◎●◯◐◑◒◓◔◕◖◗¤☼☀☁☂☃☄★☆☎☏⊙◎☺☻☯☭♠♣♧♡♥❤❥❣♂♀☿❀❁❃❈❉❊❋❖☠☢☣☤☥☦☧☨☩☪☫☬☭☮☯☸☹☺☻☼☽☾☿♀♁♂♃♄♅♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟')
+            # 检查是否主要由颜文字字符组成
+            text = text.strip('（()）')  # 去除外围括号
+            if not text:  # 如果去除括号后为空，返回False
+                return False
+            emoticon_char_count = sum(1 for c in text if c in emoticon_chars)
+            return emoticon_char_count / len(text) > 0.5  # 如果超过50%是颜文字字符则认为是颜文字
+        
+        def contains_action_keywords(text):
+            """检查是否包含动作或情感描述关键词"""
+            action_keywords = {'微笑', '笑', '哭', '叹气', '摇头', '点头', '皱眉', '思考',
+                             '无奈', '开心', '生气', '害羞', '紧张', '兴奋', '疑惑', '惊讶',
+                             '叹息', '沉思', '撇嘴', '歪头', '摊手', '耸肩', '抱抱', '拍拍',
+                             '摸摸头', '握手', '挥手', '鼓掌', '捂脸', '捂嘴', '翻白眼',
+                             '叉腰', '双手合十', '竖起大拇指', '比心', '摸摸', '拍肩', '戳戳',
+                             '摇晃', '蹦跳', '转圈', '倒地', '趴下', '站起', '坐下'}
+            text = text.strip('（()）')  # 去除外围括号
+            # 使用jieba分词，检查是否包含动作关键词
+            words = set(jieba.cut(text))
+            return bool(words & action_keywords)
+        
+        # 分别处理中文括号和英文括号
+        cn_pattern = r'（[^）]*）'
+        en_pattern = r'\([^\)]*\)'
+        
+        def smart_filter(match):
+            content = match.group(0)
+            # 如果是颜文字，保留
+            if is_emoticon(content):
+                return content
+            # 如果包含动作关键词，移除
+            elif contains_action_keywords(content):
+                return ''
+            # 如果无法判断，保留原文
+            return content
+        
+        # 处理中文括号
+        text = re.sub(cn_pattern, smart_filter, text)
+        # 处理英文括号
+        text = re.sub(en_pattern, smart_filter, text)
+        
+        return text
+
     def _handle_text_message(self, content, chat_id, sender_name, username, is_group):
         """处理普通文本消息"""
         # 添加正则表达式过滤时间戳
@@ -282,7 +358,7 @@ class MessageHandler:
             content += "\n请以你的身份回应用户的结束语。"
             logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
 
-        # 获取 API 回复, 需要传入 username
+        # 获取 API 回复
         reply = self.get_api_response(content, chat_id)
         if "</think>" in reply:
             think_content, reply = reply.split("</think>", 1)
@@ -292,22 +368,27 @@ class MessageHandler:
         else:
             logger.info("\nAI回复:") 
             logger.info(reply) 
+            
+        # 过滤括号内的动作和情感描述 - 移除重复调用
+        reply = self._filter_action_emotion(reply)
 
         if is_group:
             reply = f"@{sender_name} {reply}"
 
         try:
-            # 增强型智能分割器
+            # 增强型智能分割器 - 优化版
             delayed_reply = []
             current_sentence = []
             ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
             split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
+            last_split_idx = -1  # 记录上一次分割的位置，防止重复分割
 
             for idx, char in enumerate(reply):
                 # 处理手动分割符号（优先级最高）
                 if char in split_symbols:
-                    if current_sentence:
+                    if current_sentence and idx > last_split_idx:
                         delayed_reply.append(''.join(current_sentence).strip())
+                        last_split_idx = idx
                     current_sentence = []
                     continue
 
@@ -321,22 +402,41 @@ class MessageHandler:
 
                     # 处理连续省略号
                     if char == '…' and idx > 0 and reply[idx - 1] == '…':
-                        if len(current_sentence) >= 3:  # 至少三个点形成省略号
+                        if len(current_sentence) >= 3 and idx > last_split_idx:  # 至少三个点形成省略号
                             delayed_reply.append(''.join(current_sentence).strip())
+                            last_split_idx = idx
                             current_sentence = []
-                    else:
+                    elif idx > last_split_idx:  # 确保不会在同一位置重复分割
                         delayed_reply.append(''.join(current_sentence).strip())
+                        last_split_idx = idx
                         current_sentence = []
 
             # 处理剩余内容
             if current_sentence:
                 delayed_reply.append(''.join(current_sentence).strip())
+            
+            # 过滤空内容和去重
             delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
-
+            # 去除完全相同的相邻句子
+            if len(delayed_reply) > 1:
+                unique_reply = [delayed_reply[0]]
+                for i in range(1, len(delayed_reply)):
+                    if delayed_reply[i] != delayed_reply[i-1]:
+                        unique_reply.append(delayed_reply[i])
+                delayed_reply = unique_reply
+            
+            # 记录已发送的消息，防止重复发送
+            sent_messages = set()
+            
             # 发送分割后的文本回复, 并控制时间间隔
             for part in delayed_reply:
-                self.wx.SendMsg(msg=part, who=chat_id)
-                time.sleep(random.uniform(0.5, 1.5))  # 稍微增加一点随机性
+                # 防止重复发送完全相同的内容
+                if part not in sent_messages:
+                    self.wx.SendMsg(msg=part, who=chat_id)
+                    sent_messages.add(part)
+                    time.sleep(random.uniform(0.5, 1))  # 稍微增加一点随机性
+                else:
+                    logger.info(f"跳过重复内容: {part[:20]}...")
 
             # 检查回复中是否包含情感关键词并发送表情包
             logger.info("开始检查AI回复的情感关键词")
@@ -378,7 +478,7 @@ class MessageHandler:
          # 重置计数器（如果大于0）
         if self.unanswered_counters.get(username, 0) > 0:
             self.unanswered_counters[username] = 0
-            logger.info(f"用户 {username} 的未回复计数器已重置")
+            logger.info(f"用户 {username} 的未回复计数器: {self.unanswered_counters[username]}")
 
 
         return reply
@@ -390,7 +490,7 @@ class MessageHandler:
                 self.unanswered_counters[username] += 1
             else:
                 self.unanswered_counters[username] = 1
-            logger.info(f"用户 {username} 的未回复计数器增加到 {self.unanswered_counters[username]}")
+            logger.info(f"用户 {username} 的未回复计数器: {self.unanswered_counters[username]}")
 
 
     def add_to_queue(self, chat_id: str, content: str, sender_name: str,
@@ -490,19 +590,24 @@ class MessageHandler:
         else:
             logger.info("\nAI回复:") 
             logger.info(reply) 
+            
+        # 过滤括号内的动作和情感描述
+        reply = self._filter_action_emotion(reply) 
 
         try:
-            # 增强型智能分割器
+            # 增强型智能分割器 - 优化版
             delayed_reply = []
             current_sentence = []
             ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
             split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
+            last_split_idx = -1  # 记录上一次分割的位置，防止重复分割
 
             for idx, char in enumerate(reply):
                 # 处理手动分割符号（优先级最高）
                 if char in split_symbols:
-                    if current_sentence:
+                    if current_sentence and idx > last_split_idx:
                         delayed_reply.append(''.join(current_sentence).strip())
+                        last_split_idx = idx
                     current_sentence = []
                     continue
 
@@ -516,22 +621,28 @@ class MessageHandler:
 
                     # 处理连续省略号
                     if char == '…' and idx > 0 and reply[idx - 1] == '…':
-                        if len(current_sentence) >= 3:  # 至少三个点形成省略号
+                        if len(current_sentence) >= 3 and idx > last_split_idx:  # 至少三个点形成省略号
                             delayed_reply.append(''.join(current_sentence).strip())
+                            last_split_idx = idx
                             current_sentence = []
-                    else:
+                    elif idx > last_split_idx:  # 确保不会在同一位置重复分割
                         delayed_reply.append(''.join(current_sentence).strip())
+                        last_split_idx = idx
                         current_sentence = []
 
             # 处理剩余内容
             if current_sentence:
                 delayed_reply.append(''.join(current_sentence).strip())
+            
+            # 过滤空内容和去重
             delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
-
-            # 发送分割后的文本回复, 并控制时间间隔
-            # for part in delayed_reply:
-            #     self.wx.SendMsg(msg=part, who=chat_id)
-            #     time.sleep(random.uniform(0.5, 1.5))  # 稍微增加一点随机性
+            # 去除完全相同的相邻句子
+            if len(delayed_reply) > 1:
+                unique_reply = [delayed_reply[0]]
+                for i in range(1, len(delayed_reply)):
+                    if delayed_reply[i] != delayed_reply[i-1]:
+                        unique_reply.append(delayed_reply[i])
+                delayed_reply = unique_reply
 
             # 检查回复中是否包含情感关键词并发送表情包
             logger.info("开始检查AI回复的情感关键词")

@@ -83,6 +83,8 @@ class AuthSettings:
     admin_password: str
 
 @dataclass
+# 在Config类中添加重载方法
+@dataclass
 class Config:
     def __init__(self):
         self.user: UserSettings
@@ -90,8 +92,20 @@ class Config:
         self.media: MediaSettings
         self.behavior: BehaviorSettings
         self.auth: AuthSettings
+        self._robot_wx_name: str = ""
         self.load_config()
     
+    @property
+    def robot_wx_name(self) -> str:
+        """动态获取机器人名称（从avatar_dir）"""
+        try:
+            avatar_dir = self.behavior.context.avatar_dir
+            if avatar_dir and os.path.exists(avatar_dir):
+                return os.path.basename(avatar_dir)
+        except Exception as e:
+            logger.error(f"获取机器人名称失败: {str(e)}")
+        return "default"
+
     @property
     def config_dir(self) -> str:
         """返回配置文件所在目录"""
@@ -257,6 +271,9 @@ class Config:
 # 创建全局配置实例
 config = Config()
 
+# 导出 ROBOT_WX_NAME
+ROBOT_WX_NAME = config.robot_wx_name
+
 # 为了兼容性保留的旧变量（将在未来版本中移除）
 LISTEN_LIST = config.user.listen_list
 DEEPSEEK_API_KEY = config.llm.api_key
@@ -276,4 +293,31 @@ AUTO_MESSAGE = config.behavior.auto_message.content
 MIN_COUNTDOWN_HOURS = config.behavior.auto_message.min_hours
 MAX_COUNTDOWN_HOURS = config.behavior.auto_message.max_hours
 QUIET_TIME_START = config.behavior.quiet_time.start
-QUIET_TIME_END = config.behavior.quiet_time.end 
+QUIET_TIME_END = config.behavior.quiet_time.end
+
+
+# 在文件底部添加全局重载函数
+def reload_config():
+    """重新加载全局配置"""
+    global config
+    return config.reload()
+
+
+@dataclass
+class Config:
+    def load_config(self):
+        """重新加载配置"""
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+            
+            # 更新配置属性
+            self.user = UserSettings(**config_data.get('user', {}))
+            self.llm = LLMSettings(**config_data.get('llm', {}))
+            self.media = MediaSettings(**config_data.get('media', {}))
+            self.behavior = BehaviorSettings(**config_data.get('behavior', {}))
+            self.auth = AuthSettings(**config_data.get('auth', {}))
+            
+            logger.info("配置重新加载成功")
+        except Exception as e:
+            logger.error(f"重新加载配置失败: {str(e)}")

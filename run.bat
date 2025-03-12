@@ -16,24 +16,38 @@ echo ║      Created with Heart by umaru  ║
 echo ╚══════════════════════════════════╝
 echo.
 
-:: 设置临时python环境
-set "python_home=%cd%\Python310"
-if not exist "!python_home!" (
-    rem 解压Python文件
-    echo 安装python环境，请在弹出的窗口中点击开始
-    start /wait Python310.exe
-    echo Done
-    rem 构建PIP
-    Python310\python -m ensurepip
-    copy Python310\Scripts\pip3.10.exe Python310\Scripts\pip.exe
+:: 检查是否存在 Python310 环境标记文件
+set "python_installed_flag=%USERPROFILE%\.python310_installed"
+set "python_home="
+
+:: 首先检查当前目录
+if exist "Python310" (
+    set "python_home=%cd%\Python310"
+    goto :python_found
 )
-rem 构建临时环境变量
+
+:: 检查已知的 Python310 标记文件
+if exist "%python_installed_flag%" (
+    set /p python_home=<"%python_installed_flag%"
+    if exist "!python_home!" goto :python_found
+)
+
+:: 如果没有找到 Python310，则安装
+echo 未找到 Python310 环境，开始安装...
+start /wait Python310.exe
+set "python_home=%cd%\Python310"
+echo !python_home!>"%python_installed_flag%"
+
+:python_found
+echo 使用 Python 环境: !python_home!
+
+:: 构建临时环境变量
 set "path=!python_home!;!python_home!\Scripts;!path!"
-echo 当前PATH: "!path!"
-rem 构建完成
-python --version
+
+:: 验证 Python 安装
+python --version >nul 2>&1
 if errorlevel 1 (
-    echo Python临时环境安装错误
+    echo Python环境异常，请检查安装
     pause
     exit /b 1
 )
