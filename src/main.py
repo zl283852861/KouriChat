@@ -462,7 +462,15 @@ def get_personality_summary(prompt_content: str) -> str:
         return "请参考上下文"  # 返回默认特征
 
 def auto_send_message():
-    """自动发送消息"""
+    """自动发送消息 - 调用message_handler中的方法"""
+    # 调用message_handler中的auto_send_message方法
+    message_handler.auto_send_message(
+        listen_list=listen_list,
+        robot_wx_name=ROBOT_WX_NAME,
+        get_personality_summary=get_personality_summary,
+        is_quiet_time=is_quiet_time,
+        start_countdown=start_countdown
+    )
     try:
         if is_quiet_time():
             logger.info("当前处于安静时间，跳过自动发送消息")

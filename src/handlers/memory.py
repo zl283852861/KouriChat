@@ -84,10 +84,10 @@ class MemoryHandler:
             
             timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             
-            # 写入记忆
+            # 写入记忆 - 修改格式：将"用户"改为"对方"，"bot"改为"你"
             memory_content = (
-                f"[{timestamp}] 用户: {message}\n"
-                f"[{timestamp}] bot: {reply}\n\n"
+                f"[{timestamp}] 对方: {message}\n"
+                f"[{timestamp}] 你: {reply}\n\n"
             )
             
             try:
@@ -127,6 +127,8 @@ class MemoryHandler:
             logger.error(f"写入重要记忆失败: {str(e)}")
             print(f"控制台日志: 写入重要记忆失败 - 用户ID: {user_id}, 错误: {str(e)}")
 
+
+
     def _ensure_memory_files(self, user_id: str):
         """确保用户的记忆文件存在"""
         try:
@@ -150,8 +152,7 @@ class MemoryHandler:
             return False
 
     def get_relevant_memories(self, query: str, user_id: Optional[str] = None) -> List[str]:
-        """获取相关记忆"""
-        # 如果没有提供 user_id，使用 listen_list 中的第一个用户
+        """获取相关记忆，只在用户主动询问时检索重要记忆和长期记忆"""
         if user_id is None and self.listen_list:
             user_id = self.listen_list[0]
             
@@ -159,23 +160,72 @@ class MemoryHandler:
             logger.error("无效的用户ID")
             return []
             
-        _, long_memory_buffer_path, important_memory_path = self._get_memory_paths(user_id)  # 修改变量名
+        _, long_memory_buffer_path, important_memory_path = self._get_memory_paths(user_id)
         
-        important_memories = []  # 修改变量名
-        prioritized_memories = []
+        memories = []
         
-        # 尝试读取重要记忆
-        if os.path.exists(important_memory_path):  # 修改变量名
+        # 检查查询是否与重要记忆相关
+        if any(keyword in query for keyword in KEYWORDS):
             try:
-                with open(important_memory_path, "r", encoding="utf-8") as f:  # 修改变量名
-                    important_memories = [line.strip() for line in f if line.strip()]  # 修改变量名
-                logger.debug(f"用户 {user_id} 的重要记忆数量: {len(important_memories)}")  # 修改日志文本
+                with open(important_memory_path, "r", encoding="utf-8") as f:
+                    important_memories = [line.strip() for line in f if line.strip()]
+                    memories.extend(important_memories)
+                logger.debug(f"检索到用户 {user_id} 的重要记忆: {len(important_memories)} 条")
             except Exception as e:
-                logger.error(f"读取用户 {user_id} 的重要记忆文件失败: {str(e)}")  # 修改错误文本
+                logger.error(f"读取重要记忆失败: {str(e)}")
         
-        # 检查长期记忆缓冲区是否存在
-        if not os.path.exists(long_memory_buffer_path):
-            logger.warning(f"用户 {user_id} 的长期记忆缓冲")
+        # 检查查询是否明确要求查看长期记忆
+        if "长期记忆" in query or "日记" in query:
+            try:
+                with open(long_memory_buffer_path, "r", encoding="utf-8") as f:
+                    long_memories = [line.strip() for line in f if line.strip()]
+                    memories.extend(long_memories)
+                logger.debug(f"检索到用户 {user_id} 的长期记忆: {len(long_memories)} 条")
+            except Exception as e:
+                logger.error(f"读取长期记忆失败: {str(e)}")
+        
+        return memories
+
+    def summarize_daily_memory(self, user_id: str):
+        """将短期记忆总结为日记式的长期记忆"""
+        try:
+            short_memory_path, long_memory_buffer_path, _ = self._get_memory_paths(user_id)
+            
+            # 读取当天的短期记忆
+            today = datetime.now().strftime('%Y-%m-%d')
+            today_memories = []
+            
+            with open(short_memory_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if today in line:
+                        today_memories.append(line.strip())
+            
+            if not today_memories:
+                return
+            
+            # 生成日记式总结
+            summary = f"\n[{today}] 今天的对话回顾：\n"
+            summary += "我们聊了很多话题。" if len(today_memories) > 10 else "我们简单交谈了几句。"
+            
+            # 记录重要的对话内容
+            important_topics = []
+            for memory in today_memories:
+                if any(keyword in memory for keyword in KEYWORDS):
+                    content = memory.split("]:", 1)[1].strip() if "]" in memory else memory
+                    important_topics.append(content)
+            
+            if important_topics:
+                summary += "\n特别记住了以下内容：\n"
+                summary += "\n".join(f"- {topic}" for topic in important_topics)
+            
+            # 写入长期记忆
+            with open(long_memory_buffer_path, "a", encoding="utf-8") as f:
+                f.write(f"{summary}\n\n")
+                
+            logger.info(f"成功生成用户 {user_id} 的每日记忆总结")
+            
+        except Exception as e:
+            logger.error(f"生成记忆总结失败: {str(e)}")
 
     def _get_user_memory_dir(self, user_id: str) -> str:
         """获取特定用户的记忆目录路径"""
@@ -226,7 +276,17 @@ class MemoryHandler:
             # 从后往前读取，获取最近的对话
             for line in reversed(lines):
                 line = line.strip()
-                if line.startswith("[") and "] 用户:" in line:
+                if line.startswith("[") and "] 对方:" in line:
+                    current_pair["message"] = line.split("] 对方:", 1)[1].strip()
+                    if "reply" in current_pair:
+                        history.append(current_pair)
+                        current_pair = {}
+                        if len(history) >= max_count:
+                            break
+                elif line.startswith("[") and "] 你:" in line:
+                    current_pair["reply"] = line.split("] 你:", 1)[1].strip()
+                # 兼容旧格式
+                elif line.startswith("[") and "] 用户:" in line:
                     current_pair["message"] = line.split("] 用户:", 1)[1].strip()
                     if "reply" in current_pair:
                         history.append(current_pair)

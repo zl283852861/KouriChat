@@ -291,7 +291,7 @@ class MessageHandler:
         def is_emoticon(text):
             """判断是否为颜文字"""
             # 定义颜文字常用字符
-            emoticon_chars = set('（()）~～‿⁀∀︿⌒▽△□◇○●ˇ＾∇＿゜◕ω・ノ丿╯╰つ⊂＼／┌┐┘└°△▲▽▼◇◆○●◎■□▢▣▤▥▦▧▨▩♡♥ღ☆★✡⁂✧✦❈❇✴✺✹✸✷✶✵✳✲✱✰✯✮✭✬✫✪✩✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁✀✿✾✽✼✻✺✹✸✷✶✵✴✳✲✱✰✯✮✭✬✫✪✩✨✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁❤♪♫♬♩♭♮♯°○◎●◯◐◑◒◓◔◕◖◗¤☼☀☁☂☃☄★☆☎☏⊙◎☺☻☯☭♠♣♧♡♥❤❥❣♂♀☿❀❁❃❈❉❊❋❖☠☢☣☤☥☦☧☨☩☪☫☬☭☮☯☸☹☺☻☼☽☾☿♀♁♂♃♄♅♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟')
+            emoticon_chars = set('（()）~～‿⁀∀︿⌒▽△□◇○●ˇ＾∇＿゜◕ω・ノ丿╯╰つ⊂＼／┌┐┘└°△▲▽▼◇◆○●◎■□▢▣▤▥▦▧▨▩♡♥ღ☆★✡⁂✧✦❈❇✴✺✹✸✷✶✵✳✲✱✰✯✮✭✬✫✪✩✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁✀✿✾✽✼✻✺✹✸✷✶✵✴✳✲✱✰✯✮✭✬✫✪✩✨✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁❤♪♫♬♩♭♮♯°○◎●◯◐◑◒◓◔◕◖◗¤☼☀☁☂☃☄★☆☎☏⊙◎☺☻☯☭♠♣♧♡♥❤❥❣♂♀☿❀❁❃❈❉❊❋❖☠☢☣☤☥☦☧☨☩☪☫☬☭☮☯☸☹☺☻☼☽☾☿♀♁♂♃♄♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟')
             # 检查是否主要由颜文字字符组成
             text = text.strip('（()）')  # 去除外围括号
             if not text:  # 如果去除括号后为空，返回False
@@ -592,6 +592,345 @@ class MessageHandler:
 
 
         return reply
+
+    def increase_unanswered_counter(self, username: str):
+        """增加未回复计数器"""
+        with self.queue_lock:
+            if username in self.unanswered_counters:
+                self.unanswered_counters[username] += 1
+            else:
+                self.unanswered_counters[username] = 1
+            logger.info(f"用户 {username} 的未回复计数器: {self.unanswered_counters[username]}")
+
+
+    def add_to_queue(self, chat_id: str, content: str, sender_name: str,
+                    username: str, is_group: bool = False):
+        """添加消息到队列（已废弃，保留兼容）"""
+        logger.info("直接处理消息，跳过队列")
+        return self.handle_user_message(content, chat_id, sender_name, username, is_group)
+
+    def process_messages(self, chat_id: str):
+        """处理消息队列中的消息（已废弃，保留兼容）"""
+        logger.warning("process_messages方法已废弃，使用handle_message代替")
+        pass
+
+    #以下是onebot QQ方法实现
+    def QQ_handle_voice_request(self,content,qqid,sender_name) :
+        """处理QQ来源的语音请求"""
+        logger.info("处理语音请求")
+        reply = self.get_api_response(content, qqid)
+        if "</think>" in reply:
+            reply = reply.split("</think>", 1)[1].strip()
+
+        voice_path = self.voice_handler.generate_voice(reply)
+        # 异步保存消息记录
+        threading.Thread(target=self.save_message,
+                       args=(qqid, sender_name, content, reply)).start()
+        if voice_path:
+            return voice_path
+        else:
+            return reply
+    
+    def QQ_handle_random_image_request(self,content,qqid,sender_name):
+        """处理随机图片请求"""
+        logger.info("处理随机图片请求")
+        image_path = self.image_handler.get_random_image()
+        if image_path:
+            reply= "给主人你找了一张好看的图片哦~"
+            threading.Thread(target=self.save_message,args=(qqid, sender_name,content,reply)).start()
+
+            return image_path
+            # 异步保存消息记录
+        return None
+    def QQ_handle_image_generation_request(self,content,qqid,sender_name):
+        """处理图像生成请求"""
+        logger.info("处理画图请求")
+        try:
+            image_path = self.image_handler.generate_image(content)
+            if image_path:
+                reply= "这是按照主人您的要求生成的图片\\(^o^)/~"
+                threading.Thread(target=self.save_message,
+                            args=(qqid, sender_name, content,reply)).start()
+                
+                return image_path
+                # 异步保存消息记录
+            else:
+                reply = "抱歉主人，图片生成失败了..."
+                threading.Thread(target=self.save_message,
+                            args=(qqid, sender_name, content,reply)).start()
+            return None
+        except:
+            reply = "抱歉主人，图片生成失败了..."
+            threading.Thread(target=self.save_message,
+                            args=(qqid, sender_name, content,reply)).start()
+            return None
+    def QQ_handle_text_message(self,content,qqid,sender_name):
+        """处理普通文本消息"""
+        # 添加正则表达式过滤时间戳
+        time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
+        content = re.sub(time_pattern, '', content)
+        
+        # 更通用的模式
+        general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
+        content = re.sub(general_pattern, '', content)
+        
+        logger.info("处理普通文本回复")
+
+        # 定义结束关键词
+        end_keywords = [
+            "结束", "再见", "拜拜", "下次聊", "先这样", "告辞", "bye", "晚点聊", "回头见",
+            "稍后", "改天", "有空聊", "去忙了", "暂停", "待会儿", "过会儿", "晚安", "休息",
+            "走了", "撤了", "闪了", "不聊了", "断了", "下线", "离开", "停", "歇", "退"
+        ]
+
+        # 检查消息中是否包含结束关键词
+        is_end_of_conversation = any(keyword in content for keyword in end_keywords)
+        if is_end_of_conversation:
+            # 如果检测到结束关键词，在消息末尾添加提示
+            content += "\n请以你的身份回应用户的结束语。"
+            logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
+
+        # 获取 API 回复, 需要传入 username
+        reply = self.get_api_response(content, qqid)
+        if "</think>" in reply:
+            think_content, reply = reply.split("</think>", 1)
+            logger.info("\n思考过程:")
+            logger.info(think_content.strip())
+            logger.info(reply.strip())
+        else:
+            logger.info("\nAI回复:") 
+            logger.info(reply) 
+            
+        # 过滤括号内的动作和情感描述
+        reply = self._filter_action_emotion(reply) 
+
+        try:
+            # 增强型智能分割器 - 优化版
+            delayed_reply = []
+            current_sentence = []
+            ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
+            split_symbols = {'\\', '|', '￤'}  # 支持多种手动分割符
+            last_split_idx = -1  # 记录上一次分割的位置，防止重复分割
+
+            for idx, char in enumerate(reply):
+                # 处理手动分割符号（优先级最高）
+                if char in split_symbols:
+                    if current_sentence and idx > last_split_idx:
+                        delayed_reply.append(''.join(current_sentence).strip())
+                        last_split_idx = idx
+                    current_sentence = []
+                    continue
+
+                current_sentence.append(char)
+
+                # 处理中文标点和省略号
+                if char in ending_punctuations:
+                    # 排除英文符号在短句中的误判（如英文缩写）
+                    if char in {'!', '?'} and len(current_sentence) < 4:
+                        continue
+
+                    # 处理连续省略号
+                    if char == '…' and idx > 0 and reply[idx - 1] == '…':
+                        if len(current_sentence) >= 3 and idx > last_split_idx:  # 至少三个点形成省略号
+                            delayed_reply.append(''.join(current_sentence).strip())
+                            last_split_idx = idx
+                            current_sentence = []
+                    elif idx > last_split_idx:  # 确保不会在同一位置重复分割
+                        delayed_reply.append(''.join(current_sentence).strip())
+                        last_split_idx = idx
+                        current_sentence = []
+
+            # 处理剩余内容
+            if current_sentence:
+                delayed_reply.append(''.join(current_sentence).strip())
+            
+            # 过滤空内容和去重
+            delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
+            # 去除完全相同的相邻句子
+            if len(delayed_reply) > 1:
+                unique_reply = [delayed_reply[0]]
+                for i in range(1, len(delayed_reply)):
+                    if delayed_reply[i] != delayed_reply[i-1]:
+                        unique_reply.append(delayed_reply[i])
+                delayed_reply = unique_reply
+
+            # 检查回复中是否包含情感关键词并发送表情包
+            logger.info("开始检查AI回复的情感关键词")
+            emotion_detected = False
+
+        
+            if not hasattr(self.emoji_handler, 'emotion_map'):
+                logger.error("emoji_handler 缺少 emotion_map 属性")
+                return delayed_reply # 直接返回分割后的文本，在控制台打印error
+
+            for emotion, keywords in self.emoji_handler.emotion_map.items():
+                if not keywords:  # 跳过空的关键词列表
+                    continue
+
+                if any(keyword in reply for keyword in keywords):
+                    emotion_detected = True
+                    logger.info(f"在回复中检测到情感: {emotion}")
+
+                    emoji_path = self.emoji_handler.get_emotion_emoji(reply)
+                    if emoji_path:
+                        # try:
+                        #     self.wx.SendFiles(filepath=emoji_path, who=chat_id)
+                        #     logger.info(f"已发送情感表情包: {emoji_path}")
+                        # except Exception as e:
+                        #     logger.error(f"发送表情包失败: {str(e)}")
+                        delayed_reply.append(emoji_path) #在发送消息队列后增加path，由响应器处理
+                    else:
+                        logger.warning(f"未找到对应情感 {emotion} 的表情包")
+                    break
+
+            if not emotion_detected:
+                logger.info("未在回复中检测到明显情感")
+        except Exception as e:
+            logger.error(f"消息处理过程中发生错误: {str(e)}")
+        # 异步保存消息记录
+        threading.Thread(target=self.save_message,
+                         args=(qqid, sender_name, content, reply)).start()
+        return delayed_reply
+
+    def auto_send_message(self, listen_list, robot_wx_name, get_personality_summary, is_quiet_time, start_countdown):
+        """自动发送消息 - 从main.py移植并优化的功能
+        更智能地利用历史记忆生成主动消息
+        """
+        try:
+            if is_quiet_time():
+                logger.info("当前处于安静时间，跳过自动发送消息")
+                start_countdown()
+                return
+
+            if not listen_list:
+                logger.error("没有可用的聊天对象")
+                start_countdown()
+                return
+
+            # 智能选择用户 - 优先选择长时间未互动的用户
+            user_weights = {}
+            for user_id in listen_list:
+                # 获取最近的对话记忆
+                recent_memories = self.memory_handler.get_recent_memory(user_id, max_count=5)
+                
+                # 分析对话记录中的关键事件或计划
+                key_events = self.extract_key_events(recent_memories)
+                
+                # 如果没有记忆或记忆很少，给予较高权重
+                if not recent_memories:
+                    user_weights[user_id] = 10.0  # 高权重
+                    continue
+
+                # 计算上次对话的时间间隔
+                try:
+                    last_memory_time = None
+                    for line in open(self.memory_handler._get_memory_paths(user_id)[0], "r", encoding="utf-8"):
+                        if "] 对方:" in line or "] 你:" in line or "] 用户:" in line or "] bot:" in line:
+                            timestamp_str = line.split("]", 1)[0].strip("[")
+                            last_memory_time = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                            break
+
+                    if last_memory_time:
+                        # 计算时间差（小时）
+                        time_diff = (datetime.now() - last_memory_time).total_seconds() / 3600
+                        # 时间差越大，权重越高，但设置上限
+                        user_weights[user_id] = min(time_diff, 24.0)
+                    else:
+                        user_weights[user_id] = 5.0  # 默认中等权重
+                except Exception as e:
+                    logger.error(f"计算用户 {user_id} 时间间隔失败: {str(e)}")
+                    user_weights[user_id] = 3.0  # 出错时给予较低权重
+
+            # 根据权重随机选择用户
+            if not user_weights:
+                user_id = random.choice(listen_list)
+            else:
+                # 转换为列表和权重
+                users = list(user_weights.keys())
+                weights = list(user_weights.values())
+                # 归一化权重
+                total_weight = sum(weights)
+                if total_weight > 0:
+                    weights = [w/total_weight for w in weights]
+                    user_id = random.choices(users, weights=weights, k=1)[0]
+                else:
+                    user_id = random.choice(users)
+
+            # 更新未回复计数器
+            if user_id not in self.unanswered_counters:
+                self.unanswered_counters[user_id] = 0
+            self.unanswered_counters[user_id] += 1
+
+            # 获取当前时间
+            current_time = datetime.now()
+
+            # 获取最近的对话记忆 - 使用更智能的方式获取相关记忆
+            recent_memories = self.memory_handler.get_recent_memory(user_id, max_count=5)
+
+            # 格式化记忆为更自然的对话形式
+            formatted_memories = ""
+            if recent_memories:
+                for i, mem in enumerate(recent_memories):
+                    formatted_memories += f"对方: {mem['message']}\n"
+                    formatted_memories += f"你: {mem['reply']}\n\n"
+
+            # 获取精简后的性格特点
+            personality = get_personality_summary(self.prompt_content)
+
+            # 构建优化后的提示信息，更加注重对话的连贯性和自然性
+            prompt = f"""现在是{current_time.strftime('%Y-%m-%d %H:%M')}，作为{robot_wx_name}，我想要主动联系对方。
+
+    我的主要性格特点：
+    {personality}
+
+    最近的对话记录：
+    {formatted_memories if formatted_memories else '暂无最近对话'}
+
+    请根据我的性格特点、当前时间和最近的对话记录，生成一个自然的开场白。要求：
+    1. 不要直接称呼对方的微信昵称
+    2. 可以使用"你"、"您"等称呼
+    3. 保持对话的自然性和礼貌性
+    4. 如果有最近的对话，请自然地接续之前的话题
+    5. 如果没有最近对话或话题已结束，可以根据当前时间、季节或热点创造性地开启新话题
+    6. 避免生硬的问候，使对话更像朋友间的自然交流
+    7. 表现出你的个性特点，让对话更有吸引力"""
+
+            # 获取AI回复
+            reply_content = self.get_api_response(prompt, robot_wx_name)
+
+            logger.info(f"自动发送消息到 {user_id}: {reply_content}")
+            max_retries = 3
+            retry_delay = 1.0
+
+            for attempt in range(max_retries):
+                try:
+                    # 直接使用handle_user_message发送消息
+                    self.handle_user_message(
+                        content=reply_content,
+                        chat_id=user_id,
+                        sender_name=robot_wx_name,
+                        username=user_id,  # 使用接收者的ID
+                        is_group=False
+                    )
+
+                    # 将对话记录保存到接收者的记忆中，使用新的记忆格式
+                    self.memory_handler.add_short_memory(
+                        f"我：{reply_content}",
+                        user_id  # 使用接收者的ID
+                    )
+                    break
+                except Exception as e:
+                    logger.error(f"发送消息失败，第{attempt+1}次重试: {str(e)}")
+                    if attempt == max_retries - 1:
+                        logger.error("消息发送最终失败")
+                        return
+                    time.sleep(retry_delay * (attempt + 1))
+            start_countdown()
+
+        except Exception as e:
+            logger.error(f"自动发送消息失败: {str(e)}")
+        finally:
+            start_countdown()
 
     def increase_unanswered_counter(self, username: str):
         """增加未回复计数器"""

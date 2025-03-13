@@ -272,4 +272,5 @@ QUIET_TIME_END = config.behavior.quiet_time.end
 
 def reload_config():
     global config
-    return config.reload()
+    config = Config()
+    return True

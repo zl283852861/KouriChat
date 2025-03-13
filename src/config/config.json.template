@@ -78,10 +78,6 @@
                         "description": "图像识别 AI 模型"
                     }
                 },
-                "media": {
-                    "voice": {
-                    "id": "female_voice"
-                },
                 "image_generation": {
                     "model": {
                         "value": "deepseek-ai/Janus-Pro-7B",
