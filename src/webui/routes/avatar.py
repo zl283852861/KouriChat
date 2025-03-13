@@ -308,6 +308,14 @@ def save_avatar():
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
 
+from flask import Blueprint, request, jsonify
+from pathlib import Path
+
+# 假设 avatar_bp 已经正确初始化
+# avatar_bp = Blueprint('avatar_bp', __name__)
+
+AVATARS_DIR = Path('data/avatars')
+
 @avatar_bp.route('/save_avatar_raw', methods=['POST'])
 def save_avatar_raw():
     """保存原始Markdown内容"""
@@ -315,28 +323,32 @@ def save_avatar_raw():
         data = request.get_json()
         avatar_name = data.get('avatar')
         content = data.get('content')
-        
+
         if not avatar_name:
             return jsonify({'status': 'error', 'message': '未提供人设名称'})
-        
+
         if content is None:
             return jsonify({'status': 'error', 'message': '未提供内容'})
-        
+
         avatar_dir = AVATARS_DIR / avatar_name
         avatar_file = avatar_dir / 'avatar.md'
-        
+
         if not avatar_dir.exists():
             return jsonify({'status': 'error', 'message': '人设目录不存在'})
-        
+
         # 保存原始内容
         with open(avatar_file, 'w', encoding='utf-8') as f:
             f.write(content)
-        
+
         # 更新当前使用的角色
-        config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'src', 'config', 'config.json')
+        # 使用 pathlib 构建 config_path
+        current_file = Path(__file__).resolve()
+        # 从当前文件路径向上两层到达 src 目录，再拼接 config/config.json
+        config_path = current_file.parent.parent.parent / 'config' / 'config.json'
+
         with open(config_path, 'r', encoding='utf-8') as f:
             current_config = json.load(f)
-        
+
         if 'categories' not in current_config:
             current_config['categories'] = {}
         if 'behavior_settings' not in current_config['categories']:
@@ -354,10 +366,10 @@ def save_avatar_raw():
             }
         else:
             current_config['categories']['behavior_settings']['settings']['context']['avatar_dir']['value'] = f"data/avatars/{avatar_name}"
-        
+
         with open(config_path, 'w', encoding='utf-8') as f:
             json.dump(current_config, f, ensure_ascii=False, indent=4)
-        
+
         return jsonify({'status': 'success'})
     except Exception as e:
         return jsonify({'status': 'error', 'message': str(e)})
