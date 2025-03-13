@@ -9,6 +9,9 @@
     <link rel="icon" type="image/x-icon" href="/static/mom.ico">
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/dark-mode.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/jszip/3.6.0/jszip.min.js"></script>
+    <script src="https://cdn.bootcdn.net/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
     <style>
         :root {
             --primary-color: #6366f1;
@@ -266,6 +269,19 @@
                     <i class="bi bi-trash"></i> 删除人设
                 </button>
             </div>
+            <!-- 添加人物表情展示 -->
+            <div class="avatar-selector" style="display: grid">
+                <label for="avatarSelector" style="justify-content: space-between">
+                    <div><i class="bi bi-person-badge"></i>表情展示:</div>
+                    <button type="button" class="btn btn-lg btn-success" id="getAvatarEmojiBtn" title="上传压缩包">
+                    <i class="bi bi-upload me-2"></i>上传压缩包
+                    </button>
+                </label>
+                <div id="avatarEmojis">
+                    <!-- 这里的表情将通过JavaScript动态加载 -->
+                </div>
+
+            </div>
             
             <form id="avatarForm">
                 <div class="glass-panel mb-4">
@@ -356,6 +372,24 @@
             </div>
         </div>
     </div>
+    <!-- 添加删除确认人设表情模态框 -->
+    <div class="modal fade" id="deleteAvatarEmojisModal" tabindex="-1" aria-labelledby="deleteAvatarModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="deleteAvatarModalLabel">删除角色表情吗</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    确定要删除这个人的表情设吗？此操作不可恢复。
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-danger" id="confirmEmojisDeleteBtn">删除</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- 获取人设模态框 -->
     <div class="modal fade" id="getAvatarModal" tabindex="-1" aria-labelledby="getAvatarModalLabel" aria-hidden="true">
@@ -380,12 +414,47 @@
         </div>
     </div>
 
+    <!-- 上传表情包模态框 -->
+    <div class="modal fade" id="getAvatarEmojiBtnModal" tabindex="-1" aria-labelledby="getAvatarEmojiBtnModalLabel" aria-hidden="true">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="getAvatarEmojiBtnModalLabel">上传表情包</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <p>压缩包必须包含以下文件夹：</p>
+                    <ul>
+                        <li>angry</li>
+                        <li>happy</li>
+                        <li>neutral</li>
+                        <li>sad</li>
+                    </ul>
+                    <p>每个文件夹下的图片将作为表情展示。</p>
+                    <form id="uploadForm" action="/upload_avatarEmoji_zip" method="post" enctype="multipart/form-data">
+                        <div class="mb-3 d-grid">
+{#                            <label for="formFile" class="form-label">上传压缩包</label>#}
+                            <input class="form-control" type="file" id="formFile" name="file" accept="application/zip">
+                        </div>
+                        <div class="d-grid gap-2">
+                            <button type="submit" class="btn btn-primary">上传</button>
+                        </div>
+                    </form>
+                    <div class="progress d-none mb-3 mt-2">
+                        <div class="progress-bar" role="progressbar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         document.addEventListener('DOMContentLoaded', function() {
             // 当前选中的人设目录
             let currentAvatar = 'MONO';
             let rawContent = ''; // 存储原始内容
-            
+            // 实例化JSZip对象
+            let  zip = new JSZip();
             // 初始化背景
             fetch('/get_background')
                 .then(response => response.json())
@@ -451,11 +520,11 @@
                         if (data.status === 'success') {
                             // 保存原始内容
                             rawContent = data.raw_content || '';
-                            
+
                             // 更新所有文本框的内容
-                            const fields = ['task', 'role', 'appearance', 'experience', 
+                            const fields = ['task', 'role', 'appearance', 'experience',
                                           'personality', 'classic_lines', 'preferences', 'notes'];
-                            
+
                             fields.forEach(field => {
                                 const element = document.getElementById(field);
                                 if (element) {
@@ -465,13 +534,16 @@
                                     element.style.height = (element.scrollHeight) + 'px';
                                 }
                             });
-                            
+
                             // 保存当前选择的人设到localStorage
                             localStorage.setItem('lastSelectedAvatar', avatarName);
                             currentAvatar = avatarName;
-                            
+
                             // 显示加载成功提示
                             showToast(`已加载 ${avatarName} 的角色设定`, 'success');
+
+                            loadAvatarEmojis(avatarName);
+
                         } else {
                             console.error('加载人设内容失败:', data.message);
                             showToast('加载人设内容失败: ' + data.message, 'error');
@@ -482,7 +554,109 @@
                         showToast('加载人设内容失败: ' + error, 'error');
                     });
             }
-            
+            // 加载指定人设的表情包
+            function loadAvatarEmojis(avatarName) {
+                fetch(`/load_avatar_emojis?avatar=${avatarName}`,{
+                    headers:{
+                        //bolg: 设置请求头
+                        'Content-Type': 'application/json'
+                    }
+                })
+                .then(response => {
+                    if (response.status === 200) {
+
+                        //解开压缩包文件
+                        JSZip.loadAsync(response.blob())
+                        .then(zip => {
+                            // 解压缩出 'angry', 'happy', 'neutral', 'sad' 文件夹 每个文件夹下有图片
+                            //映射'angry', 'happy', 'neutral', 'sad'中文
+                            const emojiMap = {
+                                'angry': '生气',
+                                'happy': '开心',
+                                'neutral': '中立',
+                                'sad': '伤心'
+                            }
+                            let avatarEmojisDiv = document.getElementById('avatarEmojis')
+                            avatarEmojisDiv.style.minHeight='670px'
+                            //如果avatarEmojisDiv有子孩子就清空
+                            if(avatarEmojisDiv.hasChildNodes()){
+                                avatarEmojisDiv.innerHTML=''
+                            }
+                            // 确认删除表情按钮点击事件
+                            //document.getElementById('confirmEmojisDeleteBtn').removeEventListener('click',deleteAvatarEmojiEvent)
+
+                            zip.forEach((relativePath, zipEntry) => {
+                                let folderNameDiv=null
+                                let imgWrapList=null
+
+                                // 获取文件夹名称进行分类
+                                let folderName = relativePath.split('/')[0]
+                                if (!document.getElementById(relativePath.split('/')[0])) {
+                                    folderNameDiv=document.createElement('div')
+                                    folderNameDiv.className='justify-content-center'
+                                    folderNameDiv.innerHTML=`<h4>${emojiMap[folderName??'neutral']}</h4>`
+                                    folderNameDiv.style.margin='10px'
+                                    folderNameDiv.id=folderName
+                                    imgWrapList= document.createElement('div')
+                                    imgWrapList.style.display='flex'
+                                    imgWrapList.style.flexWrap='wrap'
+                                    imgWrapList.id=folderName
+                                    folderNameDiv.appendChild(imgWrapList)
+                                }else{
+                                    folderNameDiv=document.getElementById(folderName)
+                                    imgWrapList=folderNameDiv.childNodes[1]
+                                }
+                                // 如果文件夹名称不是表情包文件夹，则跳过
+                                zipEntry.async('blob').then(function (content) {
+                                    // 将图片添加到页面 id avatarEmojis
+                                    const imgWrap= document.createElement('div')
+                                    imgWrap.style.position='relative'
+                                    imgWrap.style.width = '100px';
+                                    imgWrap.style.height = '100px';
+                                    imgWrap.style.margin='10px'
+                                    const img = document.createElement('img');
+                                    img.src = URL.createObjectURL(content);
+                                    img.style.width = '100%';
+                                    img.style.height = '100%';
+                                    img.alt = relativePath.split('/')[1];
+                                    imgWrap.appendChild(img)
+                                    //img右上角加入删除图标
+                                    const deleteBtn = document.createElement('button');
+                                    deleteBtn.className = 'btn btn-outline-danger btn-sm';
+                                    deleteBtn.innerHTML = `<i class="bi bi-x-octagon" style="font-size: 16px" id="${relativePath}"></i>`;
+                                    deleteBtn.title = '删除表情';
+                                    deleteBtn.style.position = 'absolute';
+                                    deleteBtn.style.top = '0';
+                                    deleteBtn.style.right = '0';
+                                    deleteBtn.style.height= '30px'
+                                    deleteBtn.style.border='none'
+                                    deleteBtn.style.padding='5px'
+                                    deleteBtn.style.display=''
+                                    deleteBtn.id='BtnDelete_'+relativePath
+                                    deleteBtn.addEventListener('click', function() {
+                                        const modal = new bootstrap.Modal(document.getElementById('deleteAvatarEmojisModal'));
+                                        //往confirmEmojisDeleteBtn绑定属性
+                                        const modalDom=document.getElementById('confirmEmojisDeleteBtn')
+                                        modalDom.setAttribute('data-url',relativePath)
+                                        modal.show();
+                                    })
+                                    imgWrap.appendChild(deleteBtn);
+                                    imgWrapList.appendChild(imgWrap)
+                                })
+                                avatarEmojisDiv.appendChild(folderNameDiv)
+                            })
+                        })
+
+                    } else {
+                        throw new Error('加载表情包失败: ' + response.statusText);
+                    }
+                })
+
+                .catch(error => {
+                    console.error('加载人设内容失败:', error);
+                    showToast('加载人设内容失败: ' + error, 'error');
+                });
+            }
             // 修改查看原始MD内容的功能
             function addViewRawButton() {
                 // 在人设选择器旁添加一个按钮
@@ -734,7 +908,45 @@
                 const modal = new bootstrap.Modal(document.getElementById('deleteAvatarModal'));
                 modal.show();
             });
-            
+
+            // 确认删除表情按钮点击事件
+            function  deleteAvatarEmojiEvent  (event) {
+                const avatarName = document.getElementById('avatarSelector').value;
+                // 把 / 全部替换成 \
+                const imgUrl = event.target.dataset.url?.replace(/\//g, '\\');
+
+                fetch('/delete_avatar_emojis', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ avatar_name: avatarName, img_url: imgUrl })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        showToast('表情已删除', 'success');
+                        // 关闭模态框
+                        bootstrap.Modal.getInstance(document.getElementById('deleteAvatarEmojisModal')).hide();
+                        //获取全部Button id开头为BtnDelete 的按钮 样式关闭
+                        let btnDeleteList=document.querySelectorAll('button[id^="BtnDelete"]')
+                        btnDeleteList.forEach(btn=>{
+                            if(btn.id.split('BtnDelete')[1]===imgUrl){
+                                btn.style.display='none'
+                            }
+                        })
+                        // 重新加载人设列表
+                        loadAvatarEmojis(avatarName);
+                    } else {
+                        showToast('删除失败: ' + data.message, 'error');
+                    }
+                })
+                .catch(error => {
+                    showToast('删除失败: ' + error, 'error');
+                });
+            }
+            document.getElementById('confirmEmojisDeleteBtn').addEventListener('click', deleteAvatarEmojiEvent);
+
             // 确认删除按钮点击事件
             document.getElementById('confirmDeleteBtn').addEventListener('click', function() {
                 const avatarName = document.getElementById('avatarSelector').value;
@@ -768,6 +980,64 @@
                 const modal = new bootstrap.Modal(document.getElementById('getAvatarModal'));
                 modal.show();
             });
+            // 上传表情包按钮点击事件
+            document.getElementById('getAvatarEmojiBtn').addEventListener('click', function() {
+                const modal = new bootstrap.Modal(document.getElementById('getAvatarEmojiBtnModal'));
+                modal.show();
+            });
+            document.getElementById("uploadForm").addEventListener("submit", function(e) {
+                e.preventDefault();
+                // 获取表单中的文件对象
+                const formData = new FormData(this);
+                const file = formData.get("file");
+                //检查文件是否存在
+                if (!file) {
+                    showToast("请选择文件", "error");
+                    return;
+                }
+                // 检查文件是否为zip文件
+                if (!file.name.endsWith(".zip")) {
+                    showToast("请选择zip文件", "error");
+                    return;
+                }
+                //文件大小不超过20M
+                if (file.size > 20 * 1024 * 1024) {
+                    showToast("文件大小不能超过20M", "error");
+                    return;
+                }
+                //设置文件名为avatar_name
+                formData.append('avatar_name', currentAvatar);
+                // 创建一个XMLHttpRequest对象
+                const xhr = new XMLHttpRequest();
+                xhr.open("POST", this.action, true);
+
+                xhr.upload.addEventListener("progress", (event) => {
+                if (event.lengthComputable) {
+                    const percent = (event.loaded / event.total) * 100;
+                    document.querySelector(".progress-bar").style.width = `${percent}%`;
+                    document.querySelector(".progress-bar").textContent = `${Math.round(percent)}%`;
+                    document.querySelector(".progress").classList.remove("d-none");
+                }
+            });
+
+            xhr.onload = () => {
+            if (xhr.status === 200) {
+                    showToast('上传成功！')
+                    //清空上传表单
+                    document.getElementById("uploadForm").reset();
+                    //关闭模态框
+                    bootstrap.Modal.getInstance(document.getElementById('getAvatarEmojiBtnModal')).hide();
+                    // 重新加载人设列表
+                    loadAvatarEmojis(currentAvatar);
+                } else {
+                    showToast(xhr.responseText, 'error');
+                    bootstrap.Modal.getInstance(document.getElementById('getAvatarEmojiBtnModal')).hide();
+                }
+            document.querySelector(".progress").classList.add("d-none");document.querySelector(".progress-bar").style.width = "0%";};
+
+            xhr.send(formData);
+});
+
         });
     </script>
 </body>
