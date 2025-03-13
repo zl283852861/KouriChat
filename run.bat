@@ -1,56 +1,56 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: ÉèÖÃ´úÂëÒ³Îª GBK
+:: è®¾ç½®ä»£ç é¡µä¸º GBK
 chcp 936 >nul
-title My Dream Moments Æô¶¯Æ÷
+title My Dream Moments å¯åŠ¨å™¨
 
 cls
 echo ====================================
-echo        My Dream Moments Æô¶¯Æ÷
+echo        My Dream Moments å¯åŠ¨å™¨
 echo ====================================
 echo.
-echo ¨X¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨[
-echo ¨U      My Dream Moments - AI Chat   ¨U
-echo ¨U      Created with Heart by umaru  ¨U
-echo ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨a
+echo â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
+echo â•‘      My Dream Moments - AI Chat   â•‘
+echo â•‘      Created with Heart by umaru  â•‘
+echo â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 echo.
 
-:: ¼ì²éÊÇ·ñ´æÔÚ Python310 »·¾³±ê¼ÇÎÄ¼þ
+:: æ£€æŸ¥æ˜¯å¦å­˜åœ¨ Python310 çŽ¯å¢ƒæ ‡è®°æ–‡ä»¶
 set "python_installed_flag=%USERPROFILE%\.python310_installed"
 set "python_home=%~dp0Python310"
 
-:: Èç¹ûÃ»ÓÐÕÒµ½ Python310£¬Ôò°²×°
+:: å¦‚æžœæ²¡æœ‰æ‰¾åˆ° Python310ï¼Œåˆ™å®‰è£…
 if not exist "%python_home%\python.exe" (
-    echo Î´ÕÒµ½ Python 3.10 »·¾³£¬¿ªÊ¼°²×°...
+    echo æœªæ‰¾åˆ° Python 3.10 çŽ¯å¢ƒï¼Œå¼€å§‹å®‰è£…...
     if exist "Python310.exe" (
-        echo ÕýÔÚ°²×° Python 3.10...
+        echo æ­£åœ¨å®‰è£… Python 3.10...
         start /wait Python310.exe /quiet InstallAllUsers=0 PrependPath=1 Include_test=0 TargetDir="%python_home%"
         echo !python_home!>"%python_installed_flag%"
     ) else (
-        echo ´íÎó£ºÎ´ÕÒµ½ Python310.exe °²×°³ÌÐò
+        echo é”™è¯¯ï¼šæœªæ‰¾åˆ° Python310.exe å®‰è£…ç¨‹åº
         pause
         exit /b 1
     )
 )
 
 :python_found
-echo Ê¹ÓÃ Python »·¾³: !python_home!
+echo ä½¿ç”¨ Python çŽ¯å¢ƒ: !python_home!
 
-:: ÉèÖÃ Python »·¾³±äÁ¿
+:: è®¾ç½® Python çŽ¯å¢ƒå˜é‡
 set "PYTHON_HOME=!python_home!"
 set "PYTHONPATH=!python_home!\Lib;!python_home!\DLLs;!python_home!\Lib\site-packages"
 set "PATH=!python_home!;!python_home!\Scripts;%PATH%"
 set "PYTHONIOENCODING=utf-8"
 set "PYTHONUTF8=1"
 
-:: ÐÞ¸´/ÖØÐÂ°²×° pip
-echo ÕýÔÚÐÞ¸´ pip °²×°...
+:: ä¿®å¤/é‡æ–°å®‰è£… pip
+echo æ­£åœ¨ä¿®å¤ pip å®‰è£…...
 powershell -Command "(New-Object Net.WebClient).DownloadFile('https://mirrors.aliyun.com/pypi/get-pip.py', 'get-pip.py')"
 "!python_home!\python.exe" get-pip.py --force-reinstall --no-warn-script-location
 del /f /q get-pip.py
 
-:: ÅäÖÃ pip Ê¹ÓÃÇå»ªÔ´
+:: é…ç½® pip ä½¿ç”¨æ¸…åŽæº
 if not exist "%APPDATA%\pip" mkdir "%APPDATA%\pip"
 (
 echo [global]
@@ -59,67 +59,76 @@ echo [install]
 echo trusted-host = mirrors.aliyun.com
 ) > "%APPDATA%\pip\pip.ini"
 
-:: ÇåÀí²¢ÖØ½¨ Python »·¾³
-echo ÕýÔÚÇåÀí Python »·¾³...
+:: æ¸…ç†å¹¶é‡å»º Python çŽ¯å¢ƒ
+echo æ­£åœ¨æ¸…ç† Python çŽ¯å¢ƒ...
 if exist "!python_home!\Lib\site-packages" rd /s /q "!python_home!\Lib\site-packages"
 if exist "!python_home!\Scripts" rd /s /q "!python_home!\Scripts"
 
-:: ÇåÀí Python »º´æÎÄ¼þ
+:: æ¸…ç† Python ç¼“å­˜æ–‡ä»¶
 if exist "%~dp0*.pyc" del /f /q "%~dp0*.pyc"
 if exist "%~dp0__pycache__" rd /s /q "%~dp0__pycache__"
 
-:: ÑéÖ¤ Python °²×°£¨Ê¹ÓÃÍêÕûÂ·¾¶£©
+:: éªŒè¯ Python å®‰è£…ï¼ˆä½¿ç”¨å®Œæ•´è·¯å¾„ï¼‰
 "!python_home!\python.exe" --version >nul 2>&1
 if errorlevel 1 (
-    echo Python»·¾³Òì³££¬Çë¼ì²é°²×°
-    echo µ±Ç° Python Â·¾¶: !python_home!
-    echo ³¢ÊÔÔËÐÐ: "!python_home!\python.exe" --version
+    echo PythonçŽ¯å¢ƒå¼‚å¸¸ï¼Œè¯·æ£€æŸ¥å®‰è£…
+    echo å½“å‰ Python è·¯å¾„: !python_home!
+    echo å°è¯•è¿è¡Œ: "!python_home!\python.exe" --version
     pause
     exit /b 1
 )
 
-:: È·±£ PATH ÖÐ°üº¬ Python ºÍ pip
+:: ç¡®ä¿ PATH ä¸­åŒ…å« Python å’Œ pip
 set "PATH=!python_home!;!python_home!\Scripts;%PATH%"
 
-:: ¹¹½¨ÁÙÊ±»·¾³±äÁ¿
+:: æž„å»ºä¸´æ—¶çŽ¯å¢ƒå˜é‡
 set "path=!python_home!;!python_home!\Scripts;!path!"
 
-:: ÑéÖ¤ Python °²×°
+:: éªŒè¯ Python å®‰è£…
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo Python»·¾³Òì³££¬Çë¼ì²é°²×°
+    echo PythonçŽ¯å¢ƒå¼‚å¸¸ï¼Œè¯·æ£€æŸ¥å®‰è£…
+
+:: æ£€æŸ¥ Python ç‰ˆæœ¬
+for /f "tokens=2" %%I in ('python -V 2^>^&1') do set PYTHON_VERSION=%%I
+for /f "tokens=2 delims=." %%I in ("!PYTHON_VERSION!") do set MINOR_VERSION=%%I
+if !MINOR_VERSION! GEQ 13 (
+    echo ä¸æ”¯æŒ Python 3.13 åŠä»¥ä¸Šç‰ˆæœ¬
+    echo å½“å‰Pythonç‰ˆæœ¬: !PYTHON_VERSION!
+    echo è¯·ä½¿ç”¨ Python 3.12 æˆ–æ›´ä½Žç‰ˆæœ¬
+
     pause
     exit /b 1
 )
 
-:: ÉèÖÃÐéÄâ»·¾³Ä¿Â¼
+:: è®¾ç½®è™šæ‹ŸçŽ¯å¢ƒç›®å½•
 set VENV_DIR=%python_home%\.venv
 
-:: ¼ì²éÐéÄâ»·¾³ÊÇ·ñ´æÔÚ
+:: æ£€æŸ¥è™šæ‹ŸçŽ¯å¢ƒæ˜¯å¦å­˜åœ¨
 if not exist %VENV_DIR% (
-    echo ÕýÔÚ´´½¨ÐéÄâ»·¾³...
+    echo æ­£åœ¨åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒ...
     python -m venv %VENV_DIR%
     if errorlevel 1 (
-        echo ´´½¨ÐéÄâ»·¾³Ê§°Ü
+        echo åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒå¤±è´¥
         pause
         exit /b 1
     )
     set "FRESH_ENV=1"
 )
 
-:: ¼¤»îÐéÄâ»·¾³
+:: æ¿€æ´»è™šæ‹ŸçŽ¯å¢ƒ
 call %VENV_DIR%\Scripts\activate.bat
 
-:: È·±£ pip ÒÑ°²×°
-echo ÕýÔÚ¼ì²é pip...
+:: ç¡®ä¿ pip å·²å®‰è£…
+echo æ­£åœ¨æ£€æŸ¥ pip...
 python -m ensurepip --upgrade
 if errorlevel 1 (
-    echo pip °²×°Ê§°Ü
+    echo pip å®‰è£…å¤±è´¥
     pause
     exit /b 1
 )
 
-:: ¼ì²éÒÀÀµÊÇ·ñÐèÒª¸üÐÂ
+:: æ£€æŸ¥ä¾èµ–æ˜¯å¦éœ€è¦æ›´æ–°
 set "NEEDS_UPDATE=0"
 if exist requirements.txt (
     if not exist "%req_hash_file%" set "NEEDS_UPDATE=1"
@@ -132,30 +141,30 @@ if exist requirements.txt (
     )
     
     if "!NEEDS_UPDATE!"=="1" (
-        echo ÕýÔÚ°²×°/¸üÐÂÒÀÀµ...
+        echo æ­£åœ¨å®‰è£…/æ›´æ–°ä¾èµ–...
         python -m pip install --upgrade pip
         python -m pip install --no-cache-dir -r requirements.txt
         if errorlevel 1 (
-            echo °²×°ÒÀÀµÊ§°Ü
+            echo å®‰è£…ä¾èµ–å¤±è´¥
             pause
             exit /b 1
         )
         echo !current_hash!>"%req_hash_file%"
     ) else (
-        echo ÒÀÀµÒÑÊÇ×îÐÂ°æ±¾£¬Ìø¹ý°²×°...
+        echo ä¾èµ–å·²æ˜¯æœ€æ–°ç‰ˆæœ¬ï¼Œè·³è¿‡å®‰è£…...
     )
 )
 
-:: ÔËÐÐ³ÌÐò
-echo ÕýÔÚÆô¶¯³ÌÐò...
+:: è¿è¡Œç¨‹åº
+echo æ­£åœ¨å¯åŠ¨ç¨‹åº...
 cd /d "%~dp0"
 python run_config_web.py
 
-:: Èç¹û·¢ÉúÒì³£ÍË³öÔòÔÝÍ£ÏÔÊ¾´íÎóÐÅÏ¢
+:: å¦‚æžœå‘ç”Ÿå¼‚å¸¸é€€å‡ºåˆ™æš‚åœæ˜¾ç¤ºé”™è¯¯ä¿¡æ¯
 if errorlevel 1 (
-    echo ³ÌÐòÔËÐÐ³ö´í
+    echo ç¨‹åºè¿è¡Œå‡ºé”™
     pause
 )
 
-:: ÍË³öÐéÄâ»·¾³
+:: é€€å‡ºè™šæ‹ŸçŽ¯å¢ƒ
 deactivate
