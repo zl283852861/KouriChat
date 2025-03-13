@@ -270,30 +270,57 @@ class ChatBot:
                 time_aware_content = f"(此时时间为{current_time}) ta{group_info}对你说 {content}"   #去掉用户名，防止出现私聊时出现用户名的情况
                 logger.info(f"格式化后的消息: {time_aware_content}")
 
-                # 使用MessageHandler的消息缓存功能处理消息
-                self.message_handler.handle_user_message(
-                    content=time_aware_content,
-                    chat_id=chatName,
-                    sender_name=sender_name,
-                    username=username,
-                    is_group=is_group,
-                    is_image_recognition=is_image_recognition
-                )
+                with self.queue_lock:
+                    # 检查消息是否为重复内容
+                    is_duplicate = False
+                    if chatName in self.user_queues and content:
+                        # 检查是否与队列中最后一条消息完全相同
+                        if self.user_queues[chatName]['messages'] and content == self.user_queues[chatName]['messages'][-1]:
+                            logger.info(f"检测到重复消息，跳过添加: {content[:20]}...")
+                            is_duplicate = True
+                    
+                    if not is_duplicate:
+                        if chatName not in self.user_queues:
+                            logger.info(f"创建新的消息队列 - 聊天ID: {chatName}")
+                            self.user_queues[chatName] = {
+                                'timer': threading.Timer(5.0, self.process_user_messages, args=[chatName]),
+                                'messages': [time_aware_content],
+                                'sender_name': sender_name,
+                                'username': username,
+                                'is_group': is_group
+                            }
+                            self.user_queues[chatName]['timer'].start()
+                            logger.info(f"消息队列创建完成 - 是否群聊: {is_group}, 发送者: {sender_name}")
+                        else:
+                            # 后续消息不添加时间戳
+                            logger.info(f"更新现有消息队列 - 聊天ID: {chatName}")
+                            # 确保先取消计时器，避免重复取消
+                            try:
+                                if self.user_queues[chatName]['timer'].is_alive():
+                                    self.user_queues[chatName]['timer'].cancel()
+                            except Exception as e:
+                                logger.debug(f"取消计时器失败: {str(e)}")
+                            
+                            self.user_queues[chatName]['messages'].append(content)
+                            # 创建新计时器
+                            self.user_queues[chatName]['timer'] = threading.Timer(5.0, self.process_user_messages, args=[chatName])
+                            self.user_queues[chatName]['timer'].start()
+                            logger.info("消息队列更新完成")
 
-                # 启动或取消未回复消息计时器
-                if username in self.message_handler.unanswered_timers:
-                    self.message_handler.unanswered_timers[username].cancel()
-                    #logger.info(f"取消用户 {username} 的未回复计时器")
+                    # 启动或取消未回复消息计时器
+                    if username in self.message_handler.unanswered_timers:
+                        self.message_handler.unanswered_timers[username].cancel()
+                        #logger.info(f"取消用户 {username} 的未回复计时器")
 
-                # 30分钟后增加未回复计数
-                def increase_counter_after_delay(username):
-                    with self.queue_lock:
-                        self.message_handler.increase_unanswered_counter(username)
+                    # 30分钟后增加未回复计数
+                    def increase_counter_after_delay(username):
+                        with self.queue_lock:
+                            self.message_handler.increase_unanswered_counter(username)
 
-                timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
-                timer.start()
-                self.message_handler.unanswered_timers[username] = timer
-                #logger.info(f"为用户 {username} 启动未回复计时器")
+                    timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
+                    timer.start()
+                    self.message_handler.unanswered_timers[username] = timer
+                    #logger.info(f"为用户 {username} 启动未回复计时器")
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
