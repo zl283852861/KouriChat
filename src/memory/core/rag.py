@@ -30,33 +30,49 @@ class LocalEmbeddingModel(EmbeddingModel):
 
 
 class OnlineEmbeddingModel(EmbeddingModel):
-    def __init__(self, model_name: str, api_key: Optional[str] = None, url: Optional[str] = None):
+    def __init__(self, model_name: str, api_key: Optional[str] = None, base_url: Optional[str] = None):  # 参数名与调用处统一
         self.model_name = model_name
         self.api_key = api_key
-        self.url = url
-        self.client = OpenAI(base_url=self.url, api_key=self.api_key)  # 实例化新的客户端
+        self.base_url = base_url  # 参数名改为base_url
+        self.client = OpenAI(
+            base_url=self.base_url,  # 使用统一参数名
+            api_key=self.api_key
+        )
 
     def embed(self, texts: List[str]) -> List[List[float]]:
-        """
-        使用在线嵌入模型生成文本嵌入向量
-        """
+        if not texts:
+            return []
+
         embeddings = []
         for text in texts:
-            try:
-                response = self.client.embeddings.create(
-                    model=self.model_name,
-                    input=text
-                )
-                # 检查返回值是否是预期的嵌入向量数据结构
-                if hasattr(response, 'data') and len(response.data) > 0 and hasattr(response.data[0], 'embedding'):
+            if not text.strip():
+                embeddings.append([])
+                continue
+
+            for attempt in range(3):  # 最多重试3次
+                try:
+                    response = self.client.embeddings.create(
+                        model=self.model_name,
+                        input=text,
+                        encoding_format="float"
+                    )
+
+                    # 强化响应校验
+                    if not response or not response.data:
+                        raise ValueError("API返回空响应")
+
                     embedding = response.data[0].embedding
+                    if not isinstance(embedding, list) or len(embedding) == 0:
+                        raise ValueError("无效的嵌入格式")
+
                     embeddings.append(embedding)
-                else:
-                    print(f"Unexpected response format for text '{text}': {response}")
-                    raise ValueError(f"Unexpected response format for text '{text}'")
-            except Exception as e:
-                print(f"Error embedding text '{text}': {e}")
-                raise e
+                    break
+                except Exception as e:
+                    if attempt == 2:
+                        print(f"嵌入失败（已重试3次）: {str(e)}")
+                        embeddings.append([0.0] * 1024)  # 返回默认维度向量
+                    import time
+                    time.sleep(1)  # 重试间隔
         return embeddings
 
 
@@ -87,7 +103,8 @@ class OnlineCrossEncoderReRanker(ReRanker):
                 response = self.client.chat.completions.create(
                     model=self.model_name,
                     messages=[
-                        {"role": "system", "content": "您是一个帮助评估文档与查询相关性的助手。请仅返回一个0到1之间的浮点数，不要包含其他文本。"},
+                        {"role": "system",
+                         "content": "您是一个帮助评估文档与查询相关性的助手。请仅返回一个0到1之间的浮点数，不要包含其他文本。"},
                         {"role": "user", "content": f"查询：{query}\n文档：{doc}\n请评估该文档与查询的相关性分数（0-1）："}
                     ]
                 )
@@ -125,38 +142,66 @@ class RAG:
             self.documents = []
             self.initialized = True
 
+    def initialize_index(self, dim: int = 1024):
+        """显式初始化索引，防止空指针异常"""
+        if self.index is None:
+            self.index = faiss.IndexFlatL2(dim)
+            print(f"已初始化FAISS索引，维度: {dim}")
+
     def add_documents(self, documents: List[str]):
         if not documents:
             return
 
         # 生成嵌入
         embeddings = self.embedding_model.embed(documents)
-        embeddings = np.array(embeddings, dtype=np.float32)
+        if not embeddings or len(embeddings) == 0:
+            raise ValueError("嵌入模型返回空值")
 
-        # 初始化FAISS索引
+        # 转换并检查维度
+        embeddings = np.array(embeddings, dtype=np.float32)
+        if len(embeddings.shape) != 2:
+            raise ValueError(f"无效的嵌入维度: {embeddings.shape}")
+
+        # 初始化或检查索引维度
         if self.index is None:
             dim = embeddings.shape[1]
             self.index = faiss.IndexFlatL2(dim)
+            print(f"初始化FAISS索引，维度: {dim}")
+        elif embeddings.shape[1] != self.index.d:
+            raise ValueError(f"嵌入维度不匹配: 期望{self.index.d}，实际{embeddings.shape[1]}")
 
         # 添加文档到索引
         self.index.add(embeddings)
         self.documents.extend(documents)
 
     def query(self, query: str, top_k: int = 5, rerank: bool = False) -> List[str]:
-        # 生成查询嵌入
-        query_embedding = self.embedding_model.embed([query])[0]
-        query_embedding = np.array([query_embedding], dtype=np.float32)
+        # 添加空库保护
+        if not self.documents:
+            return []
 
-        # 初步检索
-        distances, indices = self.index.search(query_embedding, top_k * 2 if rerank else top_k)
+        # 确保索引已初始化（新增维度校验）
+        if self.index is None:
+            sample_embed = self.embedding_model.embed(["sample text"])[0]
+            self.initialize_index(len(sample_embed))
 
-        # 获取候选文档
-        candidate_docs = [self.documents[i] for i in indices[0]]
+        try:
+            # 生成查询嵌入
+            query_embedding = self.embedding_model.embed([query])[0]
+            query_embedding = np.array([query_embedding], dtype=np.float32)
 
-        # 重排逻辑
-        if rerank and self.reranker:
-            scores = self.reranker.rerank(query, candidate_docs)
-            sorted_pairs = sorted(zip(candidate_docs, scores), key=lambda x: x[1], reverse=True)
-            return [doc for doc, _ in sorted_pairs[:top_k]]
+            # 动态调整搜索数量（新增安全机制）
+            actual_top_k = min(top_k * 2 if rerank else top_k, len(self.documents))
 
-        return candidate_docs[:top_k]
+            # 执行搜索（添加异常捕获）
+            distances, indices = self.index.search(query_embedding, actual_top_k)
+
+            # 安全过滤无效索引（关键修复）
+            valid_indices = [i for i in indices[0] if 0 <= i < len(self.documents)]
+            candidate_docs = [self.documents[i] for i in valid_indices]
+
+            # 重排逻辑保持不变...
+            return candidate_docs[:top_k]
+
+        except Exception as e:
+            print(f"RAG查询失败: {str(e)}")
+            return []

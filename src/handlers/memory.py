@@ -9,7 +9,7 @@ import re
 from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer
 import json
 from src.memory import *
-from src.memory.core.rag import OnlineEmbeddingModel
+from src.memory.core.rag import OnlineEmbeddingModel, OnlineCrossEncoderReRanker
 
 logger = logging.getLogger('main')
 
@@ -54,11 +54,18 @@ class MemoryHandler:
         setup_memory(os.path.join(self.memory_base_dir, "rag-memory.json"))
         setup_rag(
             embedding_model=OnlineEmbeddingModel(
-                api_key="sk-clPuX4GwMg5DCpSm4505755d985242B2A9EeFe8eA86c3085",
-                url="https://www.blueshirtmap.com/v1",
-                model_name="text-embedding-3-large"
-            )
+                api_key=config.rag.api_key,
+                base_url=config.rag.base_url,
+                model_name=config.rag.embedding_model
+            ),
+            reranker=OnlineCrossEncoderReRanker(
+                api_key=config.rag.api_key,
+                base_url=config.rag.base_url,
+                model_name=config.rag.reranker_model
+            ) if config.rag.is_rerank is True else None
         )
+        self.is_rerank = config.rag.is_rerank
+        self.top_k = config.rag.top_k
         start_memory()
 
     # 删除不需要的方法
@@ -204,7 +211,7 @@ class MemoryHandler:
                 logger.error(f"读取长期记忆失败: {str(e)}")
 
         # Rag向量查询
-        memories += get_rag().query(query, top_k=10)
+        memories += get_rag().query(query, self.top_k, self.is_rerank)
 
         return memories
 
@@ -333,5 +340,5 @@ class MemoryHandler:
         """获取Rag记忆"""
         rag = get_rag()
         logger.info(f"rag文档总数：{len(rag.documents)}")
-        res = rag.query(content, top_k=5)
+        res = rag.query(content, self.top_k, self.is_rerank)
         return res
