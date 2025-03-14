@@ -381,9 +381,9 @@
     {% include 'navbar.html' %}
     
     <main class="container-fluid py-4">
-        <div class="row">
+        <div class="row gx-3">
             <!-- 左侧基础配置 -->
-            <div class="col-md-6 pe-md-2">
+            <div class="col-md-6 col-lg-6 pe-md-2 pe-lg-2">
                 <div class="config-section h-100">
                     <h4 class="mb-4 d-flex justify-content-between align-items-center">
                         <div>
@@ -422,7 +422,7 @@
             </div>
 
             <!-- 右侧其他配置 -->
-            <div class="col-md-6 ps-md-2">
+            <div class="col-md-6 col-lg-6 ps-md-2 ps-lg-2">
                 <div class="config-section h-100">
                     <h4 class="mb-4">
                         <i class="bi bi-sliders me-2"></i>高级配置
@@ -744,6 +744,14 @@
                         updateTaskList();
                     }
                 });
+                
+            // 确保角色设定选择框的变更能够正确保存
+            const avatarDirSelect = document.getElementById('AVATAR_DIR');
+            if (avatarDirSelect) {
+                avatarDirSelect.addEventListener('change', function() {
+                    console.log('角色设定已更改为:', this.value);
+                });
+            }
             
             // 获取保存按钮
             const saveButton = document.getElementById('saveButton');
@@ -1144,6 +1152,13 @@
 
         // 修改保存配置的函数，添加保存到cookie的功能
         function saveConfig(config) {
+            // 确保角色设定值被正确处理
+            const avatarDirSelect = document.getElementById('AVATAR_DIR');
+            if (avatarDirSelect && avatarDirSelect.value) {
+                config['AVATAR_DIR'] = avatarDirSelect.value;
+                console.log('保存角色设定:', config['AVATAR_DIR']);
+            }
+            
             // 发送保存请求
             fetch('/save', {
                 method: 'POST',
@@ -1155,12 +1170,17 @@
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
-                    // 保存成功后，将配置保存到cookie
-                    saveConfigToCookie(config);
+                    // 保存成功后强制刷新页面
                     showSaveNotification(data.message);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1500);
                 } else {
                     showSaveNotification(data.message, 'error');
                 }
+            })
+            .catch(error => {
+                showSaveNotification('保存失败：' + error, 'error');
             });
         }
 

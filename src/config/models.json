@@ -1,14 +1,14 @@
 {
-    "version": "1.0.1",
+    "version": "1.0.2",
     "update_url": "https://static.kourichat.com/models/latest.json",
     "api_providers": [
         {
             "id": "kourichat",
-            "name": "KouriChat API(官方推荐)",
+            "name": "KouriChat API",
             "url": "https://api.kourichat.com/v1",
-            "register_url": "https://api.kourichat.com/",
+            "register_url": "https://api.kourichat.com/register",
             "status": "active",
-            "priority": 2
+            "priority": 1
         },
         {
             "id": "siliconflow",
@@ -16,19 +16,19 @@
             "url": "https://api.siliconflow.cn/v1/",
             "register_url": "https://www.siliconflow.cn",
             "status": "active",
-            "priority": 1
+            "priority": 2
         },
         {
             "id": "deepseek",
-            "name": "DeepSeek API（服务器繁忙）",
+            "name": "DeepSeek API",
             "url": "https://api.deepseek.com/v1",
             "register_url": "https://platform.deepseek.com",
-            "status": "active", 
+            "status": "active",
             "priority": 3
         },
         {
             "id": "ollama",
-            "name": "本地 Ollama(不推荐效果差)",
+            "name": "本地 Ollama",
             "url": "http://localhost:11434/api/chat",
             "register_url": "https://ollama.ai",
             "status": "active",
@@ -36,7 +36,7 @@
         },
         {
             "id": "sealos",
-            "name": "Sealos AI(速度更快)",
+            "name": "Sealos AI",
             "url": "https://aiproxy.bja.sealos.run/v1",
             "register_url": "https://bja.sealos.run/?uid=xTYRWw1vvT",
             "status": "active",
@@ -58,6 +58,27 @@
                 "status": "active",
                 "type": "chat",
                 "context_length": 16000
+            },
+            {
+                "id": "grok-2-latest",
+                "name": "Grok 2代模型",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "glm-4-air",
+                "name": "智谱 GLM-4-Air模型（低费率）",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "glm-4-flash",
+                "name": "智谱 GLM-4-Flash模型（免费）",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
             }
         ],
         "siliconflow": [
@@ -70,8 +91,8 @@
             },
             {
                 "id": "deepseek-ai/DeepSeek-R1",
-                "name": "硅基格式R1模型（标准版）",
-                "status": "active", 
+                "name": "硅基格式R1模型（免费额度版）",
+                "status": "active",
                 "type": "chat",
                 "context_length": 16000
             },
@@ -137,4 +158,4 @@
             }
         ]
     }
-} 
+}

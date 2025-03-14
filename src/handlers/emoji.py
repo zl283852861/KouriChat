@@ -22,17 +22,18 @@ from config import config
 logger = logging.getLogger('main')
 
 class EmojiHandler:
-    def __init__(self, root_dir):
+    def __init__(self, root_dir, wx_instance=None):
         self.root_dir = root_dir
+        self.wx = wx_instance  # 使用传入的 WeChat 实例
         self.emoji_dir = os.path.join(root_dir, config.behavior.context.avatar_dir, "emojis")
         self.screenshot_dir = os.path.join(root_dir, 'screenshot')
         
         # 情感分类映射（情感目录名: 关键词列表）
         self.emotion_map = {
             # 情感关键词映射，每个情感类别对应一组关键词
-            'happy': ['开心', '高兴', '哈哈', '笑', '嘻嘻', '可爱', '乐', '啊哈', '好', '愉快', '满意', '幸福', '喜悦', '兴奋', '爽', '棒'],  # 表示快乐的关键词
-            'sad': ['难过', '伤心', '哭', '委屈', '泪', '呜呜', '悲', '唉', '呵呵', '失落', '沮丧', '悲伤', '痛苦', '绝望', '伤感'],  # 表示悲伤的关键词
-            'angry': ['生气', '怒', '哼', '啊啊', '呵呵', '愤怒', '恼火', '气愤', '暴躁', '火大', '抓狂', '烦', '恼'],  # 表示愤怒的关键词
+            'happy': ['开心', '高兴', '哈哈', '笑', '嘻嘻', '可爱', '乐', '啊哈', '好', '愉快', '满意', '幸福', '喜悦', '兴奋', '爽', '棒', '感兴趣', '探讨', '一起', '随时', '有意思'],  # 表示快乐和友好的关键词
+            'sad': ['难过', '伤心', '哭', '委屈', '泪', '呜呜', '悲', '唉', '失落', '沮丧', '悲伤', '痛苦', '绝望', '伤感'],  # 表示悲伤的关键词
+            'angry': ['生气', '怒', '哼', '愤怒', '恼火', '气愤', '暴躁', '火大', '抓狂'],  # 表示愤怒的关键词
             'neutral': ['平静', '冷静', '一般', '普通', '无聊', '随便', '还好', '正常', '一般般']  # 默认中性分类，表示没有明显情感波动的关键词
         }
         
@@ -47,12 +48,62 @@ class EmojiHandler:
 
     def detect_emotion(self, text: str) -> str:
         """从文本中检测情感分类"""
+        # 初始化情感得分
+        emotion_scores = {
+            'happy': 0,
+            'sad': 0,
+            'angry': 0,
+            'neutral': 0
+        }
+        
+        # 否定词列表
+        negation_words = ['不', '没', '别', '莫', '勿', '非', '无', '未', '休']
+        
+        # 检查是否包含否定词
+        has_negation = any(word in text for word in negation_words)
+        
+        # 计算每个情感类别的得分
         for emotion, keywords in self.emotion_map.items():
             if emotion == 'neutral':
                 continue
-            if any(keyword in text for keyword in keywords):
-                return emotion
-        return 'neutral'
+                
+            # 计算匹配的关键词数量
+            matched_keywords = [keyword for keyword in keywords if keyword in text]
+            
+            # 根据匹配的关键词数量和位置计算得分
+            for keyword in matched_keywords:
+                # 基础分值
+                score = 1.0
+                
+                # 如果关键词出现在句子末尾，增加权重
+                if text.endswith(keyword):
+                    score *= 1.5
+                    
+                # 如果存在否定词，可能需要转换情感
+                if has_negation:
+                    # 检查否定词是否直接修饰当前关键词
+                    for neg_word in negation_words:
+                        neg_pos = text.find(neg_word)
+                        if neg_pos != -1 and 0 <= text.find(keyword) - neg_pos <= 5:
+                            # 如果否定词直接修饰情感词，转换情感
+                            if emotion == 'happy':
+                                emotion_scores['sad'] += score
+                            elif emotion == 'sad':
+                                emotion_scores['happy'] += score
+                            break
+                    else:
+                        # 否定词不直接修饰当前关键词
+                        emotion_scores[emotion] += score
+                else:
+                    emotion_scores[emotion] += score
+        
+        # 如果没有明显情感倾向，返回neutral
+        max_score = max(emotion_scores.values())
+        if max_score == 0:
+            return 'neutral'
+            
+        # 返回得分最高的情感
+        return max(emotion_scores.items(), key=lambda x: x[1])[0]
 
     def get_emotion_emoji(self, text: str) -> Optional[str]:
         """根据AI回复内容的情感获取对应表情包"""
@@ -86,7 +137,59 @@ class EmojiHandler:
             logger.error(f"获取表情包失败: {str(e)}", exc_info=True)
             return None
 
-    def capture_and_save_screenshot(self, who: str) -> str:
+    def capture_emoji_screenshot(self, username: str) -> str:
+        """捕获并保存表情包截图"""
+        try:
+            # 确保目录存在
+            emoji_dir = os.path.join(self.root_dir, "data", "emoji_cache")
+            os.makedirs(emoji_dir, exist_ok=True)
+            
+            # 生成文件名
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"emoji_{username}_{timestamp}.png"
+            filepath = os.path.join(emoji_dir, filename)
+            
+            # 等待表情加载
+            time.sleep(0.5)
+            
+            # 使用 pyautogui 的安全模式
+            pyautogui.FAILSAFE = True
+            
+            # 获取当前活动窗口
+            try:
+                wx_chat = WeChat()
+                wx_chat.ChatWith(username)  # 确保切换到正确的聊天窗口
+                chat_window = pyautogui.getWindowsWithTitle(username)[0]
+                
+                # 确保窗口被前置和激活
+                if not chat_window.isActive:
+                    chat_window.activate()
+                
+                # 获取消息区域的位置（右下角）
+                window_width = chat_window.width
+                window_height = chat_window.height
+                
+                # 计算表情区域（消息区域的右侧）
+                emoji_width = 150
+                emoji_height = 150
+                emoji_x = chat_window.left + window_width - emoji_width - 50  # 右边缘偏移50像素
+                emoji_y = chat_window.top + window_height - emoji_height - 50  # 下边缘偏移50像素
+                
+                # 截取表情区域
+                screenshot = pyautogui.screenshot(region=(emoji_x, emoji_y, emoji_width, emoji_height))
+                screenshot.save(filepath)
+                
+                logger.info(f"表情包已保存: {filepath}")
+                return filepath
+            except Exception as e:
+                logger.error(f"窗口操作失败: {str(e)}")
+                return ""
+                
+        except Exception as e:
+            logger.error(f"截图失败: {str(e)}")
+            return ""
+
+    def capture_chat_screenshot(self, who: str) -> str:
         """捕获并保存聊天窗口截图"""
         try:
             # 确保截图目录存在
@@ -140,4 +243,4 @@ class EmojiHandler:
                     except Exception as e:
                         logger.error(f"删除截图失败 {file_path}: {str(e)}")
         except Exception as e:
-            logger.error(f"清理截图目录失败: {str(e)}") 
+            logger.error(f"清理截图目录失败: {str(e)}")

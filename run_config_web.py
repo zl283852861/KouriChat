@@ -47,6 +47,7 @@ import win32con
 import win32job
 import win32process
 from src.Wechat_Login_Clicker.Wechat_Login_Clicker import click_wechat_buttons
+from dotenv import load_dotenv
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -664,6 +665,13 @@ def start_bot():
         # 清空之前的日志
         while not bot_logs.empty():
             bot_logs.get()
+
+        
+        # 加载.env.kouri文件中的环境变量
+        env_file = os.path.join(ROOT_DIR, '.env.kouri')
+        if os.path.exists(env_file):
+            load_dotenv(env_file)
+        
 
         # 设置环境变量
         env = os.environ.copy()

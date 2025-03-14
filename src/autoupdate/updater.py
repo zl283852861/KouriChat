@@ -245,7 +245,7 @@ class Updater:
             'output': "检查更新失败：无法连接到更新服务器"
         }
 
-    def download_update(self, download_url: str) -> bool:
+    def download_update(self, download_url: str, missing_deps: list = None) -> bool:
         """下载更新包"""
         headers = {
             'Accept': 'application/vnd.github.v3+json',
@@ -276,6 +276,26 @@ class Updater:
                         if chunk:
                             f.write(chunk)
                 logger.info(f"更新包下载完成: {zip_path}")
+                
+                # 下载缺失的依赖包
+                if missing_deps:
+                    try:
+                        logger.info(f"开始下载缺失的依赖包: {missing_deps}")
+                        process = subprocess.Popen(
+                            [sys.executable, '-m', 'pip', 'install'] + missing_deps,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE
+                        )
+                        stdout, stderr = process.communicate()
+                        if process.returncode == 0:
+                            logger.info('缺失的依赖包已成功安装')
+                        else:
+                            logger.error(f'依赖包安装失败: {stderr.decode("utf-8")}')
+                            return False
+                    except Exception as e:
+                        logger.error(f'下载依赖包时发生错误: {str(e)}')
+                        return False
+                
                 return True
                 
             except requests.RequestException as e:
