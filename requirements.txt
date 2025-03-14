@@ -28,3 +28,7 @@ python-docx
 pandas
 openpyxl
 
+sentence-transformers
+faiss-cpu
+numpy
+openai
