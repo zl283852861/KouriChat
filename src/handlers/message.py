@@ -29,7 +29,7 @@ logger = logging.getLogger('main')
 
 class MessageHandler:
     def __init__(self, root_dir, api_key, base_url, model, max_token, temperature, 
-                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler, is_qq=False):
+                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler, is_qq=False, is_debug=False):
         self.root_dir = root_dir
         self.api_key = api_key
         self.model = model
@@ -59,7 +59,12 @@ class MessageHandler:
         
         # 微信实例
         if not is_qq:
-            self.wx = WeChat()
+            if is_debug:
+                self.wx = None
+                logger.info("调试模式跳过微信初始化")
+            else:
+                self.wx = WeChat()
+
 
         # 添加 handlers
         self.image_handler = image_handler
@@ -95,7 +100,8 @@ class MessageHandler:
             session.close()
             
             # 保存到记忆 - 移除这一行，避免重复保存
-            # self.memory_handler.add_short_memory(message, reply, sender_id)
+            # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
+            self.memory_handler.add_short_memory(message, reply, sender_id)
             logger.info(f"已保存消息到数据库 - 用户ID: {sender_id}")
         except Exception as e:
             logger.error(f"保存消息失败: {str(e)}", exc_info=True)
@@ -558,12 +564,19 @@ class MessageHandler:
 
         # 检查消息中是否包含结束关键词
         is_end_of_conversation = any(keyword in content for keyword in end_keywords)
+        raw_content = content
+        # 记录一个raw_content用于存到记忆中
         if is_end_of_conversation:
             # 如果检测到结束关键词，在消息末尾添加提示
             content += "\n请你回应用户的结束语"
             logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
+        else:
+            # 此处修改(2025/03/14 by eliver) 不是结束时则添加记忆到内容中
+            memories = self.memory_handler.get_rag_memories(content)
+            content += f"\n以上是用户的沟通内容；以下是记忆中检索的内容：{';'.join(memories)}\n请你根据以上内容回复用户的消息。"
 
         # 获取 API 回复
+        # logger.info(f"生成依据内容 {content}")
         reply = self.get_api_response(content, chat_id)
         if "</think>" in reply:
             think_content, reply = reply.split("</think>", 1)
@@ -684,7 +697,7 @@ class MessageHandler:
 
         # 异步保存消息记录
         threading.Thread(target=self.save_message,
-                         args=(username, sender_name, content, reply)).start()
+                         args=(username, sender_name, raw_content, reply)).start()
          # 重置计数器（如果大于0）
         if self.unanswered_counters.get(username, 0) > 0:
             self.unanswered_counters[username] = 0
