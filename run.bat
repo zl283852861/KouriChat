@@ -3,26 +3,18 @@ setlocal enabledelayedexpansion
 
 :: 设置控制台编码为 GBK
 chcp 936 >nul
-title My Dream Moments 梦想家
+title My Dream Moments 启动器
 
 cls
 echo ====================================
 echo        My Dream Moments Dreamer
-echo        My Dream Moments Dreamer
 echo ====================================
 echo.
 echo ╔══════════════════════════════════╗
 echo ║    My Dream Moments - AI Chat     ║
 echo ║    Created with Heart by umaru    ║
 echo ╚══════════════════════════════════╝
-echo ╔══════════════════════════════════╗
-echo ║    My Dream Moments - AI Chat     ║
-echo ║    Created with Heart by umaru    ║
-echo ╚══════════════════════════════════╝
 echo.
-
-:: 添加错误捕获
-echo [尝试] 正在启动程序...
 
 :: 添加错误捕获
 echo [尝试] 正在启动程序...
@@ -35,16 +27,11 @@ if errorlevel 1 (
     echo.
     echo 按任意键退出...
     pause >nul
-    echo [错误] Python未安装，请先安装Python
-    echo.
-    echo 按任意键退出...
-    pause >nul
     exit /b 1
 )
 
 :: 检测 Python 版本
 for /f "tokens=2" %%I in ('python -V 2^>^&1') do set PYTHON_VERSION=%%I
-echo [尝试] 检测到Python版本: !PYTHON_VERSION!
 echo [尝试] 检测到Python版本: !PYTHON_VERSION!
 for /f "tokens=2 delims=." %%I in ("!PYTHON_VERSION!") do set MINOR_VERSION=%%I
 if !MINOR_VERSION! GEQ 13 (
@@ -57,34 +44,10 @@ if !MINOR_VERSION! GEQ 13 (
 )
 
 :: 设置虚拟环境目录
-:: 设置虚拟环境目录
 set VENV_DIR=.venv
 
 :: 如果虚拟环境不存在或激活脚本不存在，则重新创建
-:: 如果虚拟环境不存在或激活脚本不存在，则重新创建
 if not exist %VENV_DIR% (
-    goto :create_venv
-) else if not exist %VENV_DIR%\Scripts\activate.bat (
-    echo [警告] 虚拟环境似乎已损坏，正在重新创建...
-    rmdir /s /q %VENV_DIR% 2>nul
-    goto :create_venv
-) else (
-    goto :activate_venv
-)
-
-:create_venv
-echo [尝试] 正在创建虚拟环境...
-python -m venv %VENV_DIR% 2>nul
-if errorlevel 1 (
-    echo [错误] 创建虚拟环境失败
-    echo.
-    echo 可能原因:
-    echo 1. Python venv 模块未安装
-    echo 2. 权限不足
-    echo 3. 磁盘空间不足
-    echo.
-    echo 尝试安装 venv 模块...
-    python -m pip install virtualenv
     goto :create_venv
 ) else if not exist %VENV_DIR%\Scripts\activate.bat (
     echo [警告] 虚拟环境似乎已损坏，正在重新创建...
@@ -112,14 +75,8 @@ if errorlevel 1 (
         echo.
         echo 按任意键退出...
         pause >nul
-        echo [错误] 安装 virtualenv 失败
-        echo.
-        echo 按任意键退出...
-        pause >nul
         exit /b 1
     )
-    echo [尝试] 使用 virtualenv 创建虚拟环境...
-    python -m virtualenv %VENV_DIR%
     echo [尝试] 使用 virtualenv 创建虚拟环境...
     python -m virtualenv %VENV_DIR%
     if errorlevel 1 (
@@ -213,16 +170,8 @@ if not exist run_config_web.py (
 echo [尝试] 正在启动应用程序...
 python run_config_web.py
 set PROGRAM_EXIT_CODE=%errorlevel%
-set PROGRAM_EXIT_CODE=%errorlevel%
 
 :: 异常退出处理
-if %PROGRAM_EXIT_CODE% NEQ 0 (
-    echo [错误] 程序异常退出，错误代码: %PROGRAM_EXIT_CODE%
-    echo.
-    echo 可能原因:
-    echo 1. Python模块缺失
-    echo 2. 程序内部错误
-    echo 3. 权限不足
 if %PROGRAM_EXIT_CODE% NEQ 0 (
     echo [错误] 程序异常退出，错误代码: %PROGRAM_EXIT_CODE%
     echo.
