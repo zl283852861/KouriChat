@@ -814,7 +814,7 @@ class MessageHandler:
             logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
         else:
             # 此处修改(2025/03/14 by eliver) 不是结束时则添加记忆到内容中
-            memories = self.memory_handler.get_rag_memories(content)
+            memories = self.memory_handler.get_relevant_memories(content, username)
             content += f"\n以上是用户的沟通内容；以下是记忆中检索的内容：{';'.join(memories)}\n请你根据以上内容回复用户的消息。"
 
         # 获取 API 回复
