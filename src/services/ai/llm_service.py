@@ -11,16 +11,9 @@ import logging
 import re
 import os
 import random
-import json  # 新增导入
-import time  # 新增导入
 from typing import Dict, List, Optional
-from openai import OpenAI, InternalServerError
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-    retry_if_exception_type
-)
+from openai import InternalServerError
+from services.ai.llms.openai_llm import OpenAILLM
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
@@ -37,56 +30,32 @@ class LLMService:
         :param max_token: 最大token限制
         :param temperature: 创造性参数(0~2)
         :param max_groups: 最大对话轮次记忆
-        :param system_prompt: 系统级提示词
         """
+        # 记录配置信息
+        logger.info(f"LLMService初始化 - 模型: {model}, URL: {base_url}")
         
-        if 'localhost' in base_url or '127.0.0.1' in base_url:
-            logger.warning('⚠️ 检查到通过本地访问大模型，请注意网络配置（闭关vpn, 清除本地代理...）')
-            
-        if 'ollama' in api_key or '11434' in base_url.split(':'): 
-            if base_url.endswith('v1'):
-                logger.warning('检查到可能使用ollama，但没有以 v1 结尾')
-                end = 'v1' if  base_url[-1] == '/' else '/v1'
-                base_url = base_url + end
-
-        self.client = OpenAI(
+        # 使用OpenAILLM作为内核，启用单例模式
+        self.llm = OpenAILLM(
+            logger=logger,
+            model_name=model,
+            url=base_url,
             api_key=api_key,
-            base_url=base_url,
-            default_headers={
-                "Content-Type": "application/json",
-                "User-Agent": "MyDreamBot/1.0"
-            }
+            temperature=temperature,
+            max_tokens=max_token,
+            max_context_messages=max_groups,
+            n_ctx=4096,  # 默认上下文长度
+            singleton=False  # 使用单例模式
         )
+        
         self.config = {
             "model": model,
             "max_token": max_token,
             "temperature": temperature,
             "max_groups": max_groups,
         }
-        self.chat_contexts: Dict[str, List[Dict]] = {}
-
+        
         # 安全字符白名单（可根据需要扩展）
         self.safe_pattern = re.compile(r'[\x00-\x1F\u202E\u200B]')
-        self.available_models = []
-
-    def _manage_context(self, user_id: str, message: str, role: str = "user"):
-        """
-        上下文管理器（支持动态记忆窗口）
-
-        :param user_id: 用户唯一标识
-        :param message: 消息内容
-        :param role: 角色类型(user/assistant)
-        """
-        if user_id not in self.chat_contexts:
-            self.chat_contexts[user_id] = []
-
-        # 添加新消息
-        self.chat_contexts[user_id].append({"role": role, "content": message})
-
-        # 维护上下文窗口
-        while len(self.chat_contexts[user_id]) > self.config["max_groups"] * 2:
-            # 优先保留最近的对话组
-            self.chat_contexts[user_id] = self.chat_contexts[user_id][-self.config["max_groups"]*2:]
 
     def _sanitize_response(self, raw_text: str) -> str:
         """
@@ -102,112 +71,6 @@ class LLMService:
             logger.error(f"Response sanitization failed: {str(e)}")
             return "响应处理异常，请重新尝试"
 
-    def _validate_response(self, response: dict) -> bool:
-        """
-        API响应校验增强版
-        验证点涵盖：
-        1. 基础字段存在性
-        2. 字段类型校验
-        3. 关键内容有效性
-        4. 数据一致性校验
-        """
-        # DEBUG模式时可打印完整响应结构
-        logger.debug("API响应调试信息：\n%s", json.dumps(response, indent=2, ensure_ascii=False))
-
-        # —— 校验层级1：基础结构 ——
-        required_root_keys = {"id", "object", "created", "model", "choices", "usage"}
-        if missing := required_root_keys - response.keys():
-            logger.error("根层级缺少必需字段：%s", missing)
-            return False
-
-        # —— 校验层级2：字段类型校验 ——
-        type_checks = [
-            ("id", str, "字段应为字符串"),
-            ("object", str, "字段应为字符串"),
-            ("created", int, "字段应为时间戳整数"),
-            ("model", str, "字段应为模型名称字符串"),
-            ("choices", list, "字段应为列表类型"),
-            ("usage", dict, "字段应为使用量字典")
-        ]
-
-        for field, expected_type, error_msg in type_checks:
-            if not isinstance(response.get(field), expected_type):
-                logger.error("字段[%s]类型错误：%s", field, error_msg)
-                return False
-
-        # —— 校验层级3：字段内容有效性 ——
-        # 检查模型名称格式 - 支持多种模型格式
-        # model_name = response["model"]
-        # valid_model_prefixes = [
-        #     'deepseek', 'qwen', 'claude', 'chatglm', 'llama', 'gpt', 'baichuan', 
-        #     'mixtral', 'gemma', 'phi', 'yi', 'glm'
-        # ]
-        
-        # # 检查模型名称是否符合常见命名模式
-        # if not any(re.search(prefix, model_name, re.IGNORECASE) for prefix in valid_model_prefixes):
-        #     logger.warning("模型名称格式不常见：%s，但仍继续处理", model_name)
-        #     # 注意：这里改为警告而不是错误，不再拒绝响应
-
-        # 检查时间戳有效性（允许过去30年到未来5分钟）
-        current_timestamp = int(time.time())
-        if not (current_timestamp - 946080000 < response["created"] < current_timestamp + 300):
-            logger.error("无效时间戳：%s", response["created"])
-            return False
-
-        # —— 校验层级4：choices数组结构 ——
-        if len(response["choices"]) == 0:
-            logger.error("空响应choices数组")
-            return False
-
-        for index, choice in enumerate(response["choices"]):
-            if not isinstance(choice, dict):
-                logger.error("第%d个choice类型错误", index)
-                return False
-
-            if missing := {"index", "message", "finish_reason"} - choice.keys():
-                logger.error("choice%d缺少字段：%s", index, missing)
-                return False
-
-            # 校验message结构
-            message = choice["message"]
-            if missing := {"role", "content"} - message.keys():
-                logger.error("message结构异常：缺少%s", missing)
-                return False
-
-            if message["role"] != "assistant":
-                logger.error("非预期角色类型：%s", message["role"])
-                return False
-
-            if not isinstance(message["content"], str) or len(message["content"].strip()) == 0:
-                logger.error("无效消息内容：%s", message["content"])
-                return False
-
-            # 校验finish_reason
-            if choice["finish_reason"] not in ("stop", "length", "content_filter", None):
-                logger.error("异常对话终止原因：%s", choice["finish_reason"])
-                return False
-
-        # —— 校验层级5：使用量统计 ——
-        usage = response["usage"]
-        usage_checks = [
-            ("prompt_tokens", int, "应为非负整数"),
-            ("completion_tokens", int, "应为非负整数"),
-            ("total_tokens", int, "应为非负整数")
-        ]
-
-        for field, expected_type, error_msg in usage_checks:
-            if not isinstance(usage.get(field), expected_type) or usage[field] < 0:
-                logger.error("使用量字段[%s]无效：%s", field, error_msg)
-                return False
-
-        # 校验token总数一致性
-        if usage["total_tokens"] != (usage["prompt_tokens"] + usage["completion_tokens"]):
-            logger.error("Token总数不一致：prompt(%d) + completion(%d) ≠ total(%d)",
-                         usage["prompt_tokens"], usage["completion_tokens"], usage["total_tokens"])
-            return False
-
-        return True
-
     def get_response(self, message: str, user_id: str, system_prompt: str) -> str:
         """
         完整请求处理流程
@@ -218,10 +81,7 @@ class LLMService:
                 logger.warning("收到空消息请求")
                 return "嗯...我好像收到了空白消息呢（歪头）"
 
-            # —— 阶段2：上下文更新 ——
-            self._manage_context(user_id, message)
-
-            # —— 阶段3：构建请求参数 ——
+            # —— 阶段2：构建请求参数 ——
             # 拼接基础Prompt
             try:
                 # 从当前文件位置(llm_service.py)向上导航到项目根目录
@@ -235,43 +95,28 @@ class LLMService:
                 logger.error(f"基础Prompt文件读取失败: {str(e)}")
                 base_content = ""
             
-            system_prompt = f"{system_prompt}\n{base_content}"
-            # print(system_prompt) #测试拼接
+            # 合并系统提示词
+            full_system_prompt = f"{system_prompt}\n{base_content}"
             
-            # 构建消息列表
-            messages = [
-                {"role": "system", "content": system_prompt},
-                *self.chat_contexts.get(user_id, [])[-self.config["max_groups"] * 2:]
-            ]
-
-            # 主要 api 请求（重要）
-            # 标准 OpenAI 格式
-            request_config = {
-                "model": self.config["model"],  # 模型名称
-                "messages": messages,  # 消息列表
-                "temperature": self.config["temperature"],  # 温度参数
-                "max_tokens": self.config["max_token"],  # 最大 token 数
-                "top_p": 0.95,  # top_p 参数
-                "frequency_penalty": 0.2  # 频率惩罚参数
-            }
+            # 设置系统提示词
+            if self.llm.system_prompt != full_system_prompt:
+                # 重置上下文并设置新的系统提示词
+                self.llm.context = []
+                if full_system_prompt:
+                    self.llm.context.append({"role": "system", "content": full_system_prompt})
+                    self.llm.system_prompt = full_system_prompt
             
-            # 使用 OpenAI 客户端发送请求
-            response = self.client.chat.completions.create(**request_config)
-            # 验证 API 响应结构
-            if not self._validate_response(response.model_dump()):
-                raise ValueError("错误的API响应结构")
-                
-            # 获取原始内容
-            raw_content = response.choices[0].message.content
+            # 使用OpenAILLM处理请求
+            response = self.llm.handel_prompt(message)
+            
             # 清理响应内容
-            clean_content = self._sanitize_response(raw_content)
-            # 管理上下文
-            self._manage_context(user_id, clean_content, "assistant")
+            clean_content = self._sanitize_response(response)
+            
             # 返回清理后的内容
             return clean_content or ""
         
         except InternalServerError as e:
-                logger.error(f"{e.message}, 请检查网络配置")
+            logger.error(f"{e.message}, 请检查网络配置")
             
         except Exception as e:
             logger.error("大语言模型服务调用失败: %s", str(e), exc_info=True)
@@ -285,23 +130,21 @@ class LLMService:
         """
         清空指定用户的对话历史
         """
-        if user_id in self.chat_contexts:
-            del self.chat_contexts[user_id]
-            logger.info("已清除用户 %s 的对话历史", user_id)
+        try:
+            # 重置LLM上下文，只保留系统提示
+            system_prompt = None
+            if self.llm.context and self.llm.context[0]["role"] == "system":
+                system_prompt = self.llm.context[0]["content"]
+            
+            self.llm.context = []
+            if system_prompt:
+                self.llm.context.append({"role": "system", "content": system_prompt})
+            
+            logger.info("已清除用户对话历史")
             return True
-        return False
-
-    def analyze_usage(self, response: dict) -> Dict:
-        """
-        用量分析工具
-        """
-        usage = response.get("usage", {})
-        return {
-            "prompt_tokens": usage.get("prompt_tokens", 0),
-            "completion_tokens": usage.get("completion_tokens", 0),
-            "total_tokens": usage.get("total_tokens", 0),
-            "estimated_cost": (usage.get("total_tokens", 0) / 1000) * 0.02  # 示例计价
-        }
+        except Exception as e:
+            logger.error(f"清除历史失败: {str(e)}")
+            return False
 
     def chat(self, messages: list, **kwargs) -> str:
         """
@@ -315,38 +158,18 @@ class LLMService:
             str: AI的回复内容
         """
         try:
-            response = self.client.chat.completions.create(
-                model=self.config["model"],
-                messages=messages,
-                temperature=kwargs.get('temperature', self.config["temperature"]),
-                max_tokens=self.config["max_token"]
-            )
+            # 临时设置上下文
+            original_context = self.llm.context.copy()
+            self.llm.context = messages[:-1]  # 除了最后一条用户消息
             
-            if not self._validate_response(response.model_dump()):
-                raise ValueError("Invalid API response structure")
-                
-            return response.choices[0].message.content or ""
+            # 处理最后一条用户消息
+            response = self.llm.handel_prompt(messages[-1]["content"])
+            
+            # 恢复原始上下文
+            self.llm.context = original_context
+            
+            return response
             
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
             return ""
-
-    def get_ollama_models(self) -> List[Dict]:
-        """获取本地 Ollama 可用的模型列表"""
-        try:
-            models = self.client.models.list().data # 格式 -> [Model(id='glm4:latest', created=1740405444, object='model', owned_by='library'), ...]
-        
-            return [
-                {
-                    "id": model.id,
-                    "name": model.id,
-                    "status": "active",
-                    "type": "chat",
-                    "context_length": 16000  # 默认上下文长度
-                }
-                for model in models
-            ]
-        
-        except Exception as e:
-            logger.error(f"获取Ollama模型列表失败: {str(e)}")
-            return []

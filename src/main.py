@@ -21,8 +21,9 @@ from src.handlers.memory import MemoryHandler
 from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer  # 导入情感分析模块
 from src.utils.logger import LoggerConfig
 from utils.console import print_status
-from colorama import init, Style
+from colorama import init, Style, Fore
 from src.AutoTasker.autoTasker import AutoTasker
+import sys
 
 # 创建一个事件对象来控制线程的终止
 stop_event = threading.Event()
@@ -31,15 +32,15 @@ stop_event = threading.Event()
 root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 检查并初始化配置文件
-config_path = os.path.join(root_dir, 'src', 'config', 'config.json')
-config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
-# 初始化 ROBOT_WX_NAME 变量
+# config_path = os.path.join(root_dir, 'src', 'config', 'config.json')
+# config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
+# # 初始化 ROBOT_WX_NAME 变量
 ROBOT_WX_NAME = ""
-if not os.path.exists(config_path) and os.path.exists(config_template_path):
-    logger = logging.getLogger('main')
-    logger.info("配置文件不存在，正在从模板创建...")
-    shutil.copy2(config_template_path, config_path)
-    logger.info(f"已从模板创建配置文件: {config_path}")
+# if not os.path.exists(config_path) and os.path.exists(config_template_path):
+#     logger = logging.getLogger('main')
+#     logger.info("配置文件不存在，正在从模板创建...")
+#     shutil.copy2(config_template_path, config_path)
+#     logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 配置日志
 # 清除所有现有日志处理器
@@ -63,6 +64,9 @@ logger.info("情感分析模块预热完成")
 
 ROBOT_WX_NAME = ""
 
+# 在初始化memory_handler前添加此日志
+logger.info(f"配置文件中的模型: {config.llm.model}")
+logger.info(f"常量MODEL的值: {MODEL}")
 
 # ... 现有ChatBot类代码 ...
 
@@ -77,7 +81,53 @@ class DebugBot:
         self.queue_lock = threading.Lock()
         self.ai_last_reply_time = {}
         self.robot_name = "DebugBot"
+        # 添加日志处理器相关属性
+        self._log_buffer = []
+        self._original_handlers = None
+        self._is_input_mode = False
+        # 日志颜色
+        self.ai_color = Fore.CYAN
+        self.system_color = Fore.YELLOW
+        self.error_color = Fore.RED
         logger.info("调试机器人已初始化")
+
+    def _pause_logging(self):
+        """暂停日志输出并等待日志队列清空"""
+        # 保存当前的处理器
+        logger = logging.getLogger('main')
+        self._original_handlers = logger.handlers[:]
+        
+        # 移除所有控制台处理器
+        for handler in logger.handlers[:]:
+            if isinstance(handler, logging.StreamHandler):
+                logger.removeHandler(handler)
+        
+        # 等待确保日志队列处理完毕
+        time.sleep(0.5)
+        sys.stdout.flush()
+        self._is_input_mode = True
+        
+        # 添加一个明显的分隔
+        print("\n" + "="*50)
+        print(f"{Fore.GREEN}[等待用户输入]{Style.RESET_ALL}")
+
+    def _resume_logging(self):
+        """恢复日志输出"""
+        if self._original_handlers:
+            logger = logging.getLogger('main')
+            # 恢复原来的处理器
+            for handler in self._original_handlers:
+                if handler not in logger.handlers:
+                    logger.addHandler(handler)
+        self._is_input_mode = False
+
+    def log_colored_message(self, message, color=None):
+        """使用logger记录带颜色的消息"""
+        if color:
+            formatted_msg = f"{color}{message}{Style.RESET_ALL}"
+            logger.info(formatted_msg)
+        else:
+            logger.info(message)
 
     def process_user_messages(self, chat_id):
         """模拟消息处理"""
@@ -88,10 +138,17 @@ class DebugBot:
                 user_data = self.user_queues.pop(chat_id)
                 messages = user_data['messages']
 
-            print(f"\n[DEBUG] 处理消息队列 - 内容: {' | '.join(messages)}")
-            response = input("[请输入AI回复] ")
+            self.log_colored_message(f"[处理消息队列] - 内容: {' | '.join(messages)}", self.system_color)
+            
+            # 暂停日志确保用户可以输入
+            self._pause_logging()
+            response = input("[请输入AI回复] >>> ")
+            print("-"*50)  # 添加分隔线
+            self._resume_logging()
 
             if response:
+                # 使用彩色日志显示AI回复
+                self.log_colored_message(f"[AI回复] {response}", self.ai_color)
                 self.memory_handler.add_short_memory(
                     "用户调试输入",
                     response,
@@ -103,17 +160,37 @@ class DebugBot:
 
     def handle_wxauto_message(self, msg, chatName, is_group=False):
         """控制台交互处理"""
-        print(f"\n[新消息] 来源: {chatName}")
-        user_input = input("[请输入测试消息] ")
-
+        # 暂停日志确保用户可以输入
+        self._pause_logging()
+        
+        try:
+            user_input = input("[请输入测试消息] >>> ")
+            print("-"*50)  # 添加分隔线使输入更清晰
+        finally:
+            # 确保恢复日志输出
+            self._resume_logging()
+        
+        # 记录用户输入
+        self.log_colored_message(f"[用户输入] {user_input}", Fore.WHITE)
+        
         # 模拟消息处理流程
-        self.message_handler.handle_user_message(
+        result = self.message_handler.handle_user_message(
             content=user_input,
             chat_id=chatName,
             sender_name="debug_user",
             username="debug_user",
             is_group=False
         )
+        
+        # 如果有回复，显示为彩色
+        if result:
+            reply_text = result[0] if isinstance(result, list) else result
+            self.log_colored_message(f"[AI回复摘要] {reply_text[:50]}...", self.ai_color)
+        
+        # 处理完成提示
+        self.log_colored_message(f"[处理完成] {'-'*30}", self.system_color)
+        
+        return result
 
 
 class ChatBot:
@@ -769,12 +846,12 @@ def main(debug_mode=False):
         )
         memory_handler = MemoryHandler(
             root_dir=root_dir,
-            api_key=DEEPSEEK_API_KEY,
-            base_url=DEEPSEEK_BASE_URL,
-            model=MODEL,
-            max_token=MAX_TOKEN,
-            temperature=TEMPERATURE,
-            max_groups=MAX_GROUPS,
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            model=config.llm.model,
+            max_token=config.llm.max_tokens,
+            temperature=config.llm.temperature,
+            max_groups=config.behavior.context.max_groups,
             bot_name=ROBOT_WX_NAME
         )
         moonshot_ai = ImageRecognitionService(
@@ -809,11 +886,11 @@ def main(debug_mode=False):
         )
 
         if debug_mode:
-            logger.level = logging.DEBUG
-            logger.propagate = True
-            print("\n" + "=" * 50)
-            print("调试模式已启用")
-            print("=" * 50 + "\n")
+            # 设置日志颜色和级别
+            logger.setLevel(logging.DEBUG)
+            # 使用正确导入的init函数
+            init(autoreset=True)  # 使用已导入的init而不是colorama_init
+            logger.info(f"{Fore.YELLOW}调试模式已启用{Style.RESET_ALL}")
 
             # 初始化调试机器人
             global chat_bot, wx
