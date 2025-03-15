@@ -8,17 +8,14 @@
 - 对话结束处理
 """
 
+from datetime import datetime
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from openai import OpenAI
 from wxauto import WeChat
 import random
 import os
 from services.ai.llm_service import LLMService
-from handlers.memory import MemoryHandler
 from config import config
 import re
 import jieba
@@ -28,15 +25,9 @@ logger = logging.getLogger('main')
 
 
 class MessageHandler:
-    def __init__(self, root_dir, api_key, base_url, model, max_token, temperature,
-                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler,
+    def __init__(self, root_dir, llm: LLMService, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler,
                  is_qq=False, is_debug=False):
         self.root_dir = root_dir
-        self.api_key = api_key
-        self.model = model
-        self.max_token = max_token
-        self.temperature = temperature
-        self.max_groups = max_groups
         self.robot_name = robot_name
         self.prompt_content = prompt_content
         self.debug = is_debug
@@ -45,15 +36,8 @@ class MessageHandler:
         self.last_message_time = {}  # 用户最后发送消息的时间
         self.message_timer = {}  # 用户消息处理定时器
         # 使用 DeepSeekAI 替换直接的 OpenAI 客户端
-        self.deepseek = LLMService(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            max_token=max_token,
-            temperature=temperature,
-            max_groups=max_groups
-        )
-
+        # 2025-03-15修改，把deepseek改为外部注入
+        self.deepseek = llm
         # 消息队列相关
         self.user_queues = {}
         self.queue_lock = threading.Lock()
@@ -90,7 +74,8 @@ class MessageHandler:
 
         # 保存到记忆 - 移除这一行，避免重复保存
         # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
-        self.memory_handler.add_short_memory(message, reply, sender_id)
+        # 修改(2025/3/15 by Elimir) 注释这一行，移除add_short_memory，改成在memory_handler中添加钩子
+        # self.memory_handler.add_short_memory(message, reply, sender_id)
 
     def get_api_response(self, message: str, user_id: str) -> str:
         """获取 API 回复（添加历史对话支持）"""
@@ -105,7 +90,7 @@ class MessageHandler:
                 logger.debug(f"原始人设提示文件大小: {len(original_content)} bytes")
 
             # 获取最近的对话历史
-            recent_history = self.memory_handler.get_recent_memory(user_id, max_count=5)  # 获取最近5轮对话
+            recent_history = self.memory_handler.get_relevant_memories(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",user_id)  # 获取最近5轮对话
 
             # 构建带有历史记录的上下文
             context = original_content + "\n\n最近的对话记录：\n"
@@ -246,7 +231,7 @@ class MessageHandler:
                 return None
 
             # 获取最近的对话记录作为上下文
-            recent_history = self.memory_handler.get_recent_memory(username, max_count=1)
+            recent_history = self.memory_handler.get_relevant_memories(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",username)
             context = ""
             if recent_history:
                 context = f"{recent_history[0]['message']}(上次的对话内容，只是提醒，无需进行互动，处理重点请放在后面的新内容)\n"
@@ -551,7 +536,7 @@ class MessageHandler:
             logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
         else:
             # 此处修改(2025/03/14 by eliver) 不是结束时则添加记忆到内容中
-            memories = self.memory_handler.get_rag_memories(content)
+            memories = self.memory_handler.get_relevant_memories(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",content)
             content += f"\n以上是用户的沟通内容；以下是记忆中检索的内容：{';'.join(memories)}\n请你根据以上内容回复用户的消息。"
 
         # 获取 API 回复

@@ -33,3 +33,4 @@ faiss-cpu
 numpy
 openai
 ruamel.yaml
+mysql-connector-python
