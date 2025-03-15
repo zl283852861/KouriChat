@@ -87,7 +87,8 @@ class MemoryHandler:
         return (
             os.path.join(user_dir, "short_memory.txt"),
             os.path.join(user_dir, "long_memory_buffer.txt"),
-            os.path.join(user_dir, "important_memory.txt")  # 修改文件名
+            # os.path.join(user_dir, "important_memory.txt")  # 注释掉重要记忆文件
+            None  # 使用None替代重要记忆文件路径
         )
 
     def add_short_memory(self, message: str, reply: str, user_id: str):
@@ -125,35 +126,35 @@ class MemoryHandler:
                 return
 
             # 检查关键词并添加重要记忆
-            if any(keyword in message for keyword in KEYWORDS):
-                self._add_important_memory(message, user_id)
+            # if any(keyword in message for keyword in KEYWORDS):
+            #     self._add_important_memory(message, user_id)
 
         except Exception as e:
             logger.error(f"添加短期记忆失败: {str(e)}")
             print(f"控制台日志: 添加短期记忆失败 - 用户ID: {user_id}, 错误: {str(e)}")
 
-    def _add_important_memory(self, message: str, user_id: str):
-        """添加重要记忆"""
-        if not user_id:
-            raise ValueError("用户ID不能为空")
-
-        try:
-            _, _, important_memory_path = self._get_memory_paths(user_id)
-            timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-            memory_content = f"[{timestamp}] 重要记忆: {message}\n"
-
-            # 写入Rag记忆
-            get_memory()[f"{timestamp} 重要记忆"] = f"[{timestamp}] 重要记忆: {message}"
-            get_memory().save_config()
-
-            with open(important_memory_path, "a", encoding="utf-8") as f:
-                f.write(memory_content)
-            logger.info(f"成功写入重要记忆: {user_id}")
-            print(f"控制台日志: 成功写入重要记忆 - 用户ID: {user_id}")
-        except Exception as e:
-            logger.error(f"写入重要记忆失败: {str(e)}")
-            print(f"控制台日志: 写入重要记忆失败 - 用户ID: {user_id}, 错误: {str(e)}")
+    # def _add_important_memory(self, message: str, user_id: str):
+    #     """添加重要记忆"""
+    #     if not user_id:
+    #         raise ValueError("用户ID不能为空")
+    # 
+    #     try:
+    #         _, _, important_memory_path = self._get_memory_paths(user_id)
+    #         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    # 
+    #         memory_content = f"[{timestamp}] 重要记忆: {message}\n"
+    # 
+    #         # 写入Rag记忆
+    #         get_memory()[f"{timestamp} 重要记忆"] = f"[{timestamp}] 重要记忆: {message}"
+    #         get_memory().save_config()
+    # 
+    #         with open(important_memory_path, "a", encoding="utf-8") as f:
+    #             f.write(memory_content)
+    #         logger.info(f"成功写入重要记忆: {user_id}")
+    #         print(f"控制台日志: 成功写入重要记忆 - 用户ID: {user_id}")
+    #     except Exception as e:
+    #         logger.error(f"写入重要记忆失败: {str(e)}")
+    #         print(f"控制台日志: 写入重要记忆失败 - 用户ID: {user_id}, 错误: {str(e)}")
 
     def _ensure_memory_files(self, user_id: str):
         """确保用户的记忆文件存在"""
@@ -166,7 +167,8 @@ class MemoryHandler:
             os.makedirs(user_dir, exist_ok=True)
 
             # 检查并创建所有必要的文件
-            for file_path in [short_memory_path, long_memory_buffer_path, important_memory_path]:
+            # for file_path in [short_memory_path, long_memory_buffer_path, important_memory_path]:
+            for file_path in [short_memory_path, long_memory_buffer_path]:  # 移除important_memory_path
                 if not os.path.exists(file_path):
                     with open(file_path, 'w', encoding='utf-8') as f:
                         pass  # 创建空文件
@@ -191,14 +193,14 @@ class MemoryHandler:
         memories = []
 
         # 检查查询是否与重要记忆相关
-        if any(keyword in query for keyword in KEYWORDS):
-            try:
-                with open(important_memory_path, "r", encoding="utf-8") as f:
-                    important_memories = [line.strip() for line in f if line.strip()]
-                    memories.extend(important_memories)
-                logger.debug(f"检索到用户 {user_id} 的重要记忆: {len(important_memories)} 条")
-            except Exception as e:
-                logger.error(f"读取重要记忆失败: {str(e)}")
+        # if any(keyword in query for keyword in KEYWORDS):
+        #     try:
+        #         with open(important_memory_path, "r", encoding="utf-8") as f:
+        #             important_memories = [line.strip() for line in f if line.strip()]
+        #             memories.extend(important_memories)
+        #         logger.debug(f"检索到用户 {user_id} 的重要记忆: {len(important_memories)} 条")
+        #     except Exception as e:
+        #         logger.error(f"读取重要记忆失败: {str(e)}")
 
         # 检查查询是否明确要求查看长期记忆
         if "长期记忆" in query or "日记" in query:
