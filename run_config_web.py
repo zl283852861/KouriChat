@@ -48,6 +48,7 @@ import win32job
 import win32process
 from src.Wechat_Login_Clicker.Wechat_Login_Clicker import click_wechat_buttons
 from dotenv import load_dotenv
+import yaml
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -313,13 +314,14 @@ def index():
 def save_config():
     """保存配置"""
     try:
+        import yaml
         data = request.get_json()
         logger.debug(f"接收到的配置数据: {data}")
 
         # 读取当前配置
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            current_config = json.load(f)
+            current_config = yaml.safe_load(f)
 
         # 确保 categories 和 schedule_settings 存在
         if 'categories' not in current_config:
@@ -371,7 +373,7 @@ def save_config():
 
         # 保存配置
         with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(current_config, f, ensure_ascii=False, indent=4)
+            yaml.dump(current_config, f, allow_unicode=True, sort_keys=False)
 
         # 立即重新加载配置
         g.config_data = current_config
@@ -519,9 +521,10 @@ def get_background():
 def load_config():
     """在每次请求之前加载配置"""
     try:
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        import yaml
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            g.config_data = json.load(f)  # 使用 g 来存储配置数据
+            g.config_data = yaml.safe_load(f)  # 使用 g 来存储配置数据
     except Exception as e:
         logger.error(f"加载配置失败: {str(e)}")
 
@@ -845,9 +848,10 @@ def config():
     # 直接从配置文件读取任务数据
     tasks = []
     try:
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        import yaml
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
+            config_data = yaml.safe_load(f)
             if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
                 if 'settings' in config_data['categories']['schedule_settings'] and 'tasks' in \
                         config_data['categories']['schedule_settings']['settings']:
@@ -1955,14 +1959,15 @@ def get_model_configs():
 def save_quick_setup():
     """保存快速设置"""
     try:
+        import yaml
         new_config = request.json or {}
         from src.config import config
 
         # 读取当前配置
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
-                current_config = json.load(f)
+                current_config = yaml.safe_load(f)
         except:
             current_config = {"categories": {}}
 
@@ -2025,7 +2030,7 @@ def save_quick_setup():
 
         # 保存更新后的配置
         with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(current_config, f, ensure_ascii=False, indent=4)
+            yaml.dump(current_config, f, allow_unicode=True, sort_keys=False)
 
         # 重新加载配置
         importlib.reload(sys.modules['src.config'])
@@ -2350,11 +2355,12 @@ def upload_avatarEmoji_zip():
 def get_tasks():
     """获取最新的任务数据"""
     try:
+        import yaml
         # 直接从配置文件读取任务数据
         tasks = []
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
+            config_data = yaml.safe_load(f)
             if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
                 if 'settings' in config_data['categories']['schedule_settings'] and 'tasks' in \
                         config_data['categories']['schedule_settings']['settings']:
@@ -2378,10 +2384,11 @@ def get_tasks():
 def get_all_configs():
     """获取所有最新的配置数据"""
     try:
+        import yaml
         # 直接从配置文件读取所有配置数据
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
+            config_data = yaml.safe_load(f)
 
         # 解析配置数据为前端需要的格式
         configs = {}
@@ -2500,8 +2507,9 @@ def get_all_configs():
             'configs': configs,
             'tasks': tasks
         })
+
     except Exception as e:
-        logger.error(f"获取所有配置数据失败: {str(e)}")
+        logger.error(f"获取配置数据失败: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)

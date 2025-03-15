@@ -330,8 +330,8 @@ class Updater:
         if 'data/avatars' in normalized_path:
             return True
             
-        # 检查是否是config.json文件
-        if normalized_path.endswith('config.json') or normalized_path.endswith('config.json.template'):
+        # 检查是否是config文件
+        if normalized_path.endswith('config.yaml') or normalized_path.endswith('config.yaml.template'):
             return True
         
         # 检查是否是用户数据文件

@@ -170,6 +170,40 @@ class MemoryHandler:
         memories = self.lg_tm_m_and_k_m.query(content, self.top_k, self.is_rerank)
         memories += self.short_term_memory.rag.query(content, self.top_k, self.is_rerank)
         return memories
+        
+    def _get_time_related_memories(self, user_id: str, group_id: str = None, sender_name: str = None) -> List[str]:
+        """获取时间相关的记忆"""
+        short_memory_path, _, _ = self._get_memory_paths(user_id, group_id, sender_name)
+        time_memories = []
+        
+        try:
+            with open(short_memory_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+                
+                # 查找最近的时间相关对话
+                for i in range(len(lines) - 1, 0, -1):
+                    line = lines[i].strip()
+                    if not line:
+                        continue
+                        
+                    # 检查是否是时间相关回复
+                    if "现在是" in line and "你:" in line:
+                        # 找到对应的用户问题
+                        if i > 0 and "对方:" in lines[i-1]:
+                            user_question = lines[i-1].strip()
+                            time_memories.append(user_question)
+                            time_memories.append(line)
+                            break
+                            
+                # 如果没有找到明确的时间回复，返回最近的几条对话
+                if not time_memories and len(lines) >= 4:
+                    for i in range(len(lines) - 1, max(0, len(lines) - 5), -1):
+                        if lines[i].strip():
+                            time_memories.append(lines[i].strip())
+        except Exception as e:
+            logger.error(f"读取时间相关记忆失败: {str(e)}")
+            
+        return time_memories
 
     def add_long_term_memory_process_task(self, user_id: str):
         """

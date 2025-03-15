@@ -3,13 +3,13 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 from datetime import datetime
 import logging
-import json
+import yaml
 import os
 
 logger = logging.getLogger(__name__)
 
 class AutoTasker:
-    def __init__(self, message_handler, task_file_path="src/config/config.json"):
+    def __init__(self, message_handler, task_file_path="src/config/config.yaml"):
         """
         初始化自动任务管理器
         
@@ -37,20 +37,35 @@ class AutoTasker:
         try:
             if os.path.exists(self.task_file_path):
                 with open(self.task_file_path, 'r', encoding='utf-8') as f:
-                    tasks_data = json.load(f)
-                    
-                for task in tasks_data["categories"]["schedule_settings"]["settings"]["tasks"]["value"]:
-                    self.add_task(
-                        task_id=task["task_id"],
-                        chat_id=task['chat_id'],
-                        content=task['content'],
-                        schedule_type=task['schedule_type'],
-                        schedule_time=task['schedule_time'],
-                        is_active=task['is_active']
-                    )
-                logger.info(f"成功加载 {len(tasks_data)} 个任务")
+                    tasks_data = yaml.load(f, Loader=yaml.FullLoader)
+                
+                # 检查配置文件结构
+                if "categories" in tasks_data and "schedule_settings" in tasks_data["categories"]:
+                    if "settings" in tasks_data["categories"]["schedule_settings"] and "tasks" in tasks_data["categories"]["schedule_settings"]["settings"]:
+                        tasks = tasks_data["categories"]["schedule_settings"]["settings"]["tasks"]["value"]
+                        if tasks:
+                            for task in tasks:
+                                self.add_task(
+                                    task_id=task["task_id"],
+                                    chat_id=task['chat_id'],
+                                    content=task['content'],
+                                    schedule_type=task['schedule_type'],
+                                    schedule_time=task['schedule_time'],
+                                    is_active=task['is_active']
+                                )
+                            logger.info(f"成功加载 {len(tasks)} 个任务")
+                        else:
+                            logger.debug("没有找到任务配置")
+                    else:
+                        logger.debug("配置文件中没有找到 tasks 设置")
+                else:
+                    logger.debug("配置文件中没有找到 schedule_settings 配置")
+        except KeyError:
+            # 静默处理 KeyError，这通常是因为配置结构不完整
+            logger.debug("配置文件结构不完整，无法加载任务")
         except Exception as e:
-            logger.error(f"加载任务失败: {str(e)}")
+            # 其他异常仍然记录，但使用 warning 级别而不是 error
+            logger.warning(f"加载任务时遇到问题: {str(e)}")
 
     def save_tasks(self):
         """保存任务配置到文件"""
@@ -67,10 +82,10 @@ class AutoTasker:
                 for task_id, task in self.tasks.items()
             ]
             with open(self.task_file_path, 'r', encoding='utf-8') as f:
-                configJson=json.load(f)
-            configJson["categories"]["schedule_settings"]["settings"]["tasks"]["value"]=tasks_data
+                configYaml = yaml.load(f, Loader=yaml.FullLoader)
+            configYaml["categories"]["schedule_settings"]["settings"]["tasks"]["value"] = tasks_data
             with open(self.task_file_path, 'w', encoding='utf-8') as f:
-                json.dump(configJson, f, ensure_ascii=False, indent=4)
+                yaml.dump(configYaml, f, allow_unicode=True)
             logger.info("任务配置已保存")
         except Exception as e:
             logger.error(f"保存任务失败: {str(e)}")

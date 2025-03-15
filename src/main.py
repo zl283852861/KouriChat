@@ -36,11 +36,9 @@ root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
 # # 初始化 ROBOT_WX_NAME 变量
 ROBOT_WX_NAME = ""
+# 初始化微信监听聊天记录集合
+wx_listening_chats = set()
 # if not os.path.exists(config_path) and os.path.exists(config_template_path):
-#     logger = logging.getLogger('main')
-#     logger.info("配置文件不存在，正在从模板创建...")
-#     shutil.copy2(config_template_path, config_path)
-#     logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 配置日志
 # 清除所有现有日志处理器
@@ -504,6 +502,33 @@ def get_personality_summary(prompt_content: str) -> str:
         return "请参考上下文"  # 返回默认特征
 
 
+def is_already_listening(wx_instance, chat_name):
+    """
+    检查是否已经添加了监听
+    
+    Args:
+        wx_instance: WeChat 实例
+        chat_name: 聊天名称
+        
+    Returns:
+        bool: 是否已经添加了监听
+    """
+    try:
+        # 尝试使用内置方法（如果存在）
+        if hasattr(wx_instance, 'IsListening'):
+            return wx_instance.IsListening(chat_name)
+        
+        # 如果内置方法不存在，我们无法确定是否已经在监听
+        # 可以通过其他方式检查，例如检查是否有相关的事件处理器
+        # 但由于我们没有足够的信息，暂时返回 False
+        logger.warning(f"wxauto 模块没有 IsListening 方法，无法确定是否已经在监听 {chat_name}")
+        return False
+    except Exception as e:
+        logger.error(f"检查监听状态失败: {str(e)}")
+        # 出错时返回 False，让程序尝试添加监听
+        return False
+
+
 def auto_send_message():
     """自动发送消息 - 调用message_handler中的方法"""
     # 调用message_handler中的auto_send_message方法
@@ -514,6 +539,7 @@ def auto_send_message():
         is_quiet_time=is_quiet_time,
         start_countdown=start_countdown
     )
+<<<<<<< HEAD
     try:
         if is_quiet_time():
             logger.info("当前处于安静时间，跳过自动发送消息")
@@ -586,6 +612,10 @@ def auto_send_message():
         logger.error(f"自动发送消息失败: {str(e)}")
     finally:
         start_countdown()
+=======
+    # 最后启动新的倒计时
+    start_countdown()
+>>>>>>> e13b0926452eb588a67f79c5cb06ba112d3bd0cc
 
 
 def start_countdown():
@@ -606,9 +636,11 @@ def start_countdown():
 
 
 def message_listener():
+    global wx_listening_chats  # 使用全局变量跟踪已添加的监听器
+    
     wx = None
     last_window_check = 0
-    check_interval = 600
+    check_interval = 600  # 10分钟检查一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 10  # 重连等待时间（秒）
@@ -645,8 +677,13 @@ def message_listener():
                     for chat_name in listen_list:
                         try:
                             if wx.ChatWith(chat_name):
-                                wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
-                                logger.info(f"重新添加监听: {chat_name}")
+                                # 使用全局变量检查是否已经添加了监听
+                                if chat_name not in wx_listening_chats:
+                                    wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
+                                    logger.info(f"重新添加监听: {chat_name}")
+                                    wx_listening_chats.add(chat_name)  # 记录已添加监听的聊天
+                                else:
+                                    logger.info(f"已存在监听，跳过: {chat_name}")
                         except Exception as e:
                             logger.error(f"重新添加监听失败 {chat_name}: {str(e)}")
 
@@ -689,7 +726,6 @@ def message_listener():
                             continue
                             # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
                         if who == msg.sender:
-
                             chat_bot.handle_wxauto_message(msg, msg.sender)  # 处理私聊信息
                         elif ROBOT_WX_NAME != '' and (bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)) or bool(
                                 re.search(f'{ROBOT_WX_NAME}\u2005', msg.content))):
@@ -711,6 +747,8 @@ def initialize_wx_listener():
     """
     初始化微信监听，包含重试机制
     """
+    global wx_listening_chats  # 使用全局变量跟踪已添加的监听器
+    
     max_retries = 3
     retry_delay = 2  # 秒
 
@@ -730,9 +768,15 @@ def initialize_wx_listener():
                         logger.error(f"找不到会话: {chat_name}")
                         continue
 
-                    # 尝试添加监听
-                    wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
-                    logger.info(f"成功添加监听: {chat_name}")
+                    # 使用全局变量检查是否已经添加了监听
+                    if chat_name not in wx_listening_chats:
+                        # 尝试添加监听
+                        wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
+                        logger.info(f"成功添加监听: {chat_name}")
+                        wx_listening_chats.add(chat_name)  # 记录已添加监听的聊天
+                    else:
+                        logger.info(f"已存在监听，跳过: {chat_name}")
+                    
                     time.sleep(0.5)  # 添加短暂延迟，避免操作过快
                 except Exception as e:
                     logger.error(f"添加监听失败 {chat_name}: {str(e)}")
@@ -845,6 +889,7 @@ def main(debug_mode=False):
         tts_api_url=config.media.text_to_speech.tts_api_url
     )
 
+<<<<<<< HEAD
     deepseek = LLMService(
         api_key=config.llm.api_key,
         base_url=config.llm.base_url,
@@ -853,6 +898,92 @@ def main(debug_mode=False):
         temperature=config.llm.temperature,
         max_groups=config.behavior.context.max_groups,
     )
+=======
+        moonshot_ai = ImageRecognitionService(
+            api_key=config.media.image_recognition.api_key,
+            base_url=config.media.image_recognition.base_url,
+            temperature=config.media.image_recognition.temperature,
+            model=config.media.image_recognition.model
+        )
+
+        message_handler = MessageHandler(
+            root_dir=root_dir,
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            model=config.llm.model,
+            max_token=config.llm.max_tokens,
+            temperature=config.llm.temperature,
+            max_groups=config.behavior.context.max_groups,
+            robot_name=ROBOT_WX_NAME,  # 使用动态获取的机器人名称
+            prompt_content=prompt_content,
+            image_handler=image_handler,
+            emoji_handler=emoji_handler,
+            voice_handler=voice_handler,
+            memory_handler=memory_handler,
+            is_debug=debug_mode
+        )
+
+        if debug_mode:
+            # 设置日志颜色和级别
+            logger.setLevel(logging.DEBUG)
+            # 使用正确导入的init函数
+            init(autoreset=True)  # 使用已导入的init而不是colorama_init
+            logger.info(f"{Fore.YELLOW}调试模式已启用{Style.RESET_ALL}")
+
+            # 初始化调试机器人
+            global chat_bot, wx
+            chat_bot = DebugBot(
+                message_handler=message_handler,
+                moonshot_ai=moonshot_ai,
+                memory_handler=memory_handler
+            )
+
+            # 启动控制台交互循环
+            while True:
+                chat_bot.handle_wxauto_message(None, "debug_chat")
+                time.sleep(1)
+        else:
+            # 确保在创建 ChatBot 实例时传递 memory_handler
+            chat_bot = ChatBot(message_handler, moonshot_ai, memory_handler)
+
+            # 设置监听列表
+            global listen_list
+
+            listen_list = config.user.listen_list
+
+            # 获取机器人名称 - 移到前面，优先获取
+            try:
+                wx = WeChat()
+                ROBOT_WX_NAME = wx.A_MyIcon.Name
+                logger.info(f"获取到机器人名称: {ROBOT_WX_NAME}")
+                # 不在这里添加监听，避免重复添加
+                # 监听将在 initialize_wx_listener 函数中统一处理
+            except Exception as e:
+                logger.error(f"获取机器人名称失败: {str(e)}")
+                ROBOT_WX_NAME = ""  # 设置默认值
+
+            # 初始化微信监听
+            print_status("初始化微信监听...", "info", "BOT")
+            wx = initialize_wx_listener()
+            if not wx:
+                print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
+                return
+            print_status("微信监听初始化完成", "success", "CHECK")
+            print_status("检查短期记忆...", "info", "SEARCH")
+
+            # 移除对 summarize_memories 的调用
+            # memory_handler.summarize_memories()  # 启动时处理残留记忆
+
+            # 移除记忆维护线程
+            """
+            def memory_maintenance():
+                while True:
+                    try:
+                        memory_handler.summarize_memories()
+                        time.sleep(3600)  # 每小时检查一次
+                    except Exception as e:
+                        logger.error(f"记忆维护失败: {str(e)}")
+>>>>>>> e13b0926452eb588a67f79c5cb06ba112d3bd0cc
     
     memory_handler = MemoryHandler(
         root_dir=root_dir,
