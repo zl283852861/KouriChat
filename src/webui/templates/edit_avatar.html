@@ -528,7 +528,8 @@
                             fields.forEach(field => {
                                 const element = document.getElementById(field);
                                 if (element) {
-                                    element.value = data.content[field] || '';
+                                    // 修改替换逻辑，确保所有 <br> 标签被替换为换行符
+                                    element.value = (data.content[field] || '').replace(/<br\s*\/?>/g, '\n');
                                     // 自动调整文本框高度以适应内容
                                     element.style.height = 'auto';
                                     element.style.height = (element.scrollHeight) + 'px';
@@ -782,14 +783,14 @@
             document.getElementById('saveButton').addEventListener('click', function() {
                 const avatarData = {
                     avatar: currentAvatar, // 添加当前人设名称
-                    task: document.getElementById('task').value,
-                    role: document.getElementById('role').value,
-                    appearance: document.getElementById('appearance').value,
-                    experience: document.getElementById('experience').value,
-                    personality: document.getElementById('personality').value,
-                    classic_lines: document.getElementById('classic_lines').value,
-                    preferences: document.getElementById('preferences').value,
-                    notes: document.getElementById('notes').value
+                    task: document.getElementById('task').value.replace(/<br\s*\/?>/g, '\n'),
+                    role: document.getElementById('role').value.replace(/<br\s*\/?>/g, '\n'),
+                    appearance: document.getElementById('appearance').value.replace(/<br\s*\/?>/g, '\n'),
+                    experience: document.getElementById('experience').value.replace(/<br\s*\/?>/g, '\n'),
+                    personality: document.getElementById('personality').value.replace(/<br\s*\/?>/g, '\n'),
+                    classic_lines: document.getElementById('classic_lines').value.replace(/<br\s*\/?>/g, '\n'),
+                    preferences: document.getElementById('preferences').value.replace(/<br\s*\/?>/g, '\n'),
+                    notes: document.getElementById('notes').value.replace(/<br\s*\/?>/g, '\n')
                 };
 
                 console.log('准备发送的数据:', avatarData);  // 调试信息
@@ -801,7 +802,12 @@
                     },
                     body: JSON.stringify(avatarData)
                 })
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
                 .then(data => {
                     if (data.status === 'success') {
                         showToast('角色设定已成功保存', 'success');

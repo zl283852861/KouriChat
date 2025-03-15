@@ -318,6 +318,36 @@
             border-radius: 3px;
         }
 
+        .log-line.highlight {
+            background-color: rgba(var(--bs-warning-rgb), 0.2);
+            border-left: 3px solid var(--bs-warning);
+        }
+
+        /* 添加一些样式确保日志显示正常 */
+        .log-line {
+            padding: 4px 8px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .command-prompt {
+            color: #0d6efd;
+            margin-right: 8px;
+        }
+        
+        .command-text {
+            color: #495057;
+        }
+        
+        .command-output {
+            color: #198754;
+        }
+        
+        .error-text {
+            color: #dc3545;
+        }
+
         .log-container:hover::-webkit-scrollbar-thumb {
             background-color: rgba(0, 0, 0, 0.3);
         }
@@ -495,6 +525,60 @@
     <!-- 添加 dark-mode.js -->
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script src="/static/js/dark-mode.js"></script>
+    <script>
+        // 添加控制台日志持久化相关函数
+        function saveLogs() {
+            const logsContainer = document.querySelector('.logs');
+            if (logsContainer) {
+                localStorage.setItem('consoleLogs', logsContainer.innerHTML);
+            }
+        }
+    
+        function loadLogs() {
+            const logsContainer = document.querySelector('.logs');
+            const savedLogs = localStorage.getItem('consoleLogs');
+            if (logsContainer && savedLogs) {
+                logsContainer.innerHTML = savedLogs;
+                scrollToBottom();
+            }
+        }
+    
+        // 修改清空日志函数
+        function clearLogs() {
+            const logsContainer = document.querySelector('.logs');
+            if (logsContainer) {
+                logsContainer.innerHTML = '';
+                localStorage.removeItem('consoleLogs'); // 同时清除存储的日志
+            }
+        }
+    
+        // 修改添加日志行的函数
+        function addLogLine(content, type = '') {
+            const logsElement = document.querySelector('.logs');
+            if (!logsElement) return;
+    
+            const logLine = document.createElement('div');
+            logLine.className = 'log-line';
+            logLine.innerHTML = content;
+            logsElement.appendChild(logLine);
+            
+            // 保存到 localStorage
+            saveLogs();
+            
+            // 自动滚动到底部
+            scrollToBottom();
+        }
+    
+        // 页面加载时恢复日志
+        document.addEventListener('DOMContentLoaded', function() {
+            loadLogs();
+        });
+    
+        // 在页面卸载前保存日志
+        window.addEventListener('beforeunload', function() {
+            saveLogs();
+        });
+    </script>
 </head>
 <body>
     <!-- 替换原有的导航栏部分 -->
@@ -751,8 +835,18 @@
                 <div class="bot-logs mt-3">
                     <div class="d-flex justify-content-between align-items-center mb-2">
                         <h6 class="mb-0">控制台</h6>
-                        <div>
-                            <button class="btn btn-glass me-2" onclick="scrollToBottom()">
+                        <div class="d-flex align-items-center gap-2">
+                            <!-- 添加搜索框 -->
+                            <div class="input-group" style="max-width: 200px;">
+                                <input type="text" 
+                                       class="form-control form-control-sm" 
+                                       id="logSearch" 
+                                       placeholder="搜索日志...">
+                                <button class="btn btn-outline-secondary btn-sm" type="button" onclick="searchLogs()">
+                                    <i class="bi bi-search"></i>
+                                </button>
+                            </div>
+                            <button class="btn btn-glass" onclick="scrollToBottom()">
                                 <i class="bi bi-arrow-down me-1"></i>滚动到底部
                             </button>
                             <button class="btn btn-glass" onclick="clearLogs()">
@@ -926,9 +1020,94 @@
             </div>
         </div>
     </div>
-
+<script>
+    // 在页面切换逻辑中添加配置刷新功能
+    function showTab(tabId) {
+        // 隐藏所有标签内容
+        const tabContents = document.querySelectorAll('.tab-content');
+        tabContents.forEach(content => {
+            content.classList.add('d-none');
+        });
+        
+        // 显示选中的标签内容
+        document.getElementById(tabId).classList.remove('d-none');
+        
+        // 当切换到配置相关页面时，刷新配置
+        if(tabId === 'configTab' || tabId === 'modelsTab') {
+            // 添加配置刷新逻辑
+            fetch('/get_config')
+                .then(response => response.json())
+                .then(data => {
+                    if(data.status === 'success') {
+                        // 更新表单中的配置值
+                        updateConfigFields(data.config);
+                    }
+                })
+                .catch(error => {
+                    console.error('获取配置失败:', error);
+                });
+        }
+    }
+    
+    // 添加更新配置字段的函数
+    function updateConfigFields(config) {
+        // 遍历配置项并更新表单
+        for(const key in config) {
+            const element = document.getElementById(key);
+            if(element) {
+                if(element.type === 'checkbox') {
+                    element.checked = config[key] === true;
+                } else {
+                    element.value = config[key];
+                }
+            }
+        }
+    }
+</script>
     <script src="/static/js/bootstrap.bundle.min.js"></script>
     <script>
+        // 在页面切换逻辑中添加配置刷新功能
+        function showTab(tabId) {
+            // 隐藏所有标签内容
+            const tabContents = document.querySelectorAll('.tab-content');
+            tabContents.forEach(content => {
+                content.classList.add('d-none');
+            });
+            
+            // 显示选中的标签内容
+            document.getElementById(tabId).classList.remove('d-none');
+            
+            // 当切换到配置相关页面时，刷新配置
+            if(tabId === 'configTab' || tabId === 'modelsTab') {
+                // 添加配置刷新逻辑
+                fetch('/get_config')
+                    .then(response => response.json())
+                    .then(data => {
+                        if(data.status === 'success') {
+                            // 更新表单中的配置值
+                            updateConfigFields(data.config);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('获取配置失败:', error);
+                    });
+            }
+        }
+        
+        // 添加更新配置字段的函数
+        function updateConfigFields(config) {
+            // 遍历配置项并更新表单
+            for(const key in config) {
+                const element = document.getElementById(key);
+                if(element) {
+                    if(element.type === 'checkbox') {
+                        element.checked = config[key] === true;
+                    } else {
+                        element.value = config[key];
+                    }
+                }
+            }
+        }
         // 添加 showToast 函数
         function showToast(message, type = 'info') {
             const toast = document.getElementById('toast');
@@ -1146,6 +1325,44 @@
         }
 
         // 修改清空日志函数
+        function searchLogs() {
+            const searchInput = document.getElementById('logSearch');
+            const keyword = searchInput.value.trim().toLowerCase();
+            const logContainer = document.querySelector('.log-container');
+            const logLines = document.querySelectorAll('.log-line');
+            
+            // 移除所有之前的高亮
+            logLines.forEach(line => line.classList.remove('highlight'));
+            
+            if (!keyword) return;
+            
+            // 查找第一个匹配的日志行
+            let firstMatch = null;
+            logLines.forEach(line => {
+                if (line.textContent.toLowerCase().includes(keyword)) {
+                    line.classList.add('highlight');
+                    if (!firstMatch) firstMatch = line;
+                }
+            });
+            
+            // 如果找到匹配项，滚动到第一个匹配的位置
+            if (firstMatch) {
+                firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        // 添加搜索框回车事件监听
+        document.addEventListener('DOMContentLoaded', function() {
+            const searchInput = document.getElementById('logSearch');
+            if (searchInput) {
+                searchInput.addEventListener('keyup', function(event) {
+                    if (event.key === 'Enter') {
+                        searchLogs();
+                    }
+                });
+            }
+        });
+
         function clearLogs() {
             if (confirm('确定要清空日志吗？')) {
                 const logsElement = document.querySelector('.logs');
@@ -1714,6 +1931,57 @@
             // 每30分钟更新一次统计信息
             setInterval(updateGitHubStats, 1800000);
         });
+        // 全局 WebSocket 连接
+        let ws;
+        
+        // 初始化 WebSocket 连接
+        function initWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}/ws/logs`);
+            
+            ws.onmessage = function(event) {
+                const logData = JSON.parse(event.data);
+                // 将日志保存到 localStorage
+                const currentLogs = localStorage.getItem('consoleLogs') || '';
+                const newLog = `<div class="log-line">${logData.content}</div>`;
+                localStorage.setItem('consoleLogs', currentLogs + newLog);
+                
+                // 如果在控制台页面，直接显示日志
+                if (window.location.pathname === '/dashboard') {
+                    addLogLine(logData.content);
+                }
+            };
+            
+            ws.onclose = function() {
+                // 断开连接后自动重连
+                setTimeout(initWebSocket, 3000);
+            };
+        }
+        
+        // 页面加载时初始化 WebSocket
+        document.addEventListener('DOMContentLoaded', function() {
+            initWebSocket();
+            
+            // 如果在控制台页面，加载已保存的日志
+            if (window.location.pathname === '/dashboard') {
+                loadLogs();
+            }
+        });
+        
+        // 页面关闭前关闭 WebSocket 连接
+        window.addEventListener('beforeunload', function() {
+            if (ws) {
+                ws.close();
+            }
+        });
+
+        // 全局日志处理函数
+        function handleGlobalLog(content) {
+            // 保存到 localStorage
+            const currentLogs = localStorage.getItem('consoleLogs') || '';
+            const newLog = `<div class="log-line">${content}</div>`;
+            localStorage.setItem('consoleLogs', currentLogs + newLog);
+        }
+
     </script>
 </body>
 </html>

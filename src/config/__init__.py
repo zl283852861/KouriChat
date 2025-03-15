@@ -3,7 +3,7 @@ import json
 import logging
 import shutil
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +56,7 @@ class QuietTimeSettings:
 @dataclass
 class ContextSettings:
     max_groups: int
-    avatar_dir: str  # 人设目录路径，prompt文件和表情包目录都将基于此路径
+    avatar_dir: str
 
 @dataclass
 class TaskSettings:
@@ -83,6 +83,15 @@ class AuthSettings:
     admin_password: str
 
 @dataclass
+class RagSettings:
+    base_url: str
+    api_key: str
+    is_rerank: bool
+    reranker_model: str
+    embedding_model: str
+    top_k: int
+
+@dataclass
 class Config:
     def __init__(self):
         self.user: UserSettings
@@ -90,75 +99,73 @@ class Config:
         self.media: MediaSettings
         self.behavior: BehaviorSettings
         self.auth: AuthSettings
+        self._robot_wx_name: str = ""
+        self.rag: RagSettings
         self.load_config()
-    
+
+    @property
+    def robot_wx_name(self) -> str:
+        try:
+            avatar_dir = self.behavior.context.avatar_dir
+            if avatar_dir and os.path.exists(avatar_dir):
+                return os.path.basename(avatar_dir)
+        except Exception as e:
+            logger.error(f"获取机器人名称失败: {str(e)}")
+        return "default"
+
     @property
     def config_dir(self) -> str:
-        """返回配置文件所在目录"""
         return os.path.dirname(__file__)
-    
+
     @property
     def config_path(self) -> str:
-        """返回配置文件完整路径"""
         return os.path.join(self.config_dir, 'config.json')
-    
+
     @property
     def config_template_path(self) -> str:
-        """返回配置模板文件完整路径"""
         return os.path.join(self.config_dir, 'config.json.template')
-    
+
     def save_config(self, config_data: dict) -> bool:
-        """保存配置到文件"""
         try:
-            # 读取现有配置
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 current_config = json.load(f)
-            
-            # 递归合并配置
+
             def merge_config(current: dict, new: dict):
                 for key, value in new.items():
                     if key in current and isinstance(current[key], dict) and isinstance(value, dict):
                         merge_config(current[key], value)
                     else:
                         current[key] = value
-            
-            # 合并新配置
+
             merge_config(current_config, config_data)
-            
-            # 保存更新后的配置
+
             with open(self.config_path, 'w', encoding='utf-8') as f:
                 json.dump(current_config, f, indent=4, ensure_ascii=False)
-            
+
             return True
         except Exception as e:
             logger.error(f"保存配置失败: {str(e)}")
             return False
-    
+
     def load_config(self) -> None:
-        """加载配置文件"""
         try:
-            # 如果配置文件不存在，从模板创建
             if not os.path.exists(self.config_path):
                 if os.path.exists(self.config_template_path):
                     logger.info("配置文件不存在，正在从模板创建...")
                     shutil.copy2(self.config_template_path, self.config_path)
                     logger.info(f"已从模板创建配置文件: {self.config_path}")
-                # 如果配置文件仍然不存在，说明模板也不存在
                 if not os.path.exists(self.config_path):
                     raise FileNotFoundError(f"配置文件不存在，且未找到模板文件: {self.config_template_path}")
 
-            # 读取配置文件
             with open(self.config_path, 'r', encoding='utf-8') as f:
                 config_data = json.load(f)
                 categories = config_data['categories']
-                
-                # 用户设置
+
                 user_data = categories['user_settings']['settings']
                 self.user = UserSettings(
                     listen_list=user_data['listen_list']['value']
                 )
-                
-                # LLM设置
+
                 llm_data = categories['llm_settings']['settings']
                 self.llm = LLMSettings(
                     api_key=llm_data['api_key']['value'],
@@ -167,8 +174,17 @@ class Config:
                     max_tokens=llm_data['max_tokens']['value'],
                     temperature=llm_data['temperature']['value']
                 )
+
+                rag_data = categories['rag_settings']['settings']
+                self.rag = RagSettings(
+                    base_url=rag_data['base_url'],
+                    api_key=rag_data['api_key'],
+                    is_rerank=rag_data['is_rerank'],
+                    reranker_model=rag_data['reranker_model'],
+                    embedding_model=rag_data['embedding_model'],
+                    top_k=rag_data['top_k']
+                )
                 
-                # 媒体设置
                 media_data = categories['media_settings']['settings']
                 self.media = MediaSettings(
                     image_recognition=ImageRecognitionSettings(
@@ -187,10 +203,8 @@ class Config:
                     )
                 )
                 
-                # 行为设置
                 behavior_data = categories['behavior_settings']['settings']
                 
-                # 读取定时任务配置
                 schedule_tasks = []
                 if 'schedule_settings' in categories:
                     schedule_data = categories['schedule_settings']
@@ -225,7 +239,6 @@ class Config:
                     )
                 )
                 
-                # 认证设置
                 auth_data = categories['auth_settings']['settings']
                 self.auth = AuthSettings(
                     admin_password=auth_data['admin_password']['value']
@@ -235,7 +248,6 @@ class Config:
             logger.error(f"加载配置文件失败: {str(e)}")
             raise
 
-    # 更新管理员密码
     def update_password(self, password: str) -> bool:
         try:
             config_data = {
@@ -254,10 +266,10 @@ class Config:
             logger.error(f"更新密码失败: {str(e)}")
             return False
 
-# 创建全局配置实例
 config = Config()
 
-# 为了兼容性保留的旧变量（将在未来版本中移除）
+ROBOT_WX_NAME = config.robot_wx_name
+
 LISTEN_LIST = config.user.listen_list
 DEEPSEEK_API_KEY = config.llm.api_key
 DEEPSEEK_BASE_URL = config.llm.base_url
@@ -276,4 +288,9 @@ AUTO_MESSAGE = config.behavior.auto_message.content
 MIN_COUNTDOWN_HOURS = config.behavior.auto_message.min_hours
 MAX_COUNTDOWN_HOURS = config.behavior.auto_message.max_hours
 QUIET_TIME_START = config.behavior.quiet_time.start
-QUIET_TIME_END = config.behavior.quiet_time.end 
+QUIET_TIME_END = config.behavior.quiet_time.end
+
+def reload_config():
+    global config
+    config = Config()
+    return True
