@@ -3,15 +3,15 @@ import json
 from functools import wraps
 
 
-class Memory:
+class RAGMemory:
     _instance = None
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None or not kwargs.get('singleton', True):
-            cls._instance = super(Memory, cls).__new__(cls)
+            cls._instance = super(RAGMemory, cls).__new__(cls)
         return cls._instance
 
-    def __init__(self, config_path='../config/memory.json', singleton: bool = True):
+    def __init__(self, config_path='../config/rag_memory.json', singleton: bool = True):
         # 使用 super().__setattr__ 直接设置所有属性，避免触发 __getattr__
         super().__setattr__('config_path', config_path)
         super().__setattr__('settings', {})
@@ -38,7 +38,7 @@ class Memory:
         # 避免递归：直接访问 self.settings，而不是通过 self.__getattr__
         if key in super().__getattribute__('settings'):
             return super().__getattribute__('settings')[key]
-        raise AttributeError(f"'Memory' object has no attribute '{key}'")
+        raise AttributeError(f"'RAGMemory' object has no attribute '{key}'")
 
     def __setattr__(self, key, value):
         # 处理内部属性
@@ -80,6 +80,6 @@ class Memory:
 
 
 if __name__ == '__main__':
-    memory = Memory(config_path=r"C:\Users\Administrator\Music\temp\config\memory.json")
-    memory["hello"] = "your"
-    print(memory.settings)
+    rag_memory = RAGMemory(config_path=r"C:\Users\Administrator\Music\temp\config\rag_memory.json")
+    rag_memory["hello"] = "your"
+    print(rag_memory.settings) 

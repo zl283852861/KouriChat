@@ -841,9 +841,19 @@
     
     <script>
         // 修改时间选择器的变量和函数
+        {% set value_str = config.value|string %}
+        {% if ":" in value_str %}
+            {% set time_parts = value_str.split(':') %}
+            {% set hour = time_parts[0] %}
+            {% set minute = time_parts[1] if time_parts|length > 1 else "00" %}
+        {% else %}
+            {% set hour = "00" %}
+            {% set minute = "00" %}
+        {% endif %}
+        
         let timeSelection_{{ key }} = {
-            hour: '{{ config.value.split(":")[0] if ":" in config.value else "00" }}',
-            minute: '{{ config.value.split(":")[1] if ":" in config.value and config.value.split(":")|length > 1 else "00" }}'
+            hour: '{{ hour }}',
+            minute: '{{ minute }}'
         };
         
         // 显示时间选择器
