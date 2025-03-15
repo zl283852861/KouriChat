@@ -40,6 +40,7 @@ class MessageHandler:
         self.max_groups = max_groups
         self.robot_name = robot_name
         self.prompt_content = prompt_content
+        self.debug = is_debug
         # 添加消息缓存相关属性
         self.message_cache = {}  # 用户消息缓存
         self.last_message_time = {}  # 用户最后发送消息的时间
@@ -656,6 +657,10 @@ class MessageHandler:
                     # 模拟阅读和点击发送按钮的时间
                     time.sleep(input_time + random.uniform(1, 2))  # 阅读和点击发送按钮的时间
 
+                    # 添加对wx对象的检查
+                    if self.wx is None and not self.debug:
+                        logger.error("WeChat对象为None，无法发送消息")
+                        return delayed_reply
                     self.wx.SendMsg(msg=part, who=chat_id)
                     sent_messages.add(part)
                 else:
@@ -667,7 +672,7 @@ class MessageHandler:
 
             if not hasattr(self.emoji_handler, 'emotion_map'):
                 logger.error("emoji_handler 缺少 emotion_map 属性")
-                return reply
+                return delayed_reply
 
             for emotion, keywords in self.emoji_handler.emotion_map.items():
                 if not keywords:  # 跳过空的关键词列表
@@ -679,20 +684,21 @@ class MessageHandler:
 
                     emoji_path = self.emoji_handler.get_emotion_emoji(reply)
                     if emoji_path:
-                        try:
-                            self.wx.SendFiles(filepath=emoji_path, who=chat_id)
-                            logger.info(f"已发送情感表情包: {emoji_path}")
-                        except Exception as e:
-                            logger.error(f"发送表情包失败: {str(e)}")
+                        # try:
+                        #     self.wx.SendFiles(filepath=emoji_path, who=chat_id)
+                        #     logger.info(f"已发送情感表情包: {emoji_path}")
+                        # except Exception as e:
+                        #     logger.error(f"发送表情包失败: {str(e)}")
+                        delayed_reply.append(emoji_path)  #在发送消息队列后增加path，由响应器处理
                     else:
                         logger.warning(f"未找到对应情感 {emotion} 的表情包")
                     break
 
             if not emotion_detected:
                 logger.info("未在回复中检测到明显情感")
-
         except Exception as e:
-            logger.error(f"消息处理过程中发生错误: {str(e)}")
+            logger.error(f"发送回复失败: {str(e)}")
+            return delayed_reply
 
         # 异步保存消息记录
         threading.Thread(target=self.save_message,
@@ -702,7 +708,7 @@ class MessageHandler:
             self.unanswered_counters[username] = 0
             logger.info(f"用户 {username} 的未回复计数器: {self.unanswered_counters[username]}")
 
-        return reply
+        return delayed_reply
 
     def increase_unanswered_counter(self, username: str):
         """增加未回复计数器"""

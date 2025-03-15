@@ -9,7 +9,7 @@
 memory/
 
 # Config files
-src/config/config.json
+src/config/config.yaml
 
 # Logs
 logs/
