@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from openai import OpenAI
 from wxauto import WeChat
-from services.database import Session, ChatMessage
 import random
 import os
 from services.ai.llm_service import LLMService
@@ -78,35 +77,20 @@ class MessageHandler:
 
     def save_message(self, sender_id: str, sender_name: str, message: str, reply: str):
         """保存聊天记录到数据库和记忆"""
-        try:
-            # 确保sender_id不为System
-            if sender_id == "System":
-                # 尝试从消息内容中识别实际的接收者
-                if isinstance(message, str):
-                    # 如果消息以@开头，提取用户名
-                    if message.startswith('@'):
-                        sender_id = message.split()[0][1:]  # 提取@后的用户名
-                    else:
-                        # 使用默认值或其他标识
-                        sender_id = "FileHelper"
+        # 确保sender_id不为System
+        if sender_id == "System":
+            # 尝试从消息内容中识别实际的接收者
+            if isinstance(message, str):
+                # 如果消息以@开头，提取用户名
+                if message.startswith('@'):
+                    sender_id = message.split()[0][1:]  # 提取@后的用户名
+                else:
+                    # 使用默认值或其他标识
+                    sender_id = "FileHelper"
 
-            session = Session()
-            chat_message = ChatMessage(
-                sender_id=sender_id,
-                sender_name=sender_name,
-                message=message,
-                reply=reply
-            )
-            session.add(chat_message)
-            session.commit()
-            session.close()
-
-            # 保存到记忆 - 移除这一行，避免重复保存
-            # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
-            self.memory_handler.add_short_memory(message, reply, sender_id)
-            logger.info(f"已保存消息到数据库 - 用户ID: {sender_id}")
-        except Exception as e:
-            logger.error(f"保存消息失败: {str(e)}", exc_info=True)
+        # 保存到记忆 - 移除这一行，避免重复保存
+        # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
+        self.memory_handler.add_short_memory(message, reply, sender_id)
 
     def get_api_response(self, message: str, user_id: str) -> str:
         """获取 API 回复（添加历史对话支持）"""
@@ -167,6 +151,19 @@ class MessageHandler:
             # 增加重复消息检测
             message_key = f"{chat_id}_{username}_{hash(content)}"
             current_time = time.time()
+            
+            # 检查是否是短时间内的重复消息
+            if hasattr(self, '_handled_messages'):
+                # 清理超过60秒的旧记录
+                self._handled_messages = {k: v for k, v in self._handled_messages.items()
+                                         if current_time - v < 60}
+
+                if message_key in self._handled_messages:
+                    if current_time - self._handled_messages[message_key] < 5:  # 5秒内的重复消息
+                        logger.warning(f"MessageHandler检测到短时间内重复消息，已忽略: {content[:20]}...")
+                        return None
+            else:
+                self._handled_messages = {}
 
             # 检查是否需要缓存消息
             if username in self.last_message_time and current_time - self.last_message_time[username] < 7:
@@ -194,12 +191,38 @@ class MessageHandler:
                 self.last_message_time[username] = current_time
                 return None
 
+            # 更新用户最后回复时间
+            if not hasattr(self, '_last_reply_times'):
+                self._last_reply_times = {}
+            self._last_reply_times[username] = time.time()
+
+            # 记录当前消息处理时间
+            self._handled_messages[message_key] = current_time
+
             # 更新最后消息时间
             self.last_message_time[username] = current_time
 
             # 如果没有需要缓存的消息，直接处理
             if username not in self.message_cache or not self.message_cache[username]:
-                return self._handle_text_message(content, chat_id, sender_name, username, is_group,
+                # 检查是否为语音请求
+                if self.voice_handler.is_voice_request(content):
+                    return self._handle_voice_request(content, chat_id, sender_name, username, is_group)
+
+                # 检查是否为随机图片请求
+                elif self.image_handler.is_random_image_request(content):
+                    return self._handle_random_image_request(content, chat_id, sender_name, username, is_group)
+
+                # 检查是否为图像生成请求，但跳过图片识别结果
+                elif not is_image_recognition and self.image_handler.is_image_generation_request(content):
+                    return self._handle_image_generation_request(content, chat_id, sender_name, username, is_group)
+
+                # 检查是否为文件处理请求
+                elif content and content.lower().endswith(('.txt', '.docx', '.doc', '.ppt', '.pptx', '.xlsx', '.xls')):
+                    return self._handle_file_request(content, chat_id, sender_name, username, is_group)
+
+                # 处理普通文本回复
+                else:
+                    return self._handle_text_message(content, chat_id, sender_name, username, is_group,
                                                  is_image_recognition)
 
             # 如果有缓存的消息，添加当前消息并一起处理
@@ -211,51 +234,6 @@ class MessageHandler:
                 'is_image_recognition': is_image_recognition
             })
             return self._process_cached_messages(username)
-
-        except Exception as e:
-            logger.error(f"处理消息失败: {str(e)}", exc_info=True)
-            return None
-            # 检查是否是短时间内的重复消息
-            if hasattr(self, '_handled_messages'):
-                # 清理超过60秒的旧记录
-                self._handled_messages = {k: v for k, v in self._handled_messages.items()
-                                          if current_time - v < 60}
-
-                if message_key in self._handled_messages:
-                    if current_time - self._handled_messages[message_key] < 5:  # 5秒内的重复消息
-                        logger.warning(f"MessageHandler检测到短时间内重复消息，已忽略: {content[:20]}...")
-                        return None
-
-            else:
-                self._handled_messages = {}
-            # 更新用户最后回复时间
-            if not hasattr(self, '_last_reply_times'):
-                self._last_reply_times = {}
-            self._last_reply_times[username] = time.time()
-
-            # 记录当前消息处理时间
-            self._handled_messages[message_key] = current_time
-
-            # 检查是否为语音请求
-            if self.voice_handler.is_voice_request(content):
-                return self._handle_voice_request(content, chat_id, sender_name, username, is_group)
-
-            # 检查是否为随机图片请求
-            elif self.image_handler.is_random_image_request(content):
-                return self._handle_random_image_request(content, chat_id, sender_name, username, is_group)
-
-            # 检查是否为图像生成请求，但跳过图片识别结果
-            elif not is_image_recognition and self.image_handler.is_image_generation_request(content):
-                return self._handle_image_generation_request(content, chat_id, sender_name, username, is_group)
-
-            # 检查是否为文件处理请求
-            elif content and content.lower().endswith(('.txt', '.docx', '.doc', '.ppt', '.pptx', '.xlsx', '.xls')):
-                return self._handle_file_request(content, chat_id, sender_name, username, is_group)
-
-            # 处理普通文本回复
-            else:
-                return self._handle_text_message(content, chat_id, sender_name, username, is_group,
-                                                 is_image_recognition)
 
         except Exception as e:
             logger.error(f"处理消息失败: {str(e)}", exc_info=True)
@@ -658,11 +636,14 @@ class MessageHandler:
                     time.sleep(input_time + random.uniform(1, 2))  # 阅读和点击发送按钮的时间
 
                     # 添加对wx对象的检查
-                    if self.wx is None and not self.debug:
-                        logger.error("WeChat对象为None，无法发送消息")
-                        return delayed_reply
-                    self.wx.SendMsg(msg=part, who=chat_id)
-                    sent_messages.add(part)
+                    if self.wx:
+                        self.wx.SendMsg(msg=part, who=chat_id)
+                        sent_messages.add(part)
+                    else:
+                        if self.debug is False:
+                            logger.error("WeChat对象为None，无法发送消息")
+                            return delayed_reply
+                        
                 else:
                     logger.info(f"跳过重复内容: {part[:20]}...")
 
@@ -732,17 +713,6 @@ class MessageHandler:
                 # 更新最后回复时间
                 self._last_reply_times[username] = current_time
                 logger.info(f"用户 {username} 超过30分钟未回复，计数器增加到: {self.unanswered_counters[username]}")
-
-    def add_to_queue(self, chat_id: str, content: str, sender_name: str,
-                     username: str, is_group: bool = False):
-        """添加消息到队列（已废弃，保留兼容）"""
-        logger.info("直接处理消息，跳过队列")
-        return self.handle_user_message(content, chat_id, sender_name, username, is_group)
-
-    def process_messages(self, chat_id: str):
-        """处理消息队列中的消息（已废弃，保留兼容）"""
-        logger.warning("process_messages方法已废弃，使用handle_message代替")
-        pass
 
     #以下是onebot QQ方法实现
     def QQ_handle_voice_request(self, content, qqid, sender_name):
