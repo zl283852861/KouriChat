@@ -122,12 +122,12 @@ class OnlineCrossEncoderReRanker(ReRanker):
         return scores
 
 
-class RAG:
+class RAGMemory:
     _instance = None
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None or not kwargs.get('singleton', True):
-            cls._instance = super(RAG, cls).__new__(cls)
+            cls._instance = super(RAGMemory, cls).__new__(cls)
         return cls._instance
 
     def __init__(self,

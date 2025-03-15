@@ -36,11 +36,9 @@ root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
 # # 初始化 ROBOT_WX_NAME 变量
 ROBOT_WX_NAME = ""
+# 初始化微信监听聊天记录集合
+wx_listening_chats = set()
 # if not os.path.exists(config_path) and os.path.exists(config_template_path):
-#     logger = logging.getLogger('main')
-#     logger.info("配置文件不存在，正在从模板创建...")
-#     shutil.copy2(config_template_path, config_path)
-#     logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 配置日志
 # 清除所有现有日志处理器
@@ -504,6 +502,33 @@ def get_personality_summary(prompt_content: str) -> str:
         return "请参考上下文"  # 返回默认特征
 
 
+def is_already_listening(wx_instance, chat_name):
+    """
+    检查是否已经添加了监听
+    
+    Args:
+        wx_instance: WeChat 实例
+        chat_name: 聊天名称
+        
+    Returns:
+        bool: 是否已经添加了监听
+    """
+    try:
+        # 尝试使用内置方法（如果存在）
+        if hasattr(wx_instance, 'IsListening'):
+            return wx_instance.IsListening(chat_name)
+        
+        # 如果内置方法不存在，我们无法确定是否已经在监听
+        # 可以通过其他方式检查，例如检查是否有相关的事件处理器
+        # 但由于我们没有足够的信息，暂时返回 False
+        logger.warning(f"wxauto 模块没有 IsListening 方法，无法确定是否已经在监听 {chat_name}")
+        return False
+    except Exception as e:
+        logger.error(f"检查监听状态失败: {str(e)}")
+        # 出错时返回 False，让程序尝试添加监听
+        return False
+
+
 def auto_send_message():
     """自动发送消息 - 调用message_handler中的方法"""
     # 调用message_handler中的auto_send_message方法
@@ -606,9 +631,11 @@ def start_countdown():
 
 
 def message_listener():
+    global wx_listening_chats  # 使用全局变量跟踪已添加的监听器
+    
     wx = None
     last_window_check = 0
-    check_interval = 600
+    check_interval = 600  # 10分钟检查一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 10  # 重连等待时间（秒）
@@ -645,8 +672,13 @@ def message_listener():
                     for chat_name in listen_list:
                         try:
                             if wx.ChatWith(chat_name):
-                                wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
-                                logger.info(f"重新添加监听: {chat_name}")
+                                # 使用全局变量检查是否已经添加了监听
+                                if chat_name not in wx_listening_chats:
+                                    wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
+                                    logger.info(f"重新添加监听: {chat_name}")
+                                    wx_listening_chats.add(chat_name)  # 记录已添加监听的聊天
+                                else:
+                                    logger.info(f"已存在监听，跳过: {chat_name}")
                         except Exception as e:
                             logger.error(f"重新添加监听失败 {chat_name}: {str(e)}")
 
@@ -689,7 +721,6 @@ def message_listener():
                             continue
                             # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
                         if who == msg.sender:
-
                             chat_bot.handle_wxauto_message(msg, msg.sender)  # 处理私聊信息
                         elif ROBOT_WX_NAME != '' and (bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)) or bool(
                                 re.search(f'{ROBOT_WX_NAME}\u2005', msg.content))):
@@ -711,6 +742,8 @@ def initialize_wx_listener():
     """
     初始化微信监听，包含重试机制
     """
+    global wx_listening_chats  # 使用全局变量跟踪已添加的监听器
+    
     max_retries = 3
     retry_delay = 2  # 秒
 
@@ -730,9 +763,15 @@ def initialize_wx_listener():
                         logger.error(f"找不到会话: {chat_name}")
                         continue
 
-                    # 尝试添加监听
-                    wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
-                    logger.info(f"成功添加监听: {chat_name}")
+                    # 使用全局变量检查是否已经添加了监听
+                    if chat_name not in wx_listening_chats:
+                        # 尝试添加监听
+                        wx.AddListenChat(who=chat_name, savepic=True, savefile=True)
+                        logger.info(f"成功添加监听: {chat_name}")
+                        wx_listening_chats.add(chat_name)  # 记录已添加监听的聊天
+                    else:
+                        logger.info(f"已存在监听，跳过: {chat_name}")
+                    
                     time.sleep(0.5)  # 添加短暂延迟，避免操作过快
                 except Exception as e:
                     logger.error(f"添加监听失败 {chat_name}: {str(e)}")
@@ -918,9 +957,8 @@ def main(debug_mode=False):
                 wx = WeChat()
                 ROBOT_WX_NAME = wx.A_MyIcon.Name
                 logger.info(f"获取到机器人名称: {ROBOT_WX_NAME}")
-                # 循环添加监听对象
-                for i in listen_list:
-                    wx.AddListenChat(who=i, savepic=True, savefile=True)
+                # 不在这里添加监听，避免重复添加
+                # 监听将在 initialize_wx_listener 函数中统一处理
             except Exception as e:
                 logger.error(f"获取机器人名称失败: {str(e)}")
                 ROBOT_WX_NAME = ""  # 设置默认值
