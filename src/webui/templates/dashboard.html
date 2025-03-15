@@ -102,7 +102,7 @@
         }
 
         /* 毛玻璃效果卡片 */
-        .glass-panel, .info-card ,.modal-content,.modal-header,.modal-footer,.modal-body{
+        .glass-panel, .info-card {
             background: var(--card-bg);
             -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
@@ -475,17 +475,44 @@
             color: #dc3545;
         }
 
+        /* 修复模态框样式 */
         .modal-content {
+            background: var(--card-bg);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            border-radius: 1rem;
             border: 1px solid var(--card-border);
             box-shadow: var(--card-shadow);
+            padding: 0; 
+            margin-bottom: 0; 
+            overflow: hidden; 
         }
         
-        .modal-header, .modal-footer {
-            border-color: var(--card-border);
+        .modal-header {
+            background: transparent; /* 透明背景 */
+            border-bottom: 1px solid var(--card-border);
+            padding: 1rem 1.5rem;
+            margin: 0;
+            border-radius: 0;
+            box-shadow: none;
         }
         
         .modal-body {
-            color: var(--text-color);
+            background: transparent;
+            padding: 1.5rem;
+            margin: 0;
+            border: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+        
+        .modal-footer {
+            background: transparent;
+            border-top: 1px solid var(--card-border);
+            padding: 1rem 1.5rem;
+            margin: 0;
+            border-radius: 0;
+            box-shadow: none;
         }
         
         .btn-close {
@@ -1001,8 +1028,8 @@
 
     <div class="modal fade" id="stopBotModal" tabindex="-1" aria-labelledby="stopBotModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content modal-content-glass">
-                <div class="modal-header border-bottom-0">
+            <div class="modal-content"> 
+                <div class="modal-header">
                     <h5 class="modal-title" id="stopBotModalLabel">
                         <i class="bi bi-exclamation-triangle-fill text-warning me-2"></i>停止确认
                     </h5>
@@ -1011,7 +1038,7 @@
                 <div class="modal-body">
                     <p>确定要停止机器人吗？这将中断所有正在进行的对话。</p>
                 </div>
-                <div class="modal-footer border-top-0">
+                <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
                     <button type="button" class="btn btn-danger" onclick="confirmStopBot()">
                         <i class="bi bi-stop-fill me-1"></i>确认停止
