@@ -8,7 +8,8 @@ import jieba
 import re
 from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer
 import json
-from src.memory import *
+from src.memory import get_rag, setup_memory, setup_rag, start_memory
+from src.memory.core.rag_memory import RAGMemory
 from src.memory.core.rag import OnlineEmbeddingModel, OnlineCrossEncoderReRanker
 
 logger = logging.getLogger('main')
@@ -283,7 +284,9 @@ class MemoryHandler:
         try:
             short_memory_path, long_memory_buffer_path, important_memory_path = self._get_memory_paths(user_id)
 
-            files_to_check = [short_memory_path, long_memory_buffer_path, important_memory_path]
+            # 过滤掉 None 值
+            files_to_check = [f for f in [short_memory_path, long_memory_buffer_path, important_memory_path] if f is not None]
+            
             for f in files_to_check:
                 if not os.path.exists(f):
                     try:
@@ -342,5 +345,8 @@ class MemoryHandler:
         """获取Rag记忆"""
         rag = get_rag()
         logger.info(f"rag文档总数：{len(rag.documents)}")
-        res = rag.query(content, self.top_k, self.is_rerank)
+        # 设置默认值，以防这些属性不存在
+        top_k = getattr(self, 'top_k', 5)
+        is_rerank = getattr(self, 'is_rerank', False)
+        res = rag.query(content, top_k, is_rerank)
         return res

@@ -13,14 +13,8 @@ Werkzeug
 wxauto==3.9.11.17.5
 apscheduler
 schedule
-
+dotenv
 requests
-nonebot2[fastapi]==2.3.3
-nonebot2[aiohttp]==2.3.3
-nonebot-adapter-onebot==2.4.4
-nonebot-plugin-alconna
-nonebot-plugin-uninfo
-nonebot_plugin_session
 urllib3==1.26.3
 pydantic==1.10.21
 
