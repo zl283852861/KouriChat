@@ -1,98 +1,106 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: è®¾ç½®æŽ§åˆ¶å°ç¼–ç ä¸º GBK
+:: ÉèÖÃ¿ØÖÆÌ¨±àÂëÎª GBK
 chcp 936 >nul
-title My Dream Moments å¯åŠ¨å™¨
+title My Dream Moments Æô¶¯Æ÷
 
 cls
 echo ====================================
-echo        My Dream Moments å¯åŠ¨å™¨
+echo        My Dream Moments Æô¶¯Æ÷
 echo ====================================
 echo.
-echo â•”â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•—
-echo â•‘      My Dream Moments - AI Chat   â•‘
-echo â•‘      Created with Heart by umaru  â•‘
-echo â•šâ•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+echo ¨X¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨[
+echo ¨U      My Dream Moments - AI Chat                              ¨U
+echo ¨U       Created with Heart by umaru                              ¨U
+echo ¨^¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨T¨a
 echo.
 
-:: æ£€æŸ¥ Python æ˜¯å¦å·²å®‰è£…
+:: ¼ì²é Python ÊÇ·ñÒÑ°²×°
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo Pythonæœªå®‰è£…ï¼Œè¯·å…ˆå®‰è£…Python
+    echo PythonÎ´°²×°£¬ÇëÏÈ°²×°Python
     pause
     exit /b 1
 )
 
-:: æ£€æŸ¥ Python ç‰ˆæœ¬
+:: ¼ì²é Python °æ±¾
 for /f "tokens=2" %%I in ('python -V 2^>^&1') do set PYTHON_VERSION=%%I
 for /f "tokens=2 delims=." %%I in ("!PYTHON_VERSION!") do set MINOR_VERSION=%%I
 if !MINOR_VERSION! GEQ 13 (
-    echo ä¸æ”¯æŒ Python 3.13 åŠä»¥ä¸Šç‰ˆæœ¬
-    echo å½“å‰Pythonç‰ˆæœ¬: !PYTHON_VERSION!
-    echo è¯·ä½¿ç”¨ Python 3.12 æˆ–æ›´æ—©ç‰ˆæœ¬
+    echo ²»Ö§³Ö Python 3.13 ¼°ÒÔÉÏ°æ±¾
+    echo µ±Ç°Python°æ±¾: !PYTHON_VERSION!
+    echo ÇëÊ¹ÓÃ Python 3.12 ¼°ÒÔÏÂ°æ±¾
     pause
     exit /b 1
 )
 
-:: è®¾ç½®è™šæ‹ŸçŽ¯å¢ƒç›®å½•
+:: ´´½¨ÐéÄâ»·¾³Ä¿Â¼
 set VENV_DIR=.venv
 
-:: åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒï¼ˆå¦‚æžœä¸å­˜åœ¨ï¼‰
+:: Èç¹ûÐéÄâ»·¾³²»´æÔÚ£¬Ôò´´½¨
 if not exist %VENV_DIR% (
-    echo æ­£åœ¨åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒ...
+    echo ÕýÔÚ´´½¨ÐéÄâ»·¾³...
     python -m venv %VENV_DIR%
     if errorlevel 1 (
-        echo åˆ›å»ºè™šæ‹ŸçŽ¯å¢ƒå¤±è´¥
+        echo ´´½¨ÐéÄâ»·¾³Ê§°Ü
         pause
         exit /b 1
     )
 )
 
-:: æ¿€æ´»è™šæ‹ŸçŽ¯å¢ƒ
+:: ¼¤»îÐéÄâ»·¾³
 call %VENV_DIR%\Scripts\activate.bat
 
-:: å®‰è£…ä¾èµ–ï¼ˆä¸‰é‡é•œåƒæºæœºåˆ¶ï¼‰
+:: °²×°ÒÀÀµ
 if exist requirements.txt (
-    echo æ­£åœ¨ä½¿ç”¨æ¸…åŽé•œåƒæºå®‰è£…ä¾èµ–...
+    echo Ê¹ÓÃÇå»ªÔ´°²×°ÒÀÀµ...
     pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-    
-    :: å¦‚æžœæ¸…åŽæºå¤±è´¥ï¼Œå°è¯•é˜¿é‡Œäº‘é•œåƒ
     if errorlevel 1 (
-        echo â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-        echo æ­£åœ¨å°è¯•é˜¿é‡Œäº‘é•œåƒæºå®‰è£…...
+        echo «û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û
+        echo ³¢ÊÔ°¢ÀïÔ´°²×°...
         pip install -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
-        
-        :: å¦‚æžœé˜¿é‡Œäº‘å¤±è´¥ï¼Œå°è¯•è…¾è®¯äº‘é•œåƒ
         if errorlevel 1 (
-            echo â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-            echo æ­£åœ¨å°è¯•è…¾è®¯äº‘é•œåƒæºå®‰è£…...
+            echo «û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û
+            echo ³¢ÊÔÌÚÑ¶Ô´°²×°...
             pip install -r requirements.txt -i https://mirrors.cloud.tencent.com/pypi/simple
-            
-            :: æœ€ç»ˆå¤±è´¥å¤„ç†
             if errorlevel 1 (
-                echo â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-                echo æ‰€æœ‰é•œåƒæºå°è¯•å¤±è´¥ï¼Œè¯·æ£€æŸ¥ï¼š
-                echo 1. ç½‘ç»œè¿žæŽ¥æ˜¯å¦æ­£å¸¸
-                echo 2. æ‰‹åŠ¨å®‰è£…å‘½ä»¤ï¼špip install -r requirements.txt
-                echo 3. æ˜¯å¦å­˜åœ¨ç‰¹æ®Šä¾èµ–åŒ…
-                echo 4. å°è¯•ä¸´æ—¶å…³é—­é˜²ç«å¢™/ä»£ç†
-                pause
-                exit /b 1
+                echo «û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û
+                echo ³¢ÊÔÖÐ¿Æ´óÔ´°²×°...
+                pip install -r requirements.txt -i https://pypi.mirrors.ustc.edu.cn/simple/
+                if errorlevel 1 (
+                    echo «û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û
+                    echo ³¢ÊÔ¶¹°êÔ´°²×°...
+                    pip install -r requirements.txt -i http://pypi.douban.com/simple/
+                    if errorlevel 1 (
+                        echo «û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û
+                        echo ³¢ÊÔÍøÒ×Ô´°²×°...
+                        pip install -r requirements.txt -i https://mirrors.163.com/pypi/simple/
+                        if errorlevel 1 (
+                            echo «û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û«û
+                            echo ËùÓÐ¾µÏñÔ´°²×°Ê§°Ü£¬½¨Òé£º
+                            echo 1. ¼ì²éÍøÂçÁ¬½Ó
+                            echo 2. ÊÖ¶¯°²×°ÃüÁî£ºpip install -r requirements.txt
+                            echo 3. ÁÙÊ±¹Ø±Õ·À»ðÇ½/´úÀíºóÖØÊÔ
+                            pause
+                            exit /b 1
+                        )
+                    )
+                )
             )
         )
     )
 )
 
-:: è¿è¡Œç¨‹åº
-echo æ­£åœ¨å¯åŠ¨ç¨‹åº...
+:: Æô¶¯³ÌÐò
+echo ÕýÔÚÆô¶¯Ó¦ÓÃ³ÌÐò...
 python run_config_web.py
 
-:: å¼‚å¸¸é€€å‡ºå¤„ç†
+:: Òì³£ÍË³ö´¦Àí
 if errorlevel 1 (
-    echo ç¨‹åºå¼‚å¸¸é€€å‡º
+    echo ³ÌÐòÒì³£ÍË³ö
     pause
 )
 
-:: é€€å‡ºè™šæ‹ŸçŽ¯å¢ƒ
+:: ÍË³öÐéÄâ»·¾³
 deactivate
