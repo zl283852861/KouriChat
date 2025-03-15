@@ -15,7 +15,7 @@ from nonebot.plugin import _plugins
 src_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
 sys.path.append(src_path)
 
-from src.config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
+from src.config.rag_config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
 from colorama import init, Style
 from src.handlers.emoji import EmojiHandler
 from src.handlers.image import ImageHandler

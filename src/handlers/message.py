@@ -19,7 +19,8 @@ import random
 import os
 from services.ai.llm_service import LLMService
 from handlers.memory import MemoryHandler
-from config import config
+from src.config.rag_config import config
+from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer
 import re
 import jieba
 
@@ -30,22 +31,32 @@ logger = logging.getLogger('main')
 class MessageHandler:
     def __init__(self, root_dir, api_key, base_url, model, max_token, temperature,
                  max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler,
-                 is_qq=False, is_debug=False):
+                 is_qq=False, is_debug=False, wx=None):
+        # 基础参数
         self.root_dir = root_dir
         self.api_key = api_key
+        self.base_url = base_url
         self.model = model
         self.max_token = max_token
         self.temperature = temperature
         self.max_groups = max_groups
         self.robot_name = robot_name
         self.prompt_content = prompt_content
-        self.debug = is_debug
-        # 添加消息缓存相关属性
-        self.message_cache = {}  # 用户消息缓存
-        self.last_message_time = {}  # 用户最后发送消息的时间
-        self.message_timer = {}  # 用户消息处理定时器
-        # 使用 DeepSeekAI 替换直接的 OpenAI 客户端
-        self.deepseek = LLMService(
+        self.is_qq = is_qq
+        self.is_debug = is_debug
+        self.MAX_MESSAGE_LENGTH = 500  # 单条消息最大长度
+        
+        # 处理器
+        self.image_handler = image_handler
+        self.emoji_handler = emoji_handler
+        self.voice_handler = voice_handler
+        self.memory_handler = memory_handler
+        
+        # 微信实例
+        self.wx = wx
+        
+        # 创建LLM服务
+        self.llm_service = LLMService(
             api_key=api_key,
             base_url=base_url,
             model=model,
@@ -53,25 +64,19 @@ class MessageHandler:
             temperature=temperature,
             max_groups=max_groups
         )
-
-        # 消息队列相关
-        self.user_queues = {}
-        self.queue_lock = threading.Lock()
-        self.chat_contexts = {}
-
-        # 微信实例
-        if not is_qq:
-            if is_debug:
-                self.wx = None
-                logger.info("调试模式跳过微信初始化")
-            else:
-                self.wx = WeChat()
-
-        # 添加 handlers
-        self.image_handler = image_handler
-        self.emoji_handler = emoji_handler
-        self.voice_handler = voice_handler
-        self.memory_handler = memory_handler
+        
+        # 加载情感分析器
+        self.sentiment_analyzer = None
+        try:
+            sentiment_loader = SentimentResourceLoader()
+            self.sentiment_analyzer = SentimentAnalyzer(sentiment_loader)
+        except Exception as e:
+            logger.error(f"加载情感分析器失败: {str(e)}")
+        
+        # 添加消息缓存相关属性
+        self.message_cache = {}  # 用户消息缓存
+        self.last_message_time = {}  # 用户最后发送消息的时间
+        self.message_timer = {}  # 消息处理定时器
         self.unanswered_counters = {}
         self.unanswered_timers = {}  # 新增：存储每个用户的计时器
 
@@ -120,7 +125,7 @@ class MessageHandler:
             
         try:
             # 获取最近的对话历史
-            recent_history = self.memory_handler.get_recent_memory(user_id, max_count=5)  # 获取最近5轮对话
+            recent_history = self.memory_handler.get_recent_memory(user_id, max_count=30)  # 获取最近30轮对话
             
             # 构建带有历史记录的上下文
             context = original_content + "\n\n最近的对话记录：\n"
@@ -131,31 +136,8 @@ class MessageHandler:
             # 添加当前用户的输入
             context += f"\n用户: {message}\n"
             
-            # 添加性能优化：对超长上下文进行截断
-            max_context_length = 8000  # 设置合理的上下文长度限制
-            if len(context) > max_context_length:
-                logger.warning(f"上下文过长({len(context)}字符)，进行截断")
-                # 保留人设部分和最新的对话
-                context_parts = context.split("\n\n最近的对话记录：\n")
-                if len(context_parts) > 1:
-                    # 保留人设和最新的用户输入
-                    avatar_part = context_parts[0]
-                    user_input_part = f"\n用户: {message}\n"
-                    
-                    # 计算可用于历史对话的字符数
-                    available_chars = max_context_length - len(avatar_part) - len(user_input_part) - 50
-                    
-                    # 从最近的对话开始，尽可能多地保留对话历史
-                    history_lines = context_parts[1].split("\n")
-                    history_part = ""
-                    for line in reversed(history_lines[:-1]):  # 排除最后的用户输入
-                        if len(history_part) + len(line) + 1 <= available_chars:
-                            history_part = line + "\n" + history_part
-                        else:
-                            break
-                        
-                    # 重新组合上下文
-                    context = f"{avatar_part}\n\n最近的对话记录：\n{history_part}{user_input_part}"
+            # 移除上下文截断功能
+            # 原有的截断代码已被删除，保留原始上下文长度
             
             # 上下文处理完成
             
@@ -165,7 +147,7 @@ class MessageHandler:
             
             for attempt in range(max_retries):
                 try:
-                    return self.deepseek.get_response(message, user_id, context)
+                    return self.llm_service.get_response(message, user_id, context)
                 except Exception as retry_error:
                     if attempt < max_retries - 1:
                         logger.warning(f"API调用失败，尝试重试 ({attempt+1}/{max_retries}): {str(retry_error)}")
@@ -178,7 +160,7 @@ class MessageHandler:
             # 降级处理：使用简化的提示
             try:
                 simplified_prompt = f"{original_content}\n\n用户: {message}"
-                return self.deepseek.get_response(message, user_id, simplified_prompt)
+                return self.llm_service.get_response(message, user_id, simplified_prompt)
             except Exception as fallback_error:
                 logger.error(f"降级处理也失败: {str(fallback_error)}")
                 return f"抱歉，我暂时无法回应，请稍后再试。(错误: {str(e)[:50]}...)"
@@ -217,35 +199,53 @@ class MessageHandler:
 
             # 提取实际消息内容，去除时间戳和前缀
             actual_content = content
-            # 匹配并去除时间戳和前缀，如 "(此时时间为2025-03-15 04:37:12) ta私聊对你说 "
-            time_prefix_pattern = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s+ta私聊对你说\s+'
-            actual_content = re.sub(time_prefix_pattern, '', actual_content)
+            # 匹配并去除时间戳和前缀，如 "(2025-03-15 04:37:12) ta私聊对你说 "
+            # 修正：同时支持圆括号和方括号格式的时间戳
+            time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
+            time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+            
+            if re.search(time_prefix_pattern, actual_content):
+                actual_content = re.sub(time_prefix_pattern, '', actual_content)
+                logger.info(f"去除时间前缀后的内容: {actual_content}")
+            elif re.search(time_prefix_pattern2, actual_content):
+                actual_content = re.sub(time_prefix_pattern2, '', actual_content)
+                logger.info(f"去除方括号时间前缀后的内容: {actual_content}")
             
             # 获取实际消息内容的长度，用于判断是否需要缓存
             content_length = len(actual_content)
+            logger.info(f"实际内容长度: {content_length}")
             
-            # 判断是否需要缓存消息的条件：
-            # 1. 如果是第一条消息且内容较短（可能是问候语或简短提问），启用缓存
-            # 2. 如果用户在短时间内发送了多条消息，继续使用缓存
-            should_cache = (
-                # 条件1: 实际内容较短（少于20个字符）的消息总是缓存
-                content_length < 20 or
-                # 条件2: 用户在10秒内发送了新消息
-                (username in self.last_message_time and current_time - self.last_message_time[username] < 10)
-            )
+            # 修改：始终启用缓存，无论是第一条消息还是后续消息
+            # 只有特定情况下才不使用缓存（如AI自己发送的消息）
+            should_cache = True
+            
+            # 对于图片识别结果，记录日志但不改变缓存决定
+            if is_image_recognition:
+                logger.info(f"图片识别结果，继续使用缓存")
+            
+            # 记录用户最后一次消息的时间，用于计算打字速度
+            self.last_message_time[username] = current_time
             
             if should_cache:
-                # 简化日志输出，减少冗余信息
-                cache_reason = "实际内容较短" if content_length < 20 else "短时间内连续消息"
+                logger.info(f"启用消息缓存 - 用户: {username}")
+                
+                # 检查并确保message_timer字典已初始化
+                if not hasattr(self, 'message_timer') or self.message_timer is None:
+                    self.message_timer = {}
+                    logger.warning("消息定时器字典未初始化，已重新创建")
                 
                 # 取消之前的定时器
                 if username in self.message_timer and self.message_timer[username]:
-                    self.message_timer[username].cancel()
-                    # 简化日志，不再输出取消定时器的详细信息
+                    try:
+                        self.message_timer[username].cancel()
+                        logger.info(f"已取消用户 {username} 的现有定时器")
+                    except Exception as e:
+                        logger.error(f"取消定时器失败: {str(e)}")
                 
                 # 添加到消息缓存
                 if username not in self.message_cache:
                     self.message_cache[username] = []
+                    logger.info(f"为用户 {username} 创建新的消息缓存")
                 
                 self.message_cache[username].append({
                     'content': content,
@@ -256,29 +256,37 @@ class MessageHandler:
                     'timestamp': current_time  # 添加时间戳
                 })
                 
-                # 只在第一条消息时输出日志，减少日志量
+                # 记录缓存消息数量
                 msg_count = len(self.message_cache[username])
-                if msg_count == 1:
-                    logger.info(f"用户 {username} 开始缓存消息")
+                logger.info(f"用户 {username} 当前缓存消息数: {msg_count}")
                 
                 # 智能设置定时器时间：根据用户打字速度和消息长度动态调整
                 typing_speed = self._estimate_typing_speed(username)
+                logger.info(f"用户 {username} 的估计打字速度: {typing_speed:.3f}秒/字符")
                 
-                # 修改等待时间计算逻辑，增加基础等待时间，防止提前回复
-                if len(self.message_cache[username]) == 1:
+                # 修改等待时间计算逻辑，更加智能地根据打字速度和消息长度调整
+                # 基础等待时间 + 根据打字速度和消息长度计算的额外等待时间
+                base_wait_time = 5.0  # 基础等待时间5秒
+                
+                # 根据消息数量调整等待时间
+                if msg_count == 1:
                     # 第一条消息，给予更长的等待时间
-                    wait_time = 12.0  # 增加到12秒等待时间，给用户足够时间输入后续消息
+                    wait_time = base_wait_time + 7.0  # 总共12秒
+                    logger.info(f"首条消息，设置较长等待时间: {wait_time:.1f}秒")
                 else:
-                    # 后续消息，根据打字速度和消息长度动态调整，并增加基础等待时间
-                    wait_time = 8.0 + min(10.0, len(actual_content) * typing_speed)  # 最多等待18秒
+                    # 后续消息，根据打字速度和消息长度动态调整
+                    # 预估用户输入下一条消息所需的时间
+                    estimated_typing_time = min(10.0, content_length * typing_speed)
+                    wait_time = base_wait_time + estimated_typing_time
+                    logger.info(f"后续消息，根据打字速度设置等待时间: {wait_time:.1f}秒")
                 
                 # 设置新的定时器
                 timer = threading.Timer(wait_time, self._process_cached_messages, args=[username])
+                timer.daemon = True  # 设置为守护线程，避免程序退出时阻塞
                 timer.start()
                 self.message_timer[username] = timer
+                logger.info(f"已为用户 {username} 设置新定时器，等待时间: {wait_time:.1f}秒")
                 
-                # 更新最后消息时间
-                self.last_message_time[username] = current_time
                 return None
             
             # 更新最后消息时间
@@ -327,46 +335,78 @@ class MessageHandler:
     def _process_cached_messages(self, username: str):
         """处理缓存的消息"""
         try:
+            # 检查消息缓存是否存在
+            if not hasattr(self, 'message_cache'):
+                logger.error("消息缓存属性不存在，无法处理")
+                return None
+                
             if not self.message_cache.get(username):
                 logger.info(f"用户 {username} 没有需要处理的缓存消息")
                 return None
             
-            # 简化日志输出，只显示总数
+            # 详细日志
             msg_count = len(self.message_cache[username])
-            logger.info(f"处理缓存 - 用户: {username}, 消息数: {msg_count}")
+            total_length = sum(len(msg.get('content', '')) for msg in self.message_cache[username])
+            logger.info(f"处理缓存 - 用户: {username}, 消息数: {msg_count}, 总内容长度: {total_length}")
             
             # 获取最近的对话记录作为上下文
-            recent_history = self.memory_handler.get_recent_memory(username, max_count=1)
+            recent_history = self.memory_handler.get_recent_memory(username, max_count=30)
+            
+            # 初始化上下文，但不立即添加提示词
             context = ""
-            if recent_history:
-                # 修改：只添加一次上下文提示词
-                context = f"{recent_history[0]['message']}(上次的对话内容，只是提醒)"
-                # 简化日志，不再输出加载上下文的详细信息
+            if recent_history and len(recent_history) > 0 and recent_history[0].get('message'):
+                # 构建更丰富的上下文，包含最多30轮对话历史
+                context_parts = []
+                for idx, hist in enumerate(recent_history):
+                    if hist.get('message') and hist.get('reply'):
+                        context_parts.append(f"对话{idx+1}:\n用户: {hist['message']}\nAI: {hist['reply']}")
+                
+                if context_parts:
+                    context = "\n\n".join(context_parts)
+                    logger.info(f"加载了{len(context_parts)}轮历史对话作为上下文")
 
             # 合并所有缓存的消息，但优先处理新消息
             messages = self.message_cache[username]
+            
+            # 按照时间戳排序，确保消息按正确顺序处理
+            messages.sort(key=lambda x: x.get('timestamp', 0))
+            
+            # 分类消息
             image_messages = [msg for msg in messages if msg.get('is_image_recognition', False)]
             text_messages = [msg for msg in messages if not msg.get('is_image_recognition', False)]
             
-            # 简化日志输出，只在有图片消息时才显示分类信息
+            # 日志输出消息分类情况
             if image_messages:
                 logger.info(f"消息分类 - 图片: {len(image_messages)}, 文本: {len(text_messages)}")
             
             # 按照图片识别消息优先的顺序合并内容
             combined_messages = image_messages + text_messages
             
-            # 智能合并消息内容，检测是否有断句符号
-            combined_content = context
+            # 智能合并消息内容
+            # 如果有上下文，只在第一次添加提示词
+            if context:
+                combined_content = f"{context}\n\n(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容)\n\n"
+            else:
+                combined_content = ""
             
             # 创建一个列表来存储清理后的消息内容，用于日志显示
             cleaned_messages = []
             
-            # 新增：统计用户消息的总字数和句数
+            # 统计用户消息的总字数和句数
             total_chars = 0
             total_sentences = 0
             sentence_endings = {'。', '！', '？', '!', '?', '.'}
             
-            for i, msg in enumerate(combined_messages):
+            # 提取时间戳和前缀的正则表达式
+            time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
+            general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
+            time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
+            time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+            reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
+            
+            # 首先提取所有消息的实际内容（去除时间戳和前缀）
+            raw_contents = []
+            for msg in combined_messages:
                 # 获取原始内容
                 original_content = msg.get('content', '')
                 
@@ -374,45 +414,39 @@ class MessageHandler:
                 content = original_content
                 
                 # 过滤时间戳
-                time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
                 content = re.sub(time_pattern, '', content)
                 
                 # 过滤通用模式
-                general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
                 content = re.sub(general_pattern, '', content)
                 
-                # 过滤消息前缀，如 "(此时时间为2025-03-15 04:37:12) ta私聊对你说 "
-                time_prefix_pattern = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s+ta私聊对你说\s+'
-                content = re.sub(time_prefix_pattern, '', content)
+                # 过滤消息前缀
+                if re.search(time_prefix_pattern, content):
+                    content = re.sub(time_prefix_pattern, '', content)
+                elif re.search(time_prefix_pattern2, content):
+                    content = re.sub(time_prefix_pattern2, '', content)
                 
-                # 移除重复的上下文提示词
-                reminder_pattern = r'\(上次的对话内容，只是提醒[^)]*\)'
+                # 彻底移除所有上下文提示词
                 content = re.sub(reminder_pattern, '', content)
                 
-                # 如果内容有变化，记录清理后的内容
-                if content != original_content:
-                    cleaned_messages.append(content)
-                else:
-                    cleaned_messages.append(content)  # 即使没有变化也添加，确保所有消息都被记录
+                # 记录清理后的内容
+                raw_contents.append(content.strip())
                 
-                # 新增：统计字数
-                total_chars += len(content)
+                # 统计字数
+                total_chars += len(content.strip())
                 
-                # 新增：统计句数
+                # 统计句数
                 for char in content:
                     if char in sentence_endings:
                         total_sentences += 1
-                
-                # 添加到合并内容
-                if i > 0 and not content.startswith('\\'):
-                    combined_content += " " + content
-                else:
-                    combined_content += content
+            
+            # 合并清理后的内容，不再添加时间前缀
+            merged_content = " ".join(raw_contents)
+            cleaned_messages = raw_contents
             
             # 确保句子数至少为1
             total_sentences = max(1, total_sentences)
             
-            # 只输出一次清理后的所有消息内容，使用更简洁的格式
+            # 输出清理后的所有消息内容
             if cleaned_messages:
                 # 如果消息太多，只显示前3条和最后1条
                 if len(cleaned_messages) > 4:
@@ -432,11 +466,17 @@ class MessageHandler:
             # 确保目标句子数至少为1
             target_sentences = max(1, target_sentences)
             
+            # 将合并后的内容添加到上下文中
+            if combined_content:
+                combined_content += merged_content
+            else:
+                combined_content = merged_content
+            
             # 在合并内容中添加字数和句数控制提示
             combined_content += f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_chars}个字符和{target_sentences}个句子左右。"
 
             # 处理合并后的消息
-            logger.info(f"处理合并消息 - 用户: {username}")
+            logger.info(f"处理合并消息 - 用户: {username}, 内容长度: {len(combined_content)}")
             result = self._handle_text_message(
                 combined_content,
                 last_message['chat_id'],
@@ -447,8 +487,17 @@ class MessageHandler:
             )
 
             # 清理缓存
+            logger.info(f"清理用户 {username} 的消息缓存")
             self.message_cache[username] = []
-            if username in self.message_timer:
+            
+            # 检查并清理定时器
+            if hasattr(self, 'message_timer') and username in self.message_timer:
+                if self.message_timer[username] is not None:
+                    try:
+                        self.message_timer[username].cancel()
+                        logger.info(f"已取消用户 {username} 的定时器")
+                    except Exception as e:
+                        logger.error(f"取消定时器失败: {str(e)}")
                 self.message_timer[username] = None
             
             return result
@@ -458,18 +507,21 @@ class MessageHandler:
             return None
 
     def _estimate_typing_speed(self, username: str) -> float:
-        """估计用户的打字速度（秒/字）"""
+        """估计用户的打字速度（秒/字符）"""
         # 如果没有足够的历史消息，使用默认值
         if username not in self.message_cache or len(self.message_cache[username]) < 2:
             # 根据用户ID是否存在于last_message_time中返回不同的默认值
             # 如果是新用户，给予更长的等待时间
             if username not in self.last_message_time:
-                return 0.2  # 新用户默认速度：每字0.2秒，增加等待时间
-            return 0.15  # 已知用户默认速度：每字0.15秒，增加等待时间
+                logger.info(f"新用户 {username}，使用默认打字速度: 0.2秒/字符")
+                return 0.2  # 新用户默认速度：每字0.2秒
+            logger.info(f"已知用户 {username}，使用默认打字速度: 0.15秒/字符")
+            return 0.15  # 已知用户默认速度：每字0.15秒
         
         # 获取最近的两条消息
         messages = self.message_cache[username]
         if len(messages) < 2:
+            logger.info(f"用户 {username} 消息数不足，使用默认打字速度: 0.15秒/字符")
             return 0.15
         
         # 按时间戳排序，确保我们比较的是连续的消息
@@ -477,10 +529,22 @@ class MessageHandler:
         
         # 计算时间差和字符数
         time_diff = recent_msgs[1].get('timestamp', 0) - recent_msgs[0].get('timestamp', 0)
-        char_count = len(recent_msgs[0].get('content', ''))
+        
+        # 获取实际内容（去除时间戳和前缀）
+        content = recent_msgs[0].get('content', '')
+        time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
+        time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+        
+        if re.search(time_prefix_pattern, content):
+            content = re.sub(time_prefix_pattern, '', content)
+        elif re.search(time_prefix_pattern2, content):
+            content = re.sub(time_prefix_pattern2, '', content)
+            
+        char_count = len(content)
         
         # 如果时间差或字符数无效，使用默认值
         if time_diff <= 0 or char_count <= 0:
+            logger.info(f"用户 {username} 时间差或字符数无效，使用默认打字速度: 0.15秒/字符")
             return 0.15
         
         # 计算打字速度（秒/字）
@@ -492,15 +556,21 @@ class MessageHandler:
             prev_speed = self._typing_speeds[username]
             # 使用加权平均，新速度权重0.3，历史速度权重0.7
             typing_speed = 0.3 * typing_speed + 0.7 * prev_speed
+            logger.info(f"用户 {username} 打字速度（平滑后）: {typing_speed:.3f}秒/字符")
+        else:
+            logger.info(f"用户 {username} 打字速度（首次计算）: {typing_speed:.3f}秒/字符")
         
         # 存储计算出的打字速度
         if not hasattr(self, '_typing_speeds'):
             self._typing_speeds = {}
         self._typing_speeds[username] = typing_speed
         
-        # 限制在合理范围内：0.1秒/字 到 1.0秒/字
-        # 增加打字速度范围的下限和上限，使其更适合更长的等待时间
-        return max(0.1, min(1.0, typing_speed))
+        # 限制在合理范围内：0.2秒/字 到 1秒/字
+        # 调整打字速度范围，使其更合理
+        typing_speed = max(0.2, min(1, typing_speed))
+        logger.info(f"用户 {username} 最终打字速度: {typing_speed:.3f}秒/字符")
+        
+        return typing_speed
 
     def _calculate_response_length_ratio(self, user_message_length: int) -> float:
         """计算回复长度与用户消息的比例"""
@@ -764,83 +834,74 @@ class MessageHandler:
             return None
 
     def _safe_send_msg(self, msg, who, max_retries=None, char_by_char=False):
-        """安全发送消息，支持重试和字符逐个发送模式"""
-        if not self.wx:
+        """安全发送消息，带重试机制"""
+        if not msg or not who:
+            logger.warning(f"消息或接收人为空，跳过发送")
+            return False
+            
+        # 检查wx对象是否可用
+        if self.wx is None:
             logger.warning("WeChat对象为None，无法发送消息")
             return False
-
-        # 默认重试次数
+        
+        # 不再特殊处理消息末尾的反斜杠，因为所有反斜杠都已在分割阶段处理
+        processed_msg = msg
+            
+        # 设置重试次数
         if max_retries is None:
             max_retries = 3
-
+            
         # 尝试发送消息
         for attempt in range(max_retries):
             try:
-                if char_by_char and len(msg) > 1:
-                    # 字符逐个发送模式
-                    for char in msg:
-                        self.wx.SendMsg(msg=char, who=who)
-                        time.sleep(0.05)  # 每个字符间隔50毫秒
+                if self.is_qq:
+                    # QQ消息直接返回，不实际发送
                     return True
                 else:
-                    # 普通发送模式
-                    self.wx.SendMsg(msg=msg, who=who)
-                    return True
+                    # 微信消息发送
+                    if char_by_char:
+                        # 逐字发送
+                        for char in processed_msg:
+                            self.wx.SendMsg(char, who)
+                            time.sleep(random.uniform(0.1, 0.3))
+                    else:
+                        # 整条发送
+                        self.wx.SendMsg(processed_msg, who)
+                return True
             except Exception as e:
                 logger.error(f"发送消息失败 (尝试 {attempt+1}/{max_retries}): {str(e)}")
                 if attempt < max_retries - 1:
-                    # 指数退避策略
-                    time.sleep(0.5 * (2 ** attempt))
-                else:
-                    logger.error(f"发送消息最终失败: {msg[:30]}...")
-                    return False
-        
+                    time.sleep(1)  # 等待一秒后重试
+                    
         return False
 
     def _handle_text_message(self, content, chat_id, sender_name, username, is_group, is_image_recognition=False):
-        """处理普通文本消息"""
+        """处理文本消息"""
         try:
-            # 添加正则表达式过滤时间戳
-            time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
-            content = re.sub(time_pattern, '', content)
+            # 记录消息
+            logger.info(f"处理文本消息 - 用户: {username}, 内容: {content[:50]}...")
             
-            # 更通用的模式
-            general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
-            content = re.sub(general_pattern, '', content)
+            # 初始化返回值列表
+            delayed_reply = []
             
-            logger.info("处理普通文本回复")
-            
-            # 检查是否是时间查询
-            is_time_query, time_reply = self._check_time_query(content, username)
-            if is_time_query:
-                logger.info("检测到时间查询请求")
-                if is_group:
-                    time_reply = f"@{sender_name} {time_reply}"
-                
-                # 发送时间回复
-                if self.wx:
-                    self.wx.SendMsg(msg=time_reply, who=chat_id)
-                
-                # 异步保存消息记录
-                threading.Thread(target=self.save_message,
-                                args=(username, sender_name, content, time_reply, is_group)).start()
-                return [time_reply]
-            
-            # 检查是否是记忆查询
-            is_memory_query, memory_reply = self._check_memory_query(content, username, is_group, chat_id, sender_name)
-            if is_memory_query:
-                logger.info("检测到记忆查询请求")
-                if is_group:
-                    memory_reply = f"@{sender_name} {memory_reply}"
+            # 获取记忆
+            memories = []
+            if self.memory_handler:
+                try:
+                    # 获取相关记忆
+                    memories = self.memory_handler.get_relevant_memories(
+                        content, 
+                        username if not is_group else chat_id,
+                        group_id=chat_id if is_group else None,
+                        sender_name=sender_name if is_group else None
+                    )
                     
-                # 发送记忆回复
-                if self.wx:
-                    self.wx.SendMsg(msg=memory_reply, who=chat_id)
-                    
-                # 异步保存消息记录
-                threading.Thread(target=self.save_message,
-                                args=(username, sender_name, content, memory_reply, is_group)).start()
-                return [memory_reply]
+                    if memories:
+                        logger.info(f"找到相关记忆: {len(memories)} 条")
+                    else:
+                        logger.info("未找到相关记忆")
+                except Exception as mem_err:
+                    logger.error(f"获取记忆失败: {str(mem_err)}")
             
             # 获取或初始化未回复计数器
             counter = self.unanswered_counters.get(username, 0)
@@ -889,10 +950,11 @@ class MessageHandler:
             
             try:
                 # 使用优化后的消息分割方法
-                delayed_reply = self._split_message_for_sending(reply)
+                split_messages = self._split_message_for_sending(reply)
+                delayed_reply.extend(split_messages)
                 
                 # 使用优化后的消息发送方法
-                self._send_split_messages(delayed_reply, chat_id)
+                self._send_split_messages(split_messages, chat_id)
                 
                 # 检查回复中是否包含情感关键词并发送表情包
                 logger.info("开始检查AI回复的情感关键词")
@@ -950,15 +1012,30 @@ class MessageHandler:
         time_keywords = [
             "几点了", "现在时间", "当前时间", "现在几点", "时间是", "报时", "几点钟",
             "what time", "current time", "time now", "现在是几点", "告诉我时间",
-            "几点", "时间", "日期", "今天日期", "今天几号", "几月几号", "星期几",
+            "今天日期", "今天几号", "几月几号", "星期几",
             "today's date", "what day", "date today", "几月几日"
         ]
         
-        # 检查是否包含时间查询关键词 - 修改为更精确的匹配
-        # 简单的问候语如"你好"不应该触发时间查询
-        if any(keyword in content.lower() for keyword in time_keywords) and not (
+        # 更严格的单词匹配，避免将部分词语误判为时间查询
+        # 例如"时间"、"几点"这种常见词汇单独判断，要求它们是独立词组
+        broad_keywords = ["时间", "几点", "日期"]
+        specific_match = any(keyword in content.lower() for keyword in time_keywords)
+        
+        # 对于宽泛关键词，要求它们是独立词或短语，通过边界检查实现
+        broad_match = False
+        for keyword in broad_keywords:
+            # 检查是否为独立词组，前后有标点、空格或字符串边界
+            pattern = r'(^|[\s,，.。!！?？:：;；]){0}($|[\s,，.。!！?？:：;；])'.format(keyword)
+            if re.search(pattern, content):
+                broad_match = True
+                break
+        
+        # 时间查询条件：匹配特定关键词或独立的宽泛关键词，且不是简单问候语
+        is_time_query = (specific_match or broad_match) and not (
                 "你好" in content or "早上好" in content or "晚上好" in content or 
-                "下午好" in content or "中午好" in content or "嗨" in content):
+                "下午好" in content or "中午好" in content or "嗨" in content)
+        
+        if is_time_query:
             # 获取当前时间
             now = datetime.now()
             weekday_names = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
@@ -973,35 +1050,36 @@ class MessageHandler:
             
         return False, None
 
-    def _check_memory_query(self, content: str, username: str, is_group: bool = False, group_id: str = None, sender_name: str = None) -> tuple:
-        """检查是否是记忆查询请求"""
-        # 记忆查询关键词
-        memory_keywords = [
-            "记得我", "还记得", "记忆中", "之前说过", "上次说", "之前提到", "之前聊过",
-            "remember me", "remember what", "我们之前", "我之前跟你", "你之前说",
-            "你记得", "你还记得", "记得什么", "记得多少", "记得我们", "记得我说过",
-            "记得我告诉过你", "记得我们讨论过", "记得我们聊过", "记得我问过你"
-        ]
-        
-        # 检查是否包含记忆查询关键词
-        if any(keyword in content.lower() for keyword in memory_keywords):
-            # 获取相关记忆
-            memories = self.memory_handler.get_relevant_memories(content, username)
-            
-            if memories:
-                # 构建记忆回复
-                memory_text = "\n".join([f"- {mem}" for mem in memories[:3]])  # 最多显示3条记忆
-                reply = f"根据我的记忆，我们之前聊过这些内容：\n{memory_text}"
-                
-                if len(memories) > 3:
-                    reply += f"\n...还有{len(memories)-3}条相关记忆"
-            else:
-                reply = "抱歉，我没有找到与此相关的记忆。"
-            
-            logger.info(f"检测到记忆查询请求，回复: {reply[:100]}...")
-            return True, reply
-            
-        return False, None
+    # 注释掉_check_memory_query方法
+    # def _check_memory_query(self, content: str, username: str, is_group: bool = False, group_id: str = None, sender_name: str = None) -> tuple:
+    #     """检查是否是记忆查询请求"""
+    #     # 记忆查询关键词
+    #     memory_keywords = [
+    #         "记得我", "还记得", "记忆中", "之前说过", "上次说", "之前提到", "之前聊过",
+    #         "remember me", "remember what", "我们之前", "我之前跟你", "你之前说",
+    #         "你记得", "你还记得", "记得什么", "记得多少", "记得我们", "记得我说过",
+    #         "记得我告诉过你", "记得我们讨论过", "记得我们聊过", "记得我问过你"
+    #     ]
+    #     
+    #     # 检查是否包含记忆查询关键词
+    #     if any(keyword in content.lower() for keyword in memory_keywords):
+    #         # 获取相关记忆
+    #         memories = self.memory_handler.get_relevant_memories(content, username)
+    #         
+    #         if memories:
+    #             # 构建记忆回复
+    #             memory_text = "\n".join([f"- {mem}" for mem in memories[:3]])  # 最多显示3条记忆
+    #             reply = f"根据我的记忆，我们之前聊过这些内容：\n{memory_text}"
+    #             
+    #             if len(memories) > 3:
+    #                 reply += f"\n...还有{len(memories)-3}条相关记忆"
+    #         else:
+    #             reply = "抱歉，我没有找到与此相关的记忆。"
+    #         
+    #         logger.info(f"检测到记忆查询请求，回复: {reply[:100]}...")
+    #         return True, reply
+    #         
+    #     return False, None
 
     #以下是onebot QQ方法实现
     def add_to_queue(self, chat_id: str, content: str, sender_name: str,
@@ -1124,59 +1202,13 @@ class MessageHandler:
             logger.info("\nAI回复:")
             logger.info(reply)
 
-            # 过滤括号内的动作和情感描述
+        # 过滤括号内的动作和情感描述
         reply = self._filter_action_emotion(reply)
 
         try:
-            # 增强型智能分割器 - 优化版
-            delayed_reply = []
-            current_sentence = []
-            ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
-            split_symbols = {'\\', '|', '￤', '\n', '\\n'}  # 支持多种手动分割符
-            last_split_idx = -1  # 记录上一次分割的位置，防止重复分割
-
-            for idx, char in enumerate(reply):
-                # 处理手动分割符号（优先级最高）
-                if char in split_symbols:
-                    if current_sentence and idx > last_split_idx:
-                        delayed_reply.append(''.join(current_sentence).strip())
-                        last_split_idx = idx
-                    current_sentence = []
-                    continue
-
-                current_sentence.append(char)
-
-                # 处理中文标点和省略号
-                if char in ending_punctuations:
-                    # 排除英文符号在短句中的误判（如英文缩写）
-                    if char in {'!', '?'} and len(current_sentence) < 4:
-                        continue
-
-                    # 处理连续省略号
-                    if char == '…' and idx > 0 and reply[idx - 1] == '…':
-                        if len(current_sentence) >= 3 and idx > last_split_idx:  # 至少三个点形成省略号
-                            delayed_reply.append(''.join(current_sentence).strip())
-                            last_split_idx = idx
-                            current_sentence = []
-                    elif idx > last_split_idx:  # 确保不会在同一位置重复分割
-                        delayed_reply.append(''.join(current_sentence).strip())
-                        last_split_idx = idx
-                        current_sentence = []
-
-            # 处理剩余内容
-            if current_sentence:
-                delayed_reply.append(''.join(current_sentence).strip())
-
-            # 过滤空内容和去重
-            delayed_reply = [s for s in delayed_reply if s]  # 过滤空内容
-            # 去除完全相同的相邻句子
-            if len(delayed_reply) > 1:
-                unique_reply = [delayed_reply[0]]
-                for i in range(1, len(delayed_reply)):
-                    if delayed_reply[i] != delayed_reply[i - 1]:
-                        unique_reply.append(delayed_reply[i])
-                delayed_reply = unique_reply
-
+            # 使用统一的消息分割方法
+            delayed_reply = self._split_message_for_sending(reply)
+            
             # 检查回复中是否包含情感关键词并发送表情包
             logger.info("开始检查AI回复的情感关键词")
             emotion_detected = False
@@ -1195,11 +1227,6 @@ class MessageHandler:
 
                     emoji_path = self.emoji_handler.get_emotion_emoji(reply)
                     if emoji_path:
-                        # try:
-                        #     self.wx.SendFiles(filepath=emoji_path, who=chat_id)
-                        #     logger.info(f"已发送情感表情包: {emoji_path}")
-                        # except Exception as e:
-                        #     logger.error(f"发送表情包失败: {str(e)}")
                         delayed_reply.append(emoji_path)  #在发送消息队列后增加path，由响应器处理
                     else:
                         logger.warning(f"未找到对应情感 {emotion} 的表情包")
@@ -1209,80 +1236,140 @@ class MessageHandler:
                 logger.info("未在回复中检测到明显情感")
         except Exception as e:
             logger.error(f"消息处理过程中发生错误: {str(e)}")
+            delayed_reply = [reply]  # 出错时使用原始回复
+            
         # 异步保存消息记录
         threading.Thread(target=self.save_message,
                          args=(qqid, sender_name, content, reply, False)).start()
         return delayed_reply
 
     def _split_message_for_sending(self, reply):
-        """智能分割消息，提高可读性和发送效率"""
-        if not reply:
-            return []
+        """将长消息分割为多条发送"""
+        # 如果消息长度小于等于最大长度，直接返回
+        if len(reply) <= self.MAX_MESSAGE_LENGTH:
+            # 即使消息长度在限制内，也需要检查是否包含反斜杠分隔符
+            if '\\' in reply:
+                # 按反斜杠分割，但保留颜表情中的反斜杠
+                logger.info("检测到消息中有反斜杠分隔符，按分隔符分割")
+                # 使用正则表达式保护颜表情中的反斜杠，如 \(^o^)/、(>_<)/等
+                # 先替换颜表情中的反斜杠为特殊标记
+                protected_reply = re.sub(r'\\(\([^)]*\)|\([^)]*\)/|[oO]_[oO]/|>_</|\^o\^/)', 'EMOJI_BACKSLASH\\1', reply)
+                # 分割消息
+                parts = protected_reply.split('\\')
+                # 恢复颜表情中的反斜杠
+                parts = [part.replace('EMOJI_BACKSLASH', '\\') for part in parts]
+                # 过滤空消息
+                return [part.strip() for part in parts if part.strip()]
+            return [reply]
         
-        # 定义分割标记
-        ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
-        split_symbols = {'\\', '|', '￤', '\n', '\\n'}  # 支持多种手动分割符
+        # 检查消息中是否包含反斜杠分隔符
+        if '\\' in reply:
+            # 按反斜杠分割，但保留颜表情中的反斜杠
+            logger.info("检测到消息中有反斜杠分隔符，按分隔符分割")
+            # 使用正则表达式保护颜表情中的反斜杠，如 \(^o^)/、(>_<)/等
+            # 先替换颜表情中的反斜杠为特殊标记
+            protected_reply = re.sub(r'\\(\([^)]*\)|\([^)]*\)/|[oO]_[oO]/|>_</|\^o\^/)', 'EMOJI_BACKSLASH\\1', reply)
+            # 分割消息
+            parts = protected_reply.split('\\')
+            # 恢复颜表情中的反斜杠
+            parts = [part.replace('EMOJI_BACKSLASH', '\\') for part in parts]
+            # 过滤空消息
+            result = [part.strip() for part in parts if part.strip()]
+            
+            # 进一步处理超长的部分
+            final_parts = []
+            for part in result:
+                if len(part) <= self.MAX_MESSAGE_LENGTH:
+                    final_parts.append(part)
+                else:
+                    # 对超长部分进行进一步分割
+                    sub_parts = self._split_long_message(part)
+                    final_parts.extend(sub_parts)
+            
+            logger.info(f"按反斜杠分割后: 共{len(final_parts)}条, 长度: {[len(msg) for msg in final_parts]}")
+            return final_parts
         
-        # 初始化变量
-        delayed_reply = []
-        current_sentence = []
-        last_split_idx = -1  # 记录上一次分割的位置，防止重复分割
+        # 如果没有反斜杠，则按照原有逻辑分割
+        return self._split_long_message(reply)
+    
+    def _split_long_message(self, message):
+        """分割超长消息"""
+        messages = []
+        current_message = ""
         
-        # 智能分割
-        for idx, char in enumerate(reply):
-            # 处理手动分割符号（优先级最高）
-            if char in split_symbols:
-                if current_sentence and idx > last_split_idx:
-                    delayed_reply.append(''.join(current_sentence).strip())
-                    last_split_idx = idx
-                current_sentence = []
+        # 优先按自然段落分割（空行）
+        paragraphs = re.split(r'\n\s*\n', message)
+        
+        for paragraph in paragraphs:
+            # 如果段落为空，跳过
+            if not paragraph.strip():
                 continue
             
-            current_sentence.append(char)
-            
-            # 处理中文标点和省略号
-            if char in ending_punctuations:
-                # 排除英文符号在短句中的误判（如英文缩写）
-                if char in {'!', '?'} and len(current_sentence) < 4:
-                    continue
+            # 如果当前段落加上当前消息超过最大长度
+            if len(current_message) + len(paragraph) + 1 > self.MAX_MESSAGE_LENGTH:
+                # 如果当前消息不为空，添加到消息列表
+                if current_message:
+                    messages.append(current_message.strip())
+                    current_message = ""
                 
-                # 处理连续省略号
-                if char == '…' and idx > 0 and reply[idx - 1] == '…':
-                    if len(current_sentence) >= 3 and idx > last_split_idx:  # 至少三个点形成省略号
-                        delayed_reply.append(''.join(current_sentence).strip())
-                        last_split_idx = idx
-                        current_sentence = []
-                elif idx > last_split_idx:  # 确保不会在同一位置重复分割
-                    delayed_reply.append(''.join(current_sentence).strip())
-                    last_split_idx = idx
-                    current_sentence = []
-                
-        # 处理剩余内容
-        if current_sentence:
-            delayed_reply.append(''.join(current_sentence).strip())
-        
-        # 过滤空内容
-        delayed_reply = [s for s in delayed_reply if s]
-        
-        # 合并过短的消息片段（小于5个字符的片段与前一个合并）
-        if len(delayed_reply) > 1:
-            merged_reply = [delayed_reply[0]]
-            for i in range(1, len(delayed_reply)):
-                if len(delayed_reply[i]) < 5 and len(merged_reply[-1]) + len(delayed_reply[i]) < 100:
-                    merged_reply[-1] += delayed_reply[i]
+                # 如果单个段落超过最大长度，需要进一步分割
+                if len(paragraph) > self.MAX_MESSAGE_LENGTH:
+                    # 按句子分割
+                    sentences = re.split(r'(?<=[。！？.!?])', paragraph)
+                    temp_message = ""
+                    
+                    for sentence in sentences:
+                        # 如果句子为空，跳过
+                        if not sentence.strip():
+                            continue
+                        
+                        # 如果当前消息加上这个句子超过最大长度
+                        if len(temp_message) + len(sentence) > self.MAX_MESSAGE_LENGTH:
+                            # 如果当前消息不为空，添加到消息列表
+                            if temp_message:
+                                messages.append(temp_message.strip())
+                                temp_message = ""
+                            
+                            # 如果单个句子超过最大长度，按字符分割
+                            if len(sentence) > self.MAX_MESSAGE_LENGTH:
+                                for i in range(0, len(sentence), self.MAX_MESSAGE_LENGTH):
+                                    messages.append(sentence[i:i+self.MAX_MESSAGE_LENGTH].strip())
+                            else:
+                                temp_message = sentence
+                        else:
+                            if temp_message and not temp_message.endswith(('\n', '。', '！', '？', '.', '!', '?')):
+                                temp_message += " "
+                            temp_message += sentence
+                    
+                    # 添加最后一条临时消息
+                    if temp_message:
+                        if current_message and not current_message.endswith('\n'):
+                            current_message += "\n"
+                        current_message += temp_message
                 else:
-                    merged_reply.append(delayed_reply[i])
-            delayed_reply = merged_reply
+                    if current_message and not current_message.endswith('\n'):
+                        current_message += "\n"
+                    current_message = paragraph
+            else:
+                # 添加段落，确保段落之间有换行
+                if current_message and not current_message.endswith('\n'):
+                    current_message += "\n"
+                if current_message:
+                    current_message += paragraph
+                else:
+                    current_message = paragraph
         
-        # 去除完全相同的相邻句子
-        if len(delayed_reply) > 1:
-            unique_reply = [delayed_reply[0]]
-            for i in range(1, len(delayed_reply)):
-                if delayed_reply[i] != delayed_reply[i - 1]:
-                    unique_reply.append(delayed_reply[i])
-            delayed_reply = unique_reply
+        # 添加最后一条消息
+        if current_message:
+            messages.append(current_message.strip())
         
-        return delayed_reply
+        # 确保没有空消息
+        messages = [msg for msg in messages if msg.strip()]
+        
+        # 记录分割结果
+        logger.info(f"消息分割结果: 共{len(messages)}条, 长度: {[len(msg) for msg in messages]}")
+        
+        return messages
 
     def _send_split_messages(self, messages, chat_id):
         """发送分割后的消息，支持重试和自然发送节奏"""
@@ -1296,7 +1383,8 @@ class MessageHandler:
         # 计算自然的发送间隔
         base_interval = 0.5  # 基础间隔时间（秒）
         
-        for part in messages:
+        for i, part in enumerate(messages):
+            # 不再添加续行标记，每条消息都独立发送
             if part not in sent_messages:
                 # 计算模拟输入时间：根据消息长度动态调整
                 input_time = min(len(part) * 0.05, 2.0)  # 最多2秒
@@ -1322,111 +1410,112 @@ class MessageHandler:
         return success_count > 0
 
     def _send_self_message(self, content: str, chat_id: str):
-        """发送自己的消息（用于自动回复）"""
+        """发送自己的消息"""
         try:
             if self.wx:
                 self.wx.SendMsg(msg=content, who=chat_id)
-                logger.info(f"已发送自动消息到 {chat_id}: {content[:30]}...")
-                return True
+                logger.info(f"发送自己的消息: {content[:30]}...")
             else:
-                logger.error("WeChat对象为None，无法发送自动消息")
-                return False
+                logger.error("微信实例不存在，无法发送消息")
         except Exception as e:
-            logger.error(f"发送自动消息失败: {str(e)}")
-            return False
+            logger.error(f"发送自己的消息失败: {str(e)}")
 
     def auto_send_message(self, listen_list, robot_wx_name, get_personality_summary, is_quiet_time, start_countdown):
-        """自动发送消息功能"""
+        """自动发送消息"""
         try:
             # 检查是否在安静时间
             if is_quiet_time():
-                logger.info("当前是安静时间，跳过自动发送消息")
+                logger.info("当前是安静时间，不发送自动消息")
+                start_countdown()  # 重新开始倒计时
                 return
-
-            # 获取当前时间
-            current_time = datetime.now()
-            current_hour = current_time.hour
-
-            # 根据时间段选择不同的问候语模板
-            greeting_templates = []
-            if 5 <= current_hour < 9:
-                greeting_templates = [
-                    "早上好啊~今天有什么计划吗？",
-                    "早安！希望你今天有个好心情~",
-                    "早上好，今天也要元气满满哦！",
-                    "早安，昨晚睡得好吗？",
-                    "早上好，今天天气怎么样？"
-                ]
-            elif 11 <= current_hour < 14:
-                greeting_templates = [
-                    "中午好，吃午饭了吗？",
-                    "午安，记得午休一下哦~",
-                    "到午饭时间了，今天吃什么好呢？",
-                    "中午好，工作顺利吗？",
-                    "午安，别忘了休息一下眼睛哦~"
-                ]
-            elif 17 <= current_hour < 20:
-                greeting_templates = [
-                    "下午好，今天过得怎么样？",
-                    "傍晚好，工作结束了吗？",
-                    "晚上好，今天辛苦了~",
-                    "晚上好，有什么想聊的吗？",
-                    "晚安，今天过得开心吗？"
-                ]
-            elif 21 <= current_hour < 23:
-                greeting_templates = [
-                    "晚上好，准备休息了吗？",
-                    "晚安，祝你有个好梦~",
-                    "夜深了，记得早点休息哦~",
-                    "晚安，明天见~",
-                    "晚上好，今天辛苦了，好好休息吧~"
-                ]
+                
+            # 获取人设摘要
+            prompt_content = get_personality_summary(self.prompt_content)
+            
+            # 获取自动消息内容
+            from src.config.rag_config import config
+            
+            # 检查配置是否存在
+            if not hasattr(config, 'behavior') or not hasattr(config.behavior, 'auto_message') or not hasattr(config.behavior.auto_message, 'content'):
+                logger.error("配置文件中缺少behavior.auto_message.content设置")
+                auto_message = "你好，我是AI助手，有什么可以帮助你的吗？"
+                logger.info(f"使用默认自动消息: {auto_message}")
             else:
-                # 其他时间段不主动发送消息
+                auto_message = config.behavior.auto_message.content
+                logger.info(f"从配置读取的自动消息: {auto_message}")
+            
+            # 随机选择一个用户
+            if not listen_list:
+                logger.warning("监听列表为空，无法发送自动消息")
+                start_countdown()  # 重新开始倒计时
                 return
-
-            # 遍历监听列表中的用户
-            for user_id in listen_list:
-                # 跳过机器人自己
-                if user_id == robot_wx_name:
-                    continue
-
-                # 获取未回复计数器
-                counter = self.unanswered_counters.get(user_id, 0)
-
-                # 根据未回复次数决定是否发送消息
-                if counter >= 2:  # 连续两次未回复，尝试主动发送消息
-                    # 获取用户的个性化摘要
-                    personality = get_personality_summary(user_id)
+                
+            target_user = random.choice(listen_list)
+            logger.info(f"选择的目标用户: {target_user}")
+            
+            # 检查最近是否有聊天记录（30分钟内）
+            from src.handlers.memory import MemoryHandler
+            recent_chat = self.memory_handler.get_recent_chat_time(target_user)
+            if recent_chat:
+                current_time = datetime.now()
+                time_diff = current_time - recent_chat
+                # 如果30分钟内有聊天，跳过本次主动消息
+                if time_diff.total_seconds() < 1800:  # 30分钟 = 1800秒
+                    logger.info(f"距离上次与 {target_user} 的聊天不到30分钟，跳过本次主动消息")
+                    start_countdown()  # 重新开始倒计时
+                    return
+            
+            # 发送消息
+            if self.wx:
+                # 确保微信窗口处于活动状态
+                try:
+                    self.wx.ChatWith(target_user)
+                    time.sleep(1)  # 等待窗口激活
                     
-                    # 选择一个随机的问候语模板
-                    greeting = random.choice(greeting_templates)
+                    # 构建系统指令和上下文
+                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    system_instruction = f"(此时时间为{current_time}) [系统指令] {auto_message}"
                     
-                    # 构建完整消息
-                    if personality:
-                        # 根据用户个性化信息调整消息
-                        message = f"{greeting} {personality}"
+                    # 获取AI回复
+                    ai_response = self.get_api_response(
+                        message=system_instruction,
+                        user_id=target_user,
+                        sender_name=robot_wx_name
+                    )
+                    
+                    if ai_response:
+                        # 将长消息分段发送
+                        message_parts = self._split_message_for_sending(ai_response)
+                        for part in message_parts:
+                            self._safe_send_msg(part, target_user)
+                            time.sleep(1)  # 添加短暂延迟避免发送过快
+                        
+                        logger.info(f"已发送主动消息到 {target_user}: {ai_response[:50]}...")
+                        
+                        # 保存消息记录
+                        self.save_message(
+                            sender_id=robot_wx_name,
+                            sender_name=robot_wx_name,
+                            message=system_instruction,
+                            reply=ai_response,
+                            is_group=False
+                        )
                     else:
-                        message = greeting
-                    
-                    # 发送消息
-                    success = self._send_self_message(message, user_id)
-                    
-                    if success:
-                        logger.info(f"已向用户 {user_id} 发送自动问候消息")
-                        # 重置计数器
-                        self.unanswered_counters[user_id] = 0
-                        # 启动倒计时（如果提供了函数）
-                        if start_countdown:
-                            start_countdown(user_id)
-                    else:
-                        logger.error(f"向用户 {user_id} 发送自动问候消息失败")
-
+                        logger.warning(f"AI未生成有效回复，跳过发送")
+                    # 重新开始倒计时
+                    start_countdown()
+                except Exception as e:
+                    logger.error(f"发送自动消息失败: {str(e)}")
+                    start_countdown()  # 出错也重新开始倒计时
+            else:
+                logger.error("WeChat对象为None，无法发送自动消息")
+                start_countdown()  # 重新开始倒计时
         except Exception as e:
-            logger.error(f"自动发送消息功能出错: {str(e)}", exc_info=True)
+            logger.error(f"自动发送消息失败: {str(e)}")
+            start_countdown()  # 出错也重新开始倒计时
 
     def increase_unanswered_counter(self, username):
-        """增加用户未回复计数器"""
+        """增加未回复计数器"""
         try:
             if username not in self.unanswered_counters:
                 self.unanswered_counters[username] = 0

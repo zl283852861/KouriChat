@@ -491,8 +491,24 @@ class SettingReader:
 
 def reload_config():
     """重新加载配置"""
-    global config
-    config = SettingReader()
+    global config, ROBOT_WX_NAME, LISTEN_LIST, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MOONSHOT_API_KEY
+    
+    # 创建新的配置读取器实例，强制重新加载配置文件
+    config = SettingReader(singleton=False)
+    
+    # 更新全局变量
+    ROBOT_WX_NAME = config.robot_wx_name
+    LISTEN_LIST = config.user.listen_list
+    DEEPSEEK_API_KEY = config.llm.api_key
+    DEEPSEEK_BASE_URL = config.llm.base_url
+    MODEL = config.llm.model
+    MAX_TOKEN = config.llm.max_tokens
+    TEMPERATURE = config.llm.temperature
+    MOONSHOT_API_KEY = config.media.image_recognition.api_key
+    
+    # 记录重要配置值，用于调试
+    logger.info(f"重新加载配置完成，安静时间设置: 开始={config.behavior.quiet_time.start}, 结束={config.behavior.quiet_time.end}")
+    
     return True
 
 

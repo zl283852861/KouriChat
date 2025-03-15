@@ -136,7 +136,7 @@ def get_available_avatars() -> List[str]:
 
 def parse_config_groups() -> Dict[str, Dict[str, Any]]:
     """解析配置文件，将配置项按组分类"""
-    from src.config import config
+    from src.config.rag_config import config
 
     try:
         # 基础配置组
@@ -318,6 +318,12 @@ def save_config():
         data = request.get_json()
         logger.debug(f"接收到的配置数据: {data}")
 
+        # 记录安静时间设置
+        if 'QUIET_TIME_START' in data:
+            logger.info(f"接收到安静时间开始设置: {data['QUIET_TIME_START']}")
+        if 'QUIET_TIME_END' in data:
+            logger.info(f"接收到安静时间结束设置: {data['QUIET_TIME_END']}")
+
         # 读取当前配置
         config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
@@ -377,6 +383,14 @@ def save_config():
 
         # 立即重新加载配置
         g.config_data = current_config
+        
+        # 记录安静时间设置
+        try:
+            quiet_time_start = current_config['categories']['behavior_settings']['settings']['quiet_time']['start']['value']
+            quiet_time_end = current_config['categories']['behavior_settings']['settings']['quiet_time']['end']['value']
+            logger.info(f"已更新安静时间设置: 开始={quiet_time_start}, 结束={quiet_time_end}")
+        except Exception as e:
+            logger.error(f"获取安静时间设置失败: {str(e)}")
 
         # 重新初始化定时任务
         try:
@@ -393,6 +407,23 @@ def save_config():
                 logger.info("成功重新初始化定时任务，暂无定时任务")
         except Exception as e:
             logger.error(f"重新初始化定时任务失败: {str(e)}")
+
+        # 重新加载配置到内存
+        try:
+            from src.config import reload_config
+            reload_config()
+            logger.info("成功重新加载配置到内存")
+            
+            # 导入并重新加载main模块中的配置
+            try:
+                import importlib
+                import src.main
+                importlib.reload(src.main)
+                logger.info("成功重新加载main模块")
+            except Exception as e:
+                logger.error(f"重新加载main模块失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"重新加载配置到内存失败: {str(e)}")
 
         return jsonify({
             "status": "success",
@@ -449,6 +480,21 @@ def update_config_value(config_data, key, value):
                 if part not in current:
                     current[part] = {}
                 current = current[part]
+
+            # 特殊处理时间格式
+            if key in ['QUIET_TIME_START', 'QUIET_TIME_END']:
+                # 确保时间格式为 HH:MM
+                if value == '1320':
+                    value = '13:20'
+                elif value and isinstance(value, str) and not ':' in value:
+                    # 尝试将数字格式转换为时间格式
+                    try:
+                        hour = int(value) // 100
+                        minute = int(value) % 100
+                        value = f"{hour:02d}:{minute:02d}"
+                        logger.info(f"转换时间格式 {key}: {value}")
+                    except (ValueError, TypeError):
+                        logger.warning(f"无法转换时间格式 {key}: {value}")
 
             # 设置最终值
             current[path[-1]] = value

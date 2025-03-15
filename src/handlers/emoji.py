@@ -16,7 +16,7 @@ import pyautogui
 import time
 from wxauto import WeChat
 from typing import Tuple, Optional
-from config import config
+from src.config.rag_config import config
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')

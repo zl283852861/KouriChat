@@ -12,6 +12,11 @@ from src.memory import get_rag, setup_memory, setup_rag, start_memory, get_memor
 from src.memory.core.rag_memory import RAGMemory
 from src.memory.core.rag import OnlineEmbeddingModel, OnlineCrossEncoderReRanker
 import openai
+import time  # 添加time模块导入，用于超时控制
+
+# 定义嵌入模型
+EMBEDDING_MODEL = "text-embedding-3-large"  # 默认嵌入模型
+EMBEDDING_FALLBACK_MODEL = "text-embedding-ada-002"  # 备用嵌入模型
 
 logger = logging.getLogger('main')
 
@@ -39,7 +44,8 @@ class MemoryHandler:
         self.model = model
 
         # 从config模块获取配置
-        from src.config import config
+        from src.config.rag_config import config
+        self.config = config  # 保存config对象的引用
         self.bot_name = bot_name or config.robot_wx_name
         self.listen_list = config.user.listen_list
 
@@ -335,8 +341,12 @@ class MemoryHandler:
 
     def _get_user_memory_dir(self, user_id: str) -> str:
         """获取特定用户的记忆目录路径"""
-        # 创建层级目录结构: data/memory/{bot_name}/{user_id}/
-        bot_memory_dir = os.path.join(self.memory_base_dir, self.bot_name)
+        # 从avatar_dir中提取角色名
+        avatar_dir = self.config.behavior.context.avatar_dir
+        avatar_name = os.path.basename(avatar_dir)  # 获取路径的最后一部分作为角色名
+        
+        # 创建层级目录结构: data/memory/{avatar_name}/{user_id}/
+        bot_memory_dir = os.path.join(self.memory_base_dir, avatar_name)
         user_memory_dir = os.path.join(bot_memory_dir, user_id)
 
         # 确保目录存在
@@ -588,26 +598,88 @@ class MemoryHandler:
     def get_embedding_with_fallback(self, text, model=EMBEDDING_MODEL):
         """获取嵌入向量，失败时快速跳过"""
         try:
-            # 添加超时控制
-            import signal
+            # 使用time模块进行超时控制
+            start_time = time.time()
+            timeout = 5  # 5秒超时
             
-            def timeout_handler(signum, frame):
-                raise TimeoutError("嵌入请求超时")
-            
-            # 设置5秒超时
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(5)
-            
-            response = openai.Embedding.create(
-                input=text,
-                model=model
+            # 创建OpenAI客户端
+            client = openai.OpenAI(
+                api_key=self.api_key,
+                base_url=self.base_url
             )
             
-            # 取消超时
-            signal.alarm(0)
+            # 设置超时
+            response = client.embeddings.create(
+                input=text,
+                model=model,
+                timeout=timeout
+            )
             
-            return response['data'][0]['embedding']
+            # 获取嵌入向量
+            embedding = response.data[0].embedding
+            return embedding
         except Exception as e:
-            logger.warning(f"嵌入失败，跳过: {str(e)}")
-            # 返回空向量或默认向量
-            return [0.0] * 1024  # 使用标准维度
+            logger.error(f"获取嵌入向量失败: {str(e)}")
+            if model != EMBEDDING_FALLBACK_MODEL:
+                logger.info(f"尝试使用备用模型 {EMBEDDING_FALLBACK_MODEL}")
+                return self.get_embedding_with_fallback(text, EMBEDDING_FALLBACK_MODEL)
+            else:
+                # 如果备用模型也失败，返回空向量
+                logger.error("备用模型也失败，返回空向量")
+                return [0.0] * 1536  # 返回1536维的零向量
+
+    def get_recent_chat_time(self, user_id: str) -> Optional[datetime]:
+        """
+        获取与特定用户的最近聊天时间
+        
+        Args:
+            user_id: 用户ID
+            
+        Returns:
+            Optional[datetime]: 最近聊天的时间，如果没有聊天记录则返回None
+        """
+        try:
+            # 获取用户短期记忆文件路径
+            short_memory_path = os.path.join(self._get_user_memory_dir(user_id), "short_memory.json")
+            
+            # 检查文件是否存在
+            if not os.path.exists(short_memory_path):
+                logger.info(f"用户 {user_id} 没有短期记忆文件")
+                return None
+                
+            # 读取短期记忆文件
+            with open(short_memory_path, 'r', encoding='utf-8') as f:
+                memories = json.load(f)
+                
+            # 如果没有记忆，返回None
+            if not memories:
+                logger.info(f"用户 {user_id} 的短期记忆为空")
+                return None
+                
+            # 获取最近的记忆
+            latest_memory = memories[-1]
+            
+            # 提取时间戳
+            timestamp_str = latest_memory.get('timestamp')
+            if not timestamp_str:
+                logger.warning(f"用户 {user_id} 的最近记忆没有时间戳")
+                return None
+                
+            # 解析时间戳
+            try:
+                # 尝试解析ISO格式的时间戳
+                latest_time = datetime.fromisoformat(timestamp_str)
+            except ValueError:
+                try:
+                    # 尝试解析常规格式的时间戳
+                    latest_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    logger.error(f"无法解析时间戳: {timestamp_str}")
+                    return None
+                    
+            logger.info(f"用户 {user_id} 的最近聊天时间: {latest_time}")
+            return latest_time
+            
+        except Exception as e:
+            logger.error(f"获取最近聊天时间失败: {str(e)}")
+            return None

@@ -64,7 +64,7 @@ def initialize_system():
             from src.utils.cleanup import CleanupUtils
             from src.handlers.image import ImageHandler
             from src.handlers.voice import VoiceHandler
-            from src.config import config
+            from src.config.rag_config import config
 
             root_dir = os.path.dirname(src_path)
             logger_config = LoggerConfig(root_dir)

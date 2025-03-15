@@ -12,7 +12,7 @@ import re
 import os
 import random
 from typing import Dict, List, Optional
-from openai import InternalServerError
+from openai import APIError, APITimeoutError
 from services.ai.llms.openai_llm import OpenAILLM
 
 # 修改logger获取方式，确保与main模块一致
@@ -115,8 +115,13 @@ class LLMService:
             # 返回清理后的内容
             return clean_content or ""
         
-        except InternalServerError as e:
-            logger.error(f"{e.message}, 请检查网络配置")
+        except APIError as e:
+            logger.error(f"API错误: {str(e)}, 请检查网络配置")
+            return "API服务暂时不可用，请稍后再试。"
+            
+        except APITimeoutError as e:
+            logger.error(f"API超时: {str(e)}, 请检查网络配置")
+            return "请求超时，请检查网络连接后重试。"
             
         except Exception as e:
             logger.error("大语言模型服务调用失败: %s", str(e), exc_info=True)
