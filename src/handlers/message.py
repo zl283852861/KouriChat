@@ -8,19 +8,15 @@
 - 对话结束处理
 """
 
+from datetime import datetime
 import logging
 import threading
 import time
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
-from openai import OpenAI
 from wxauto import WeChat
 import random
 import os
 from services.ai.llm_service import LLMService
-from handlers.memory import MemoryHandler
-from src.config.rag_config import config
-from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer
+from config import config
 import re
 import jieba
 
@@ -29,141 +25,63 @@ logger = logging.getLogger('main')
 
 
 class MessageHandler:
-    def __init__(self, root_dir, api_key, base_url, model, max_token, temperature,
-                 max_groups, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler,
-                 is_qq=False, is_debug=False, wx=None):
-        # 基础参数
+    def __init__(self, root_dir, llm: LLMService, robot_name, prompt_content, image_handler, emoji_handler, voice_handler, memory_handler, wx=None, is_debug=False, is_qq=False):
         self.root_dir = root_dir
-        self.api_key = api_key
-        self.base_url = base_url
-        self.model = model
-        self.max_token = max_token
-        self.temperature = temperature
-        self.max_groups = max_groups
         self.robot_name = robot_name
         self.prompt_content = prompt_content
+        self.debug = is_debug
+        # 添加消息缓存相关属性
+        self.message_cache = {}  # 用户消息缓存
+        self.last_message_time = {}  # 用户最后发送消息的时间
+        self.message_timer = {}  # 用户消息处理定时器
+        # 使用 DeepSeekAI 替换直接的 OpenAI 客户端
+        # 2025-03-15修改，把deepseek改为外部注入
+        self.deepseek = llm
+        # 消息队列相关
+        self.user_queues = {}
+        self.queue_lock = threading.Lock()
+        self.chat_contexts = {}
+
+        # 微信实例
+        self.wx = wx
+        self.is_debug = is_debug  # 添加调试模式标志
         self.is_qq = is_qq
-        self.is_debug = is_debug
-        self.MAX_MESSAGE_LENGTH = 500  # 单条消息最大长度
-        
-        # 处理器
+
+        # 添加 handlers
         self.image_handler = image_handler
         self.emoji_handler = emoji_handler
         self.voice_handler = voice_handler
         self.memory_handler = memory_handler
-        
-        # 微信实例
-        self.wx = wx
-        
-        # 创建LLM服务
-        self.llm_service = LLMService(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            max_token=max_token,
-            temperature=temperature,
-            max_groups=max_groups
-        )
-        
-        # 加载情感分析器
-        self.sentiment_analyzer = None
-        try:
-            sentiment_loader = SentimentResourceLoader()
-            self.sentiment_analyzer = SentimentAnalyzer(sentiment_loader)
-        except Exception as e:
-            logger.error(f"加载情感分析器失败: {str(e)}")
-        
-        # 添加消息缓存相关属性
-        self.message_cache = {}  # 用户消息缓存
-        self.last_message_time = {}  # 用户最后发送消息的时间
-        self.message_timer = {}  # 消息处理定时器
         self.unanswered_counters = {}
         self.unanswered_timers = {}  # 新增：存储每个用户的计时器
-
-    def save_message(self, sender_id: str, sender_name: str, message: str, reply: str, is_group: bool = False):
-        """保存聊天记录到数据库和记忆"""
-        # 确保sender_id不为System
-        if sender_id == "System":
-            # 尝试从消息内容中识别实际的接收者
-            if isinstance(message, str):
-                # 如果消息以@开头，提取用户名
-                if message.startswith('@'):
-                    sender_id = message.split()[0][1:]  # 提取@后的用户名
-                else:
-                    # 使用默认值或其他标识
-                    sender_id = "FileHelper"
+        self.MAX_MESSAGE_LENGTH = 500
 
         # 保存到记忆 - 移除这一行，避免重复保存
         # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
-        self.memory_handler.add_short_memory(message, reply, sender_id)
+        # 修改(2025/3/15 by Elimir) 注释这一行，移除add_short_memory，改成在memory_handler中添加钩子
+        # self.memory_handler.add_short_memory(message, reply, sender_id)
 
     def get_api_response(self, message: str, user_id: str, group_id: str = None, sender_name: str = None) -> str:
-        """获取 API 回复（添加历史对话支持和缓存机制）"""
-        avatar_dir = os.path.join(self.root_dir, config.behavior.context.avatar_dir)
-        prompt_path = os.path.join(avatar_dir, "avatar.md")
-        
-        # 添加缓存机制，避免频繁读取文件
-        if not hasattr(self, '_avatar_content_cache'):
-            self._avatar_content_cache = {}
-            self._avatar_content_timestamp = {}
-        
-        # 检查缓存是否有效（10分钟内有效）
-        current_time = time.time()
-        if prompt_path in self._avatar_content_cache and current_time - self._avatar_content_timestamp.get(prompt_path, 0) < 600:
-            original_content = self._avatar_content_cache[prompt_path]
-        else:
-            try:
-                # 读取原始提示内容（人设内容）
-                with open(prompt_path, "r", encoding="utf-8") as f:
-                    original_content = f.read()
-                    # 更新缓存
-                    self._avatar_content_cache[prompt_path] = original_content
-                    self._avatar_content_timestamp[prompt_path] = current_time
-            except Exception as e:
-                logger.error(f"读取人设提示文件失败: {str(e)}")
-                original_content = "你是一个友好的AI助手。"  # 提供默认值
-            
+        """获取API回复"""
         try:
-            # 获取最近的对话历史
-            recent_history = self.memory_handler.get_recent_memory(user_id, max_count=30)  # 获取最近30轮对话
+            # 使用正确的属性名和方法名
+            if not hasattr(self, 'deepseek') or self.deepseek is None:
+                logger.warning("LLM服务未初始化，重新创建实例")
+                # 在这里通常会初始化LLM
             
-            # 构建带有历史记录的上下文
-            context = original_content + "\n\n最近的对话记录：\n"
-            for hist in recent_history:
-                context += f"用户: {hist['message']}\n"
-                context += f"AI: {hist['reply']}\n"
-            
-            # 添加当前用户的输入
-            context += f"\n用户: {message}\n"
-            
-            # 移除上下文截断功能
-            # 原有的截断代码已被删除，保留原始上下文长度
-            
-            # 上下文处理完成
-            
-            # 添加重试机制
-            max_retries = 3
-            retry_delay = 1
-            
-            for attempt in range(max_retries):
-                try:
-                    return self.llm_service.get_response(message, user_id, context)
-                except Exception as retry_error:
-                    if attempt < max_retries - 1:
-                        logger.warning(f"API调用失败，尝试重试 ({attempt+1}/{max_retries}): {str(retry_error)}")
-                        time.sleep(retry_delay * (2 ** attempt))  # 指数退避
-                    else:
-                        raise  # 最后一次尝试失败，抛出异常
-                    
+            # 修正方法名拼写错误：handel_prompt -> handle_prompt
+            response = self.deepseek.llm.handel_prompt(message, user_id)
+            return response
+                
         except Exception as e:
             logger.error(f"获取API回复失败: {str(e)}")
             # 降级处理：使用简化的提示
             try:
-                simplified_prompt = f"{original_content}\n\n用户: {message}"
-                return self.llm_service.get_response(message, user_id, simplified_prompt)
+                # 如果出错，可以尝试使用备用方法
+                return f"抱歉，我暂时无法回应，请稍后再试。(错误: {str(e)[:50]}...)"
             except Exception as fallback_error:
                 logger.error(f"降级处理也失败: {str(fallback_error)}")
-                return f"抱歉，我暂时无法回应，请稍后再试。(错误: {str(e)[:50]}...)"
+                return f"服务暂时不可用，请稍后重试。"
 
     def handle_user_message(self, content: str, chat_id: str, sender_name: str,
                             username: str, is_group: bool = False, is_image_recognition: bool = False, is_self_message: bool = False):
@@ -350,9 +268,7 @@ class MessageHandler:
             logger.info(f"处理缓存 - 用户: {username}, 消息数: {msg_count}, 总内容长度: {total_length}")
             
             # 获取最近的对话记录作为上下文
-            recent_history = self.memory_handler.get_recent_memory(username, max_count=30)
-            
-            # 初始化上下文，但不立即添加提示词
+            recent_history = self.memory_handler.get_relevant_memories(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",username)
             context = ""
             if recent_history and len(recent_history) > 0 and recent_history[0].get('message'):
                 # 构建更丰富的上下文，包含最多30轮对话历史
@@ -839,6 +755,12 @@ class MessageHandler:
             logger.warning(f"消息或接收人为空，跳过发送")
             return False
             
+        # 检查调试模式
+        if self.is_debug:
+            # 调试模式下直接打印消息而不是发送
+            logger.info(f"[调试模式] 发送消息给 {who}: {msg}")
+            return True
+            
         # 检查wx对象是否可用
         if self.wx is None:
             logger.warning("WeChat对象为None，无法发送消息")
@@ -891,9 +813,7 @@ class MessageHandler:
                     # 获取相关记忆
                     memories = self.memory_handler.get_relevant_memories(
                         content, 
-                        username if not is_group else chat_id,
-                        group_id=chat_id if is_group else None,
-                        sender_name=sender_name if is_group else None
+                        username if not is_group else chat_id
                     )
                     
                     if memories:
@@ -924,20 +844,24 @@ class MessageHandler:
                 logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
             else:
                 # 此处修改(2025/03/14 by eliver) 不是结束时则添加记忆到内容中
-                memories = self.memory_handler.get_rag_memories(content)
-                if memories:
-                    content += f"\n以上是用户的沟通内容；以下是记忆中检索的内容：{';'.join(memories)}\n请你根据以上内容回复用户的消息。"
+                if self.memory_handler:
+                    memories = self.memory_handler.get_relevant_memories(content, username)
+                    if memories:
+                        content += f"\n以上是用户的沟通内容；以下是记忆中检索的内容：{';'.join(memories)}\n请你根据以上内容回复用户的消息。"
             
-            # 获取 API 回复
-            reply = self.get_api_response(content, chat_id)
+            # 使用正确的方法获取API回复 - 传递用户名以保持上下文关联
+            reply = self.get_api_response(content, username)
             
             # 处理思考过程
             if "</think>" in reply:
                 think_content, reply = reply.split("</think>", 1)
-                logger.info("\n思考过程:")
-                logger.info(think_content.strip())
-                logger.info(reply.strip())
-            else:
+                # 只在非调试模式或明确设置时记录思考过程
+                if not self.is_debug:
+                    logger.info("\n思考过程:")
+                    logger.info(think_content.strip())
+            
+            # 调试模式下不记录原始AI回复
+            if not self.is_debug:
                 logger.info("\nAI回复:")
                 logger.info(reply)
             
@@ -954,7 +878,9 @@ class MessageHandler:
                 delayed_reply.extend(split_messages)
                 
                 # 使用优化后的消息发送方法
-                self._send_split_messages(split_messages, chat_id)
+                # 调试模式下不再在这里显示消息
+                if not self.is_debug:
+                    self._send_split_messages(split_messages, chat_id)
                 
                 # 检查回复中是否包含情感关键词并发送表情包
                 logger.info("开始检查AI回复的情感关键词")
@@ -984,10 +910,6 @@ class MessageHandler:
             except Exception as e:
                 logger.error(f"发送回复失败: {str(e)}")
                 return delayed_reply
-            
-            # 异步保存消息记录
-            threading.Thread(target=self.save_message,
-                            args=(username, sender_name, raw_content, reply, is_group)).start()
             
             # 重置计数器（如果大于0）
             if self.unanswered_counters.get(username, 0) > 0:
@@ -1590,3 +1512,112 @@ class MessageHandler:
         }
         
         return stats
+
+    def process_message_for_user(self, user_id, force=False):
+        """处理用户消息队列"""
+        with self.queue_lock:
+            if not hasattr(self, 'message_queues'):
+                self.message_queues = {}  # 初始化消息队列字典
+                
+            if user_id not in self.message_queues:
+                if self.is_debug and force:
+                    logger.info(f"调试模式：用户 {user_id} 的消息队列为空")
+                    # 在调试模式下，为空队列时直接处理输入
+                    if force:
+                        return self._handle_text_message(
+                            "你好，这是测试消息",  # 默认测试消息
+                            "debug_chat",
+                            "debug_user",
+                            user_id,
+                            False
+                        )
+                return
+                
+            # 获取队列
+            message_data = self.message_queues[user_id]
+            messages = message_data["messages"]
+            
+            if not messages:
+                # 清除空队列
+                del self.message_queues[user_id]
+                return
+                
+            # 提取信息
+            chat_id = message_data.get("chat_id")
+            sender_name = message_data.get("sender_name", "用户")
+            username = message_data.get("username", user_id)
+            is_group = message_data.get("is_group", False)
+            
+            # 合并消息
+            combined_message = " ".join(messages)
+            
+            # 清空队列
+            del self.message_queues[user_id]
+        
+        # 调试模式下特殊处理
+        if self.is_debug:
+            logger.info(f"\n[调试模式] 正在处理消息: {combined_message}")
+        
+        # 处理合并后的消息
+        reply = self._handle_text_message(
+            combined_message,
+            chat_id,
+            sender_name,
+            username,
+            is_group
+        )
+        
+        # 调试模式下确保返回值
+        if self.is_debug and not reply:
+            return ["[调试模式] 没有生成回复"]
+        
+        return reply
+
+    def handle_message(self, message: str, user_id: str = None, group_id: str = None, is_debug: bool = False):
+        """
+        处理接收到的消息
+        
+        Args:
+            message: 接收到的消息内容
+            user_id: 发送者ID
+            group_id: 群组ID（如果有）
+            is_debug: 是否为调试模式
+        
+        Returns:
+            响应消息
+        """
+        try:
+            # 检查是否为重要记忆（集成关键记忆检测）
+            if hasattr(self, 'memory_handler') and self.memory_handler:
+                self.memory_handler.check_important_memory(message, user_id)
+            
+            # 获取响应
+            response = self.get_api_response(message, user_id, group_id)
+            
+            # 发送响应
+            if is_debug:
+                # 调试模式下的处理
+                print(f"AI响应: {response}")
+            else:
+                # 实际生产环境下的发送逻辑
+                self.send_response(response, user_id, group_id)
+                
+            return response
+        except Exception as e:
+            logger.error(f"处理消息失败: {str(e)}")
+            return f"处理消息时出错: {str(e)}"
+
+    def send_wx_message(self, response: str, user_id: str, group_id: str = None):
+        """发送微信消息"""
+        # ... 现有代码保持不变 ...
+        
+        # 这里可以添加统计或其他处理逻辑
+        if hasattr(self, 'memory_handler') and self.memory_handler and hasattr(self.memory_handler, 'short_term_memory'):
+            # 仅显示嵌入缓存统计（可选）
+            try:
+                embedding_model = self.memory_handler.short_term_memory.rag.embedding_model
+                if hasattr(embedding_model, 'get_cache_stats'):
+                    stats = embedding_model.get_cache_stats()
+                    logger.info(f"嵌入缓存统计: 大小={stats['cache_size']}, 命中率={stats['hit_rate_percent']:.1f}%")
+            except Exception as e:
+                logger.debug(f"获取嵌入缓存统计失败: {str(e)}")
