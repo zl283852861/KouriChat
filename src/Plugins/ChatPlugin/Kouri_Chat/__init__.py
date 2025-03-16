@@ -8,7 +8,7 @@ import os
 import time
 import requests
 from src.services.ai.image_recognition_service import ImageRecognitionService
-from config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
+from src.config.rag_config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
 from oneBotMain import message_handler,moonshot_ai,emoji_handler,voice_handler,image_handler
 from nonebot import on_message
 from nonebot.adapters.onebot.v11 import  MessageEvent

@@ -756,27 +756,43 @@
             // 获取保存按钮
             const saveButton = document.getElementById('saveButton');
             
-            // 添加点击事件监听器
+            // 保存按钮点击事件
             saveButton.addEventListener('click', function() {
-                const mainForm = document.getElementById('configForm');
-                const otherForm = document.getElementById('otherConfigForm');
+                // 收集所有配置项
                 const config = {};
                 
-                // 获取所有表单数据
-                const formData = new FormData(mainForm);
+                // 获取所有表单元素
+                const forms = document.querySelectorAll('form');
+                forms.forEach(form => {
+                    const inputs = form.querySelectorAll('input, select, textarea');
+                    inputs.forEach(input => {
+                        if (input.id && !input.id.endsWith('_display') && !input.id.endsWith('_slider')) {
+                            const key = input.id;
+                            let value = input.type === 'checkbox' ? input.checked : input.value;
+                            
+                            // 特殊处理时间选择器
+                            if (key === 'QUIET_TIME_START' || key === 'QUIET_TIME_END') {
+                                console.log(`收集时间配置 ${key}: ${value}`);
+                                // 确保值是正确的时间格式
+                                if (value === '1320') {
+                                    value = '13:20';
+                                } else if (value && !value.includes(':')) {
+                                    try {
+                                        const numValue = parseInt(value);
+                                        const hour = Math.floor(numValue / 100);
+                                        const minute = numValue % 100;
+                                        value = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                                    } catch (e) {
+                                        console.error(`时间格式转换失败: ${value}`, e);
+                                    }
+                                }
+                            }
+                            
+                            processFormValue(config, key, value);
+                        }
+                    });
+                });
                 
-                // 处理表单数据
-                for (let [key, value] of formData.entries()) {
-                    processFormValue(config, key, value);
-                }
-                
-                if (otherForm) {
-                    const otherFormData = new FormData(otherForm);
-                    for (let [key, value] of otherFormData.entries()) {
-                        processFormValue(config, key, value);
-                    }
-                }
-
                 // 特别处理任务数据 - 确保直接从隐藏字段获取
                 const tasksInput = document.getElementById('TASKS');
                 if (tasksInput) {
@@ -1199,6 +1215,24 @@
                 } catch (e) {
                     config[key] = [];
                 }
+            } else if (key === 'QUIET_TIME_START' || key === 'QUIET_TIME_END') {
+                // 特殊处理时间格式
+                // 确保时间格式为 HH:MM
+                if (value === '1320') {
+                    config[key] = '13:20';
+                } else if (value && !value.includes(':')) {
+                    // 尝试将数字格式转换为时间格式
+                    const hour = Math.floor(parseInt(value) / 100);
+                    const minute = parseInt(value) % 100;
+                    if (!isNaN(hour) && !isNaN(minute)) {
+                        config[key] = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                    } else {
+                        config[key] = value;
+                    }
+                } else {
+                    config[key] = value;
+                }
+                console.log(`处理时间配置 ${key}: ${value} -> ${config[key]}`);
             } else if (value.toLowerCase() === 'true' || value.toLowerCase() === 'false') {
                 config[key] = value.toLowerCase() === 'true';
             } else if (!isNaN(value) && value !== '') {

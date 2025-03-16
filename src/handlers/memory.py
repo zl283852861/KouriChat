@@ -12,6 +12,11 @@ from src.handlers.emotion import SentimentAnalyzer
 # 从config模块获取配置
 from src.config import config
 from src.services.ai.llms.openai_llm import OpenAILLM
+import time  # 添加time模块导入，用于超时控制
+
+# 定义嵌入模型
+EMBEDDING_MODEL = "text-embedding-3-large"  # 默认嵌入模型
+EMBEDDING_FALLBACK_MODEL = "text-embedding-ada-002"  # 备用嵌入模型
 
 logger = logging.getLogger('main')
 
@@ -57,6 +62,10 @@ class MemoryHandler:
         self.max_groups = max_groups
         self.model = model
         self.llm = llm
+
+        # 从config模块获取配置
+        from src.config.rag_config import config
+        self.config = config  # 保存config对象的引用
         self.bot_name = bot_name or config.robot_wx_name
         self.listen_list = config.user.listen_list
 

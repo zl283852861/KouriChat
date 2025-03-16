@@ -780,56 +780,53 @@
         .time-column-{{ key }} {
             flex: 1;
             overflow-y: auto;
-            text-align: center;
             scrollbar-width: thin;
-            padding: 0 4px;
+            text-align: center;
+            border-right: 1px solid #eee;
+            padding: 0 8px;
         }
         
-        .time-column-{{ key }}::-webkit-scrollbar {
-            width: 4px;
+        .time-column-{{ key }}:last-child {
+            border-right: none;
         }
         
-        .time-column-{{ key }}::-webkit-scrollbar-thumb {
-            background-color: #ccc;
-            border-radius: 4px;
+        [data-bs-theme="dark"] .time-column-{{ key }} {
+            border-right: 1px solid #444;
         }
         
-        [data-bs-theme="dark"] .time-column-{{ key }}::-webkit-scrollbar-thumb {
-            background-color: #666;
+        [data-bs-theme="dark"] .time-column-{{ key }}:last-child {
+            border-right: none;
         }
         
         .time-option-{{ key }} {
             padding: 8px 0;
             cursor: pointer;
-            transition: background-color 0.2s;
-            font-size: 15px;
-            border-radius: 4px;
-            margin: 2px 0;
+            transition: all 0.2s;
         }
         
         .time-option-{{ key }}:hover {
-            background-color: #f0f7ff;
+            background-color: #f8f9fa;
+            border-radius: 4px;
         }
         
         [data-bs-theme="dark"] .time-option-{{ key }}:hover {
-            background-color: #3a4046;
+            background-color: #343a40;
         }
         
         .time-option-{{ key }}.selected {
-            background-color: #e6f0ff;
-            color: #0d6efd;
+            background-color: #e9ecef;
+            border-radius: 4px;
             font-weight: 500;
         }
         
         [data-bs-theme="dark"] .time-option-{{ key }}.selected {
-            background-color: #0d6efd;
-            color: white;
+            background-color: #495057;
         }
         
         .time-picker-footer-{{ key }} {
             display: flex;
             justify-content: flex-end;
-            padding: 10px 16px;
+            padding: 12px 16px;
             border-top: 1px solid #eee;
             gap: 8px;
         }
@@ -851,9 +848,10 @@
             {% set minute = "00" %}
         {% endif %}
         
+        // 确保时间值是两位数格式
         let timeSelection_{{ key }} = {
-            hour: '{{ hour }}',
-            minute: '{{ minute }}'
+            hour: '{{ hour }}'.padStart(2, '0'),
+            minute: '{{ minute }}'.padStart(2, '0')
         };
         
         // 显示时间选择器
@@ -888,9 +886,21 @@
             
             // 初始化选择状态
             if (currentValue) {
-                const parts = currentValue.split(':');
-                timeSelection_{{ key }}.hour = parts[0] || '00';
-                timeSelection_{{ key }}.minute = parts[1] || '00';
+                // 处理异常值1320
+                if (currentValue === '1320') {
+                    timeSelection_{{ key }}.hour = '13';
+                    timeSelection_{{ key }}.minute = '20';
+                } else {
+                    const parts = currentValue.split(':');
+                    if (parts.length >= 2) {
+                        timeSelection_{{ key }}.hour = parts[0].padStart(2, '0');
+                        timeSelection_{{ key }}.minute = parts[1].padStart(2, '0');
+                    } else {
+                        // 如果格式不正确，设置为默认值
+                        timeSelection_{{ key }}.hour = '00';
+                        timeSelection_{{ key }}.minute = '00';
+                    }
+                }
                 
                 // 高亮当前选中的选项
                 highlightSelectedTime_{{ key }}();
@@ -915,8 +925,7 @@
         // 更新时间显示
         function updateTimeDisplay_{{ key }}() {
             const timeString = `${timeSelection_{{ key }}.hour}:${timeSelection_{{ key }}.minute}`;
-            document.querySelector('.time-header-{{ key }}').textContent = 
-                timeString;
+            document.querySelector('.time-header-{{ key }}').textContent = timeString;
         }
         
         // 高亮选中的时间
@@ -967,6 +976,9 @@
             document.getElementById('{{ key }}_display').value = timeString;
             document.getElementById('{{ key }}').value = timeString;
             
+            // 记录时间设置
+            console.log(`设置时间 {{ key }}: ${timeString}`);
+            
             // 隐藏选择器
             document.getElementById('time_picker_{{ key }}').style.display = 'none';
         }
@@ -990,6 +1002,33 @@
         document.addEventListener('DOMContentLoaded', function() {
             // 初始化时间显示
             updateTimeDisplay_{{ key }}();
+            
+            // 确保显示值与实际值一致
+            const displayElement = document.getElementById('{{ key }}_display');
+            const hiddenElement = document.getElementById('{{ key }}');
+            if (displayElement && hiddenElement) {
+                // 处理异常值1320
+                if (hiddenElement.value === '1320') {
+                    displayElement.value = '13:20';
+                    hiddenElement.value = '13:20';
+                } else if (hiddenElement.value && !hiddenElement.value.includes(':')) {
+                    // 尝试将数字格式转换为时间格式
+                    try {
+                        const numValue = parseInt(hiddenElement.value);
+                        const hour = Math.floor(numValue / 100);
+                        const minute = numValue % 100;
+                        const formattedTime = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+                        displayElement.value = formattedTime;
+                        hiddenElement.value = formattedTime;
+                        console.log(`转换时间格式: ${hiddenElement.value} -> ${formattedTime}`);
+                    } catch (e) {
+                        console.error(`时间格式转换失败: ${hiddenElement.value}`, e);
+                        displayElement.value = hiddenElement.value;
+                    }
+                } else {
+                    displayElement.value = hiddenElement.value;
+                }
+            }
         });
     </script>
 {% else %}
