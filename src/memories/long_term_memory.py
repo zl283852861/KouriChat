@@ -1,6 +1,11 @@
+from datetime import datetime
 from typing import List
 from src.memories.memory_saver import MemorySaver
 from src.services.ai.llms.base_llm import BaseLLM
+import logging
+
+logger = logging.getLogger('main')
+
 """
 此文件依赖于eliver的lib中 BaseLLM 类
 """
@@ -53,19 +58,45 @@ class LongTermMemory:
     def get_memories(self) -> List[str]:
         return self.memories
     
-    def add_memory(self, memories: List[str]):
+    def add_memory(self, memories, user_id=None):
         """
-        用于增量增加记忆
-        :param memories: 需要添加的记忆列表
+        添加记忆到长期记忆
+        
+        Args:
+            memories: 短期记忆列表（键值对形式）
+            user_id: 用户ID，用于区分不同用户的记忆
         """
-        add_memory = self.llm.generate_response(
-            {
-                "system": self.memory_handle_prompt,
-                "user": ";".join(memories)
-            }
-        )
-        self.memories.append(add_memory)
-        self.saver.add(add_memory)
+        if not memories:
+            return
+        
+        # 构建处理提示，包含用户ID信息
+        user_context = f"用户ID: {user_id}" if user_id else "未知用户"
+        process_prompt = self.memory_handle_prompt.replace("{user_context}", user_context)
+        
+        # 准备记忆内容
+        memory_content = "\n".join([f"{key} => {value}" for key, value in memories])
+        
+        # 使用LLM处理记忆
+        full_prompt = f"{process_prompt}\n\n记忆内容：\n{memory_content}"
+        
+        try:
+            # 调用LLM生成摘要
+            summary = self.llm.handel_prompt(full_prompt, user_id)
+            
+            # 添加用户ID标记到摘要中
+            if user_id:
+                timestamped_summary = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] [用户ID:{user_id}] {summary}"
+            else:
+                timestamped_summary = f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {summary}"
+            
+            # 将处理后的摘要保存到长期记忆
+            self.saver.save_memory(timestamped_summary)
+            
+            return True
+        except Exception as e:
+            # 处理失败时的错误日志
+            logger.error(f"处理长期记忆失败: {str(e)}")
+            return False
 
     def save_memory(self, memories: List[str]):
         """

@@ -13,6 +13,7 @@ from src.handlers.emotion import SentimentAnalyzer
 from src.config import config
 from src.services.ai.llms.openai_llm import OpenAILLM
 import time  # 添加time模块导入，用于超时控制
+import re  # 添加正则表达式模块用于解析用户ID
 
 # 定义嵌入模型
 EMBEDDING_MODEL = "text-embedding-3-large"  # 默认嵌入模型
@@ -64,7 +65,7 @@ class MemoryHandler:
         self.llm = llm
 
         # 从config模块获取配置
-        from src.config.rag_config import config
+        from src.config import config
         self.config = config  # 保存config对象的引用
         self.bot_name = bot_name or config.robot_wx_name
         self.listen_list = config.user.listen_list
@@ -124,6 +125,8 @@ class MemoryHandler:
             ) if config.rag.is_rerank is True else None
         )
         self.init_lg_tm_m_and_k_m()
+        self.add_long_term_memory_process_task()
+        self.initialize_memory()
     
     def init_lg_tm_m_and_k_m(self):
         """
@@ -132,121 +135,174 @@ class MemoryHandler:
         self.lg_tm_m_and_k_m.add_documents(self.long_term_memory.get_memories())
         self.lg_tm_m_and_k_m.add_documents(self.key_memory.get_memory())
 
+    def clean_memory_content(self, memory_key, memory_value):
+        """
+        清理记忆内容，去除记忆检索的额外信息
+        
+        Args:
+            memory_key: 记忆键（AI回复部分）
+            memory_value: 记忆值（用户输入部分）
+        
+        Returns:
+            tuple: (清理后的记忆键, 清理后的记忆值)
+        """
+        # 提取AI回复（键）
+        ai_pattern = r'^\[(.*?)\] 对方\(ID:(.*?)\): (.*?)$'
+        ai_match = re.match(ai_pattern, memory_key)
+        if ai_match:
+            timestamp, user_id, ai_response = ai_match.groups()
+            clean_key = f"[{timestamp}] 对方(ID:{user_id}): {ai_response}"
+        else:
+            clean_key = memory_key
+        
+        # 提取用户输入（值）- 改进正则表达式以更精确匹配
+        user_pattern = r'^\[(.*?)\] 你: (.*?)(?:\n以上是用户的沟通内容.*)?$'
+        user_match = re.match(user_pattern, memory_value, re.DOTALL)
+        if user_match:
+            timestamp, user_input = user_match.groups()
+            clean_value = f"[{timestamp}] 你: {user_input}"
+        else:
+            clean_value = memory_value
+        
+        return clean_key, clean_value
+
     def add_short_term_memory_hook(self):
         """添加短期记忆监听器方法"""
         @self.llm.llm.context_handler
-        def short_term_memory_add(ai_response: str, user_response: str):
+        def short_term_memory_add(user_id: str, user_response: str, ai_response: str):
             try:
-
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-                # 将记忆写入Rag记忆
-                # 2025-03-15修改，把写入Rag的代码修改到llm的钩子方法中
-                self.short_term_memory.memory[f"[{timestamp}] 对方: {ai_response}"] = f"[{timestamp}] 你: {user_response}"
-                self.short_term_memory.save_memory()
-
-                # 2025-03-15修改，记忆文件弃用
-                # try:
-                #     with open(short_memory_path, "a", encoding="utf-8") as f:
-                #         f.write(memory_content)
-                #     logger.info(f"成功写入短期记忆: {user_id}")
-                #     print(f"控制台日志: 成功写入短期记忆 - 用户ID: {user_id}")
-                # except Exception as e:
-                #     logger.error(f"写入短期记忆失败: {str(e)}")
-                #     print(f"控制台日志: 写入短期记忆失败 - 用户ID: {user_id}, 错误: {str(e)}")
-                #     return
-
-                # 检查关键词并添加重要记忆
-                # 2025-03-15修改，重要记忆暂时弃用
+                
+                # 检查是否包含记忆检索内容，并清理
+                if "\n以上是用户的沟通内容；以下是记忆中检索的内容：" in user_response:
+                    user_response = user_response.split("\n以上是用户的沟通内容")[0]
+                    
+                memory_key = f"[{timestamp}] 对方(ID:{user_id}): {user_response}"
+                memory_value = f"[{timestamp}] 你: {ai_response}"
+                
+                # 再次清理确保干净
+                memory_key, memory_value = self.clean_memory_content(memory_key, memory_value)
+                
+                # 使用add_memory方法，确保执行去重检查
+                self.short_term_memory.add_memory(memory_key, memory_value)
             except Exception as e:
                 logger.error(f"添加短期记忆失败: {str(e)}")
-                print(f"控制台日志: 添加短期记忆失败 - 用户:, 错误: {str(e)}")
 
     def _add_important_memory(self, message: str, user_id: str):
-        """添加重要记忆"""
+        """
+        添加重要记忆 - 修改为接收用户输入内容
         
+        Args:
+            message: 用户输入内容
+            user_id: 用户ID
+        """
         timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         memory_content = f'["{timestamp} 用户{user_id}的重要记忆"] = "[{timestamp}] 重要记忆内容: {message}"'
 
-        # 写入Rag记忆
+        # 写入关键记忆
         self.key_memory.add_memory(memory_content)
+        logger.info(f"成功写入重要记忆: 用户{user_id} - {message[:50]}...")
 
-        logger.info(f"成功写入重要记忆: {user_id}")
+    def check_important_memory(self, message: str, user_id: str):
+        """
+        检查消息是否包含关键词并添加重要记忆
+        
+        Args:
+            message: 用户输入的消息
+            user_id: 用户ID
+        
+        Returns:
+            bool: 是否找到关键词
+        """
+        if any(keyword in message for keyword in KEYWORDS):
+            self._add_important_memory(message, user_id)
+            return True
+        return False
 
     def get_relevant_memories(self, query: str, user_id: Optional[str] = None) -> List[str]:
         """获取相关记忆，只在用户主动询问时检索重要记忆和长期记忆"""
         content = f"[{user_id}]:{query}"
-        memories = self.lg_tm_m_and_k_m.query(content, self.top_k, self.is_rerank)
-        memories += self.short_term_memory.rag.query(content, self.top_k, self.is_rerank)
-        return memories
         
-    def _get_time_related_memories(self, user_id: str, group_id: str = None, sender_name: str = None) -> List[str]:
-        """获取时间相关的记忆"""
-        short_memory_path, _, _ = self._get_memory_paths(user_id, group_id, sender_name)
-        time_memories = []
+        # 分别获取两个来源的记忆
+        long_term_memories = self.lg_tm_m_and_k_m.query(content, self.top_k, self.is_rerank)
+        short_term_memories = self.short_term_memory.rag.query(content, self.top_k, self.is_rerank)
         
-        try:
-            with open(short_memory_path, "r", encoding="utf-8") as f:
-                lines = f.readlines()
-                
-                # 查找最近的时间相关对话
-                for i in range(len(lines) - 1, 0, -1):
-                    line = lines[i].strip()
-                    if not line:
-                        continue
-                        
-                    # 检查是否是时间相关回复
-                    if "现在是" in line and "你:" in line:
-                        # 找到对应的用户问题
-                        if i > 0 and "对方:" in lines[i-1]:
-                            user_question = lines[i-1].strip()
-                            time_memories.append(user_question)
-                            time_memories.append(line)
-                            break
-                            
-                # 如果没有找到明确的时间回复，返回最近的几条对话
-                if not time_memories and len(lines) >= 4:
-                    for i in range(len(lines) - 1, max(0, len(lines) - 5), -1):
-                        if lines[i].strip():
-                            time_memories.append(lines[i].strip())
-        except Exception as e:
-            logger.error(f"读取时间相关记忆失败: {str(e)}")
-            
-        return time_memories
+        # 使用集合去重
+        unique_memories = list(set(long_term_memories + short_term_memories))
+        
+        # 按时间戳排序（如果记忆包含时间戳）
+        unique_memories.sort(key=lambda x: x.split(']')[0] if ']' in x else x)
+        
+        return unique_memories
 
-    def add_long_term_memory_process_task(self, user_id: str):
+    def add_long_term_memory_process_task(self):
         """
         添加长期记忆处理任务
-        这个方法会启动一个线程，定期处理长期记忆
+        这个方法会启动一个线程，定期处理长期记忆，按用户ID分开处理
         """
         try:
             # 从配置获取保存间隔时间(分钟)
             from src.config import config
-            save_interval = config.memory.long_term_memory.save_interval
+            # 修正配置路径 - 使用正确的配置路径结构
+            # 可能配置在 categories.memory_settings.long_term_memory.save_interval
+            save_interval = config["categories"]["memory_settings"]["long_term_memory"]["save_interval"]
             
             # 创建并启动定时器线程
             def process_memory():
                 try:
-                    # 调用长期记忆处理方法
-                    self.long_term_memory.add_memory(self.short_term_memory.memory.get_key_value_pairs())
+                    # 获取所有短期记忆，并按用户ID进行分组
+                    all_memories = self.short_term_memory.memory.get_key_value_pairs()
+                    
+                    # 空记忆检查
+                    if not all_memories:
+                        logger.info("没有短期记忆需要处理")
+                        return
+                        
+                    user_memories = {}
+                    
+                    # 解析记忆并按用户ID分组
+                    for key, value in all_memories:
+                        # 假设格式为 "[timestamp] 对方(ID:user_id): content"
+                        user_id_match = re.search(r'对方\(ID:(.*?)\):', key)
+                        if user_id_match:
+                            user_id = user_id_match.group(1)
+                            if user_id not in user_memories:
+                                user_memories[user_id] = []
+                            user_memories[user_id].append((key, value))
+                    
+                    # 针对每个用户分别处理长期记忆
+                    for user_id, memories in user_memories.items():
+                        # 调用长期记忆处理方法，传入用户ID和该用户的记忆
+                        logger.info(f"处理用户 {user_id} 的长期记忆，共 {len(memories)} 条记录")
+                        self.long_term_memory.add_memory(memories, user_id)
                     
                     # 清空短期记忆文档和索引
                     self.short_term_memory.memory.settings.clear()
                     self.short_term_memory.rag.documents.clear()
                     self.short_term_memory.rag.index.clear()
 
-                    logger.info(f"成功处理用户 {user_id} 的长期记忆")
+                    logger.info(f"成功处理全部短期记忆到长期记忆")
                 except Exception as e:
                     logger.error(f"处理长期记忆失败: {str(e)}")
-
+                
+                # 处理完成后执行去重
+                logger.info("长期记忆处理完成，执行去重清理...")
+                if hasattr(self.short_term_memory, 'rag'):
+                    self.short_term_memory.rag.deduplicate_documents()
+                if hasattr(self, 'lg_tm_m_and_k_m'):
+                    self.lg_tm_m_and_k_m.deduplicate_documents()
+                
+                logger.info("去重清理完成")
+            
             import threading
             import time
             
             def timer_thread():
                 while True:
-                    process_memory()
                     # 休眠指定时间间隔(转换为秒)
                     time.sleep(save_interval * 60)
+                    # 先休眠再处理
+                    process_memory()
             
             thread = threading.Thread(target=timer_thread, daemon=True)
             thread.start()
@@ -255,3 +311,40 @@ class MemoryHandler:
             
         except Exception as e:
             logger.error(f"启动长期记忆处理线程失败: {str(e)}")
+
+    def initialize_memory(self):
+        """初始化记忆系统，执行首次去重"""
+        # 系统初始化时执行一次全面去重
+        if hasattr(self.short_term_memory, 'rag'):
+            self.short_term_memory.rag.deduplicate_documents()
+        
+        # 初始化后定期执行去重的定时任务
+        self._setup_deduplication_task()
+
+    def _setup_deduplication_task(self):
+        """设置定期去重任务"""
+        import threading
+        import time
+        
+        def deduplication_thread():
+            while True:
+                # 每24小时执行一次去重
+                time.sleep(24 * 60 * 60)  # 24小时
+                try:
+                    logger.info("执行定期去重任务...")
+                    # 对短期记忆进行去重
+                    if hasattr(self.short_term_memory, 'rag'):
+                        self.short_term_memory.rag.deduplicate_documents()
+                    
+                    # 对长期记忆进行去重 (如果需要)
+                    if hasattr(self, 'lg_tm_m_and_k_m'):
+                        self.lg_tm_m_and_k_m.deduplicate_documents()
+                    
+                    logger.info("定期去重任务完成")
+                except Exception as e:
+                    logger.error(f"定期去重任务失败: {str(e)}")
+        
+        # 启动定期去重线程
+        thread = threading.Thread(target=deduplication_thread, daemon=True)
+        thread.start()
+        logger.info("已启动定期去重任务线程")

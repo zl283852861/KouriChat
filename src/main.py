@@ -186,8 +186,8 @@ class DebugBot:
         # 记录用户输入
         self.log_colored_message(f"[用户输入] {user_input}", Fore.WHITE)
         
-        # 模拟消息处理流程
-        result = self.message_handler.handle_user_message(
+        # 对于调试模式，直接调用_handle_text_message方法处理消息
+        reply = self.message_handler._handle_text_message(
             content=user_input,
             chat_id=chatName,
             sender_name="debug_user",
@@ -195,15 +195,22 @@ class DebugBot:
             is_group=False
         )
         
-        # 如果有回复，显示为彩色
-        if result:
-            reply_text = result[0] if isinstance(result, list) else result
-            self.log_colored_message(f"[AI回复摘要] {reply_text[:50]}...", self.ai_color)
+        # 只在这一个地方显示AI回复
+        if reply:
+            self.log_colored_message(f"\n[AI回复开始] {'-'*30}", self.system_color)
+            for msg in reply:
+                if isinstance(msg, str) and msg.startswith(('http', '/')):
+                    self.log_colored_message(f"[AI发送图片] {msg}", self.ai_color)
+                else:
+                    self.log_colored_message(f"[AI回复] {msg}", self.ai_color)
+            self.log_colored_message(f"[AI回复结束] {'-'*30}\n", self.system_color)
+        else:
+            self.log_colored_message("[没有收到AI回复]", self.error_color)
         
         # 处理完成提示
         self.log_colored_message(f"[处理完成] {'-'*30}", self.system_color)
         
-        return result
+        return reply
 
 
 class ChatBot:
