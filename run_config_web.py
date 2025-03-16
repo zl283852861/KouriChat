@@ -572,7 +572,9 @@ def load_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             g.config_data = yaml.safe_load(f)  # 使用 g 来存储配置数据
     except Exception as e:
-        logger.error(f"加载配置失败: {str(e)}")
+        # 添加异常处理，确保 g.config_data 始终存在
+        logger.error(f"加载配置文件失败: {str(e)}")
+        g.config_data = {}  # 设置空字典作为默认值
 
 
 @app.route('/dashboard')
