@@ -186,8 +186,8 @@ class DebugBot:
         # 记录用户输入
         self.log_colored_message(f"[用户输入] {user_input}", Fore.WHITE)
         
-        # 模拟消息处理流程
-        result = self.message_handler.handle_user_message(
+        # 对于调试模式，直接调用_handle_text_message方法处理消息
+        reply = self.message_handler._handle_text_message(
             content=user_input,
             chat_id=chatName,
             sender_name="debug_user",
@@ -195,15 +195,22 @@ class DebugBot:
             is_group=False
         )
         
-        # 如果有回复，显示为彩色
-        if result:
-            reply_text = result[0] if isinstance(result, list) else result
-            self.log_colored_message(f"[AI回复摘要] {reply_text[:50]}...", self.ai_color)
+        # 只在这一个地方显示AI回复
+        if reply:
+            self.log_colored_message(f"\n[AI回复开始] {'-'*30}", self.system_color)
+            for msg in reply:
+                if isinstance(msg, str) and msg.startswith(('http', '/')):
+                    self.log_colored_message(f"[AI发送图片] {msg}", self.ai_color)
+                else:
+                    self.log_colored_message(f"[AI回复] {msg}", self.ai_color)
+            self.log_colored_message(f"[AI回复结束] {'-'*30}\n", self.system_color)
+        else:
+            self.log_colored_message("[没有收到AI回复]", self.error_color)
         
         # 处理完成提示
         self.log_colored_message(f"[处理完成] {'-'*30}", self.system_color)
         
-        return result
+        return reply
 
 
 class ChatBot:
@@ -903,203 +910,195 @@ def main(debug_mode=False):
 
     if debug_mode: ROBOT_WX_NAME = "Debuger"
 
-    try:
+    # try:
         # 设置wxauto日志路径
-        automation_log_dir = os.path.join(root_dir, "logs", "automation")
-        if not os.path.exists(automation_log_dir):
-            os.makedirs(automation_log_dir)
-        os.environ["WXAUTO_LOG_PATH"] = os.path.join(automation_log_dir, "AutomationLog.txt")
+    automation_log_dir = os.path.join(root_dir, "logs", "automation")
+    if not os.path.exists(automation_log_dir):
+        os.makedirs(automation_log_dir)
+    os.environ["WXAUTO_LOG_PATH"] = os.path.join(automation_log_dir, "AutomationLog.txt")
 
-        files_handler = FileHandler()
-        emoji_handler = EmojiHandler(root_dir)
-        image_handler = ImageHandler(
-            root_dir=root_dir,
-            api_key=config.llm.api_key,
-            base_url=config.llm.base_url,
-            image_model=config.media.image_generation.model
-        )
-        voice_handler = VoiceHandler(
-            root_dir=root_dir,
-            tts_api_url=config.media.text_to_speech.tts_api_url
-        )
-        memory_handler = MemoryHandler(
-            root_dir=root_dir,
-            api_key=config.llm.api_key,
-            base_url=config.llm.base_url,
-            model=config.llm.model,
-            max_token=config.llm.max_tokens,
-            temperature=config.llm.temperature,
-            max_groups=config.behavior.context.max_groups,
-            bot_name=ROBOT_WX_NAME
-        )
+    files_handler = FileHandler()
+    emoji_handler = EmojiHandler(root_dir)
+    image_handler = ImageHandler(
+        root_dir=root_dir,
+        api_key=config.llm.api_key,
+        base_url=config.llm.base_url,
+        image_model=config.media.image_generation.model
+    )
+    voice_handler = VoiceHandler(
+        root_dir=root_dir,
+        tts_api_url=config.media.text_to_speech.tts_api_url
+    )
 
-        moonshot_ai = ImageRecognitionService(
-            api_key=config.media.image_recognition.api_key,
-            base_url=config.media.image_recognition.base_url,
-            temperature=config.media.image_recognition.temperature,
-            model=config.media.image_recognition.model
-        )
+    deepseek = LLMService(
+        api_key=config.llm.api_key,
+        base_url=config.llm.base_url,
+        model=config.llm.model,
+        max_token=config.llm.max_tokens,
+        temperature=config.llm.temperature,
+        max_groups=config.behavior.context.max_groups,
+    )
+    
+    memory_handler = MemoryHandler(
+        root_dir=root_dir,
+        api_key=config.llm.api_key,
+        base_url=config.llm.base_url,
+        model=config.llm.model,
+        max_token=config.llm.max_tokens,
+        temperature=config.llm.temperature,
+        max_groups=config.behavior.context.max_groups,
+        bot_name=ROBOT_WX_NAME,
+        llm=deepseek
+    )
+    moonshot_ai = ImageRecognitionService(
+        api_key=config.media.image_recognition.api_key,
+        base_url=config.media.image_recognition.base_url,
+        temperature=config.media.image_recognition.temperature,
+        model=config.media.image_recognition.model
+    )
 
-        # 获取机器人名称- 移到前面，优先获取
-        try:
-            wx = WeChat()
-            ROBOT_WX_NAME = wx.A_MyIcon.Name
-            logger.info(f"获取到机器人名称: {ROBOT_WX_NAME}")
-            # 不在这里添加监听，避免重复添加
-            # 监听将在 initialize_wx_listener 函数中统一处理
-        except Exception as e:
-            logger.error(f"获取机器人名称失败 {str(e)}")
-            ROBOT_WX_NAME = ""  # 设置默认值
+    moonshot_ai = ImageRecognitionService(
+        api_key=config.media.image_recognition.api_key,
+        base_url=config.media.image_recognition.base_url,
+        temperature=config.media.image_recognition.temperature,
+        model=config.media.image_recognition.model
+    )
 
-        message_handler = MessageHandler(
-            root_dir=root_dir,
-            api_key=config.llm.api_key,
-            base_url=config.llm.base_url,
-            model=config.llm.model,
-            max_token=config.llm.max_tokens,
-            temperature=config.llm.temperature,
-            max_groups=config.behavior.context.max_groups,
-            robot_name=ROBOT_WX_NAME,  # 使用动态获取的机器人名称
-            prompt_content=prompt_content,
-            image_handler=image_handler,
-            emoji_handler=emoji_handler,
-            voice_handler=voice_handler,
-            memory_handler=memory_handler,
-            is_debug=debug_mode,
-            wx=wx  # 传递wx对象
-        )
+    message_handler = MessageHandler(
+        root_dir=root_dir,
+        llm=deepseek,
+        robot_name=ROBOT_WX_NAME,  # 使用动态获取的机器人名称
+        prompt_content=prompt_content,
+        image_handler=image_handler,
+        emoji_handler=emoji_handler,
+        voice_handler=voice_handler,
+        memory_handler=memory_handler,
+        is_debug=debug_mode
+    )
 
-        if debug_mode:
-            # 设置日志颜色和级别
-            logger.setLevel(logging.DEBUG)
-            # 使用正确导入的init函数
-            init(autoreset=True)  # 使用已导入的init而不是colorama_init
-            logger.info(f"{Fore.YELLOW}调试模式已启用{Style.RESET_ALL}")
+    if debug_mode:
+        # 设置日志颜色和级别
+        logger.setLevel(logging.DEBUG)
+        # 使用正确导入的init函数
+        init(autoreset=True)  # 使用已导入的init而不是colorama_init
+        logger.info(f"{Fore.YELLOW}调试模式已启用{Style.RESET_ALL}")
 
             # 初始化调试机器人
-            global chat_bot
-            chat_bot = DebugBot(
-                message_handler=message_handler,
-                moonshot_ai=moonshot_ai,
-                memory_handler=memory_handler
-            )
+        global chat_bot
+        chat_bot = DebugBot(
+            message_handler=message_handler,
+            moonshot_ai=moonshot_ai,
+            memory_handler=memory_handler
+        )
 
-            # 启动控制台交互循环
+        # 启动控制台交互循环
+        while True:
+            chat_bot.handle_wxauto_message(None, "debug_chat")
+            time.sleep(1)
+    else:
+        # 确保在创建 ChatBot 实例时传递 memory_handler
+        chat_bot = ChatBot(message_handler, moonshot_ai, memory_handler)
+
+        # 设置监听列表
+        global listen_list
+
+        listen_list = config.user.listen_list
+
+        # 初始化微信监听
+        print_status("初始化微信监听..", "info", "BOT")
+        wx = initialize_wx_listener()
+        if not wx:
+            print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
+            return
+        print_status("微信监听初始化完成", "success", "CHECK")
+        print_status("检查短期记忆..", "info", "SEARCH")
+
+        # 移除对 summarize_memories 的调用
+        # memory_handler.summarize_memories()  # 启动时处理残留记忆
+
+        # 移除记忆维护线程
+        """
+        def memory_maintenance():
             while True:
-                chat_bot.handle_wxauto_message(None, "debug_chat")
-                time.sleep(1)
-        else:
-            # 确保在创建ChatBot 实例时传入memory_handler
-            chat_bot = ChatBot(message_handler, moonshot_ai, memory_handler)
+                try:
+                    memory_handler.summarize_memories()
+                    time.sleep(3600)  # 每小时检查一次
+                except Exception as e:
+                    logger.error(f"记忆维护失败: {str(e)}")
 
-            # 设置监听列表
-            global listen_list
+        print_status("启动记忆维护线程...", "info", "BRAIN")
+        memory_thread = threading.Thread(target=memory_maintenance)
+        memory_thread.daemon = True
+        memory_thread.start()
+        """
 
-            listen_list = config.user.listen_list
+        print_status("验证记忆存储路径...", "info", "FILE")
+        memory_dir = os.path.join(root_dir, "data", "memory")
+        if not os.path.exists(memory_dir):
+            os.makedirs(memory_dir)
+            print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
 
-            # 初始化微信监听
-            print_status("初始化微信监听..", "info", "BOT")
-            wx = initialize_wx_listener()
-            if not wx:
-                print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
-                return
-            print_status("微信监听初始化完成", "success", "CHECK")
-            print_status("检查短期记忆..", "info", "SEARCH")
+        avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+        prompt_path = os.path.join(avatar_dir, "avatar.md")
+        if not os.path.exists(prompt_path):
+            with open(prompt_path, "w", encoding="utf-8") as f:
+                f.write("# 核心人格\n[默认内容]")
+            print_status(f"创建人设提示文件", "warning", "WARNING")
 
-            # 移除summarize_memories 的调用
-            # memory_handler.summarize_memories()  # 启动时处理残留记忆
+        # 启动消息监听线程
+        print_status("启动消息监听线程...", "info", "ANTENNA")
+        listener_thread = threading.Thread(target=message_listener)
+        listener_thread.daemon = True  # 确保线程是守护线程
+        listener_thread.start()
+        print_status("消息监听已启动", "success", "CHECK")
 
-            # 移除记忆维护线程
-            """
-            def memory_maintenance():
-                while True:
-                    try:
-                        memory_handler.summarize_memories()
-                        time.sleep(3600)  # 每小时检查一次
-                    except Exception as e:
-                        logger.error(f"记忆维护失败: {str(e)}")
-    
-            print_status("启动记忆维护线程...", "info", "BRAIN")
-            memory_thread = threading.Thread(target=memory_maintenance)
-            memory_thread.daemon = True
-            memory_thread.start()
-            """
+        # 启动主动消息
+        print_status("启动主动消息系统...", "info", "CLOCK")
+        start_countdown()
+        print_status("主动消息系统已启动", "success", "CHECK")
 
-            print_status("验证记忆存储路径...", "info", "FILE")
-            memory_dir = os.path.join(root_dir, "data", "memory")
-            if not os.path.exists(memory_dir):
-                os.makedirs(memory_dir)
-                print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
+        print("-" * 50)
+        print_status("系统初始化完成", "success", "STAR_2")
+        print("=" * 50)
 
-            avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
-            prompt_path = os.path.join(avatar_dir, "avatar.md")
-            if not os.path.exists(prompt_path):
-                with open(prompt_path, "w", encoding="utf-8") as f:
-                    f.write("# 核心人格\n[默认内容]")
-                print_status(f"创建人设提示文件", "warning", "WARNING")
-
-            # 启动消息监听线程
-            print_status("启动消息监听线程...", "info", "ANTENNA")
-            listener_thread = threading.Thread(target=message_listener)
-            listener_thread.daemon = True  # 确保线程是守护线程
-            listener_thread.start()
-            print_status("消息监听已启动", "success", "CHECK")
-
-            # 启动主动消息
-            print_status("启动主动消息系统...", "info", "CLOCK")
-            start_countdown()
-            print_status("主动消息系统已启动", "success", "CHECK")
-
-            print("-" * 50)
-            print_status("系统初始化完成", "success", "STAR_2")
-            print("=" * 50)
-
-            # 初始化自动任务系统
-            auto_tasker = initialize_auto_tasks(message_handler)
-            if not auto_tasker:
-                print_status("自动任务系统初始化失败", "error", "ERROR")
-                return
+        # 初始化自动任务系统
+        auto_tasker = initialize_auto_tasks(message_handler)
+        if not auto_tasker:
+            print_status("自动任务系统初始化失败", "error", "ERROR")
+            return
 
             # 主循环
             # 在主循环中的重连逻辑
-            while True:
-                time.sleep(5)
-                if listener_thread is None or not listener_thread.is_alive():
-                    print_status("监听线程已断开，尝试重新连接..", "warning", "SYNC")
-                    try:
-                        # 添加检查，避免在短时间内多次重试
-                        last_restart_time = getattr(main, 'last_restart_time', 0)
-                        current_time = time.time()
-                        if current_time - last_restart_time < 20:  # 至少间隔20秒
-                            print_status("上次重启尝试时间过短，等待..", "warning", "WAIT")
-                            time.sleep(10)  # 增加等待时间
-                            continue
+        while True:
+            time.sleep(5)
+            if listener_thread is None or not listener_thread.is_alive():
+                print_status("监听线程已断开，尝试重新连接..", "warning", "SYNC")
+                try:
+                    # 添加检查，避免在短时间内多次重试
+                    last_restart_time = getattr(main, 'last_restart_time', 0)
+                    current_time = time.time()
+                    if current_time - last_restart_time < 20:  # 至少间隔20秒
+                        print_status("上次重启尝试时间过短，等待..", "warning", "WAIT")
+                        time.sleep(10)  # 增加等待时间
+                        continue
 
-                        main.last_restart_time = current_time
-                        wx = initialize_wx_listener()
-                        if wx:
-                            listener_thread = threading.Thread(target=message_listener)
-                            listener_thread.daemon = True
-                            listener_thread.start()
-                            print_status("重新连接成功", "success", "CHECK")
-                            time.sleep(10)  # 添加短暂延迟，确保线程正常启动
-                        else:
-                            print_status("重新连接失败，将等待20秒后重试", "warning", "WARNING")
-                            time.sleep(20)
-                    except Exception as e:
-                        print_status(f"重新连接失败: {str(e)}", "error", "CROSS")
-                        time.sleep(10)  # 失败后等待更长时间
+                    main.last_restart_time = current_time
+                    wx = initialize_wx_listener()
+                    if wx:
+                        listener_thread = threading.Thread(target=message_listener)
+                        listener_thread.daemon = True
+                        listener_thread.start()
+                        print_status("重新连接成功", "success", "CHECK")
+                        time.sleep(10)  # 添加短暂延迟，确保线程正常启动
+                    else:
+                        print_status("重新连接失败，将等待20秒后重试", "warning", "WARNING")
+                        time.sleep(20)
+                except Exception as e:
+                    print_status(f"重新连接失败: {str(e)}", "error", "CROSS")
+                    time.sleep(10)  # 失败后等待更长时间
 
-    except Exception as e:
-        print_status(f"主程序异常 {str(e)}", "error", "ERROR")
-        logger.error(f"主程序异常 {str(e)}", exc_info=True)  # 添加详细日志记录
-    finally:
-        # 清理资源
-        if countdown_timer:
-            countdown_timer.cancel()
-
-        # 设置事件以停止线程
-        stop_event.set()
+    #     # 设置事件以停止线程
+    #     stop_event.set()
 
         # 关闭监听线程
         if listener_thread is not None and listener_thread.is_alive():
@@ -1111,9 +1110,9 @@ def main(debug_mode=False):
             except Exception as e:
                 print_status(f"清理线程时出错 {str(e)}", "error", "ERROR")
 
-        print_status("正在关闭系统...", "warning", "STOP")
-        print_status("系统已退出", "info", "BYE")
-        print("\n")
+    #     print_status("正在关闭系统...", "warning", "STOP")
+    #     print_status("系统已退出", "info", "BYE")
+    #     print("\n")
 
 
 #
