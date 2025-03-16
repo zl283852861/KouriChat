@@ -59,19 +59,6 @@ class MessageHandler:
         self.unanswered_counters = {}
         self.unanswered_timers = {}  # 新增：存储每个用户的计时器
 
-    def save_message(self, sender_id: str, sender_name: str, message: str, reply: str, is_group: bool = False):
-        """保存聊天记录到数据库和记忆"""
-        # 确保sender_id不为System
-        if sender_id == "System":
-            # 尝试从消息内容中识别实际的接收者
-            if isinstance(message, str):
-                # 如果消息以@开头，提取用户名
-                if message.startswith('@'):
-                    sender_id = message.split()[0][1:]  # 提取@后的用户名
-                else:
-                    # 使用默认值或其他标识
-                    sender_id = "FileHelper"
-
         # 保存到记忆 - 移除这一行，避免重复保存
         # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
         # 修改(2025/3/15 by Elimir) 注释这一行，移除add_short_memory，改成在memory_handler中添加钩子
@@ -869,9 +856,7 @@ class MessageHandler:
                     # 获取相关记忆
                     memories = self.memory_handler.get_relevant_memories(
                         content, 
-                        username if not is_group else chat_id,
-                        group_id=chat_id if is_group else None,
-                        sender_name=sender_name if is_group else None
+                        username if not is_group else chat_id
                     )
                     
                     if memories:
@@ -964,8 +949,7 @@ class MessageHandler:
                 return delayed_reply
             
             # 异步保存消息记录
-            threading.Thread(target=self.save_message,
-                            args=(username, sender_name, raw_content, reply, is_group)).start()
+            # 2025-03-15(by eliver)修改，不在这里保存消息，使用钩子方法保存
             
             # 重置计数器（如果大于0）
             if self.unanswered_counters.get(username, 0) > 0:

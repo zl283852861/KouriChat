@@ -997,14 +997,14 @@ def main(debug_mode=False):
 
         listen_list = config.user.listen_list
 
-            # 初始化微信监听
-            print_status("初始化微信监听..", "info", "BOT")
-            wx = initialize_wx_listener()
-            if not wx:
-                print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
-                return
-            print_status("微信监听初始化完成", "success", "CHECK")
-            print_status("检查短期记忆..", "info", "SEARCH")
+        # 初始化微信监听
+        print_status("初始化微信监听..", "info", "BOT")
+        wx = initialize_wx_listener()
+        if not wx:
+            print_status("微信初始化失败，请确保微信已登录并保持在前台运行!", "error", "CROSS")
+            return
+        print_status("微信监听初始化完成", "success", "CHECK")
+        print_status("检查短期记忆..", "info", "SEARCH")
 
         # 移除对 summarize_memories 的调用
         # memory_handler.summarize_memories()  # 启动时处理残留记忆
@@ -1062,41 +1062,33 @@ def main(debug_mode=False):
 
             # 主循环
             # 在主循环中的重连逻辑
-            while True:
-                time.sleep(5)
-                if listener_thread is None or not listener_thread.is_alive():
-                    print_status("监听线程已断开，尝试重新连接..", "warning", "SYNC")
-                    try:
-                        # 添加检查，避免在短时间内多次重试
-                        last_restart_time = getattr(main, 'last_restart_time', 0)
-                        current_time = time.time()
-                        if current_time - last_restart_time < 20:  # 至少间隔20秒
-                            print_status("上次重启尝试时间过短，等待..", "warning", "WAIT")
-                            time.sleep(10)  # 增加等待时间
-                            continue
+        while True:
+            time.sleep(5)
+            if listener_thread is None or not listener_thread.is_alive():
+                print_status("监听线程已断开，尝试重新连接..", "warning", "SYNC")
+                try:
+                    # 添加检查，避免在短时间内多次重试
+                    last_restart_time = getattr(main, 'last_restart_time', 0)
+                    current_time = time.time()
+                    if current_time - last_restart_time < 20:  # 至少间隔20秒
+                        print_status("上次重启尝试时间过短，等待..", "warning", "WAIT")
+                        time.sleep(10)  # 增加等待时间
+                        continue
 
-                        main.last_restart_time = current_time
-                        wx = initialize_wx_listener()
-                        if wx:
-                            listener_thread = threading.Thread(target=message_listener)
-                            listener_thread.daemon = True
-                            listener_thread.start()
-                            print_status("重新连接成功", "success", "CHECK")
-                            time.sleep(10)  # 添加短暂延迟，确保线程正常启动
-                        else:
-                            print_status("重新连接失败，将等待20秒后重试", "warning", "WARNING")
-                            time.sleep(20)
-                    except Exception as e:
-                        print_status(f"重新连接失败: {str(e)}", "error", "CROSS")
-                        time.sleep(10)  # 失败后等待更长时间
-
-    except Exception as e:
-        print_status(f"主程序异常 {str(e)}", "error", "ERROR")
-        logger.error(f"主程序异常 {str(e)}", exc_info=True)  # 添加详细日志记录
-    finally:
-        # 清理资源
-        if countdown_timer:
-            countdown_timer.cancel()
+                    main.last_restart_time = current_time
+                    wx = initialize_wx_listener()
+                    if wx:
+                        listener_thread = threading.Thread(target=message_listener)
+                        listener_thread.daemon = True
+                        listener_thread.start()
+                        print_status("重新连接成功", "success", "CHECK")
+                        time.sleep(10)  # 添加短暂延迟，确保线程正常启动
+                    else:
+                        print_status("重新连接失败，将等待20秒后重试", "warning", "WARNING")
+                        time.sleep(20)
+                except Exception as e:
+                    print_status(f"重新连接失败: {str(e)}", "error", "CROSS")
+                    time.sleep(10)  # 失败后等待更长时间
 
     #     # 设置事件以停止线程
     #     stop_event.set()
