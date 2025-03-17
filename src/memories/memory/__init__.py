@@ -1,5 +1,5 @@
 from src.memories.memory.core.memory import Memory
-from src.memories.memory.core.rag import RAG, EmbeddingModel, ReRanker
+from src.memories.memory.core.rag import RAG, EmbeddingModel, ReRanker, LocalEmbeddingModel, OnlineEmbeddingModel, HybridEmbeddingModel
 
 _memory_instance = None
 _rag_instance = None
@@ -59,13 +59,41 @@ def get_rag() -> RAG:
 
 
 def start_memory():
-    rag = get_rag()
-    memory = get_memory()
-
-    if memory.get_key_value_pairs() is not None:
-        rag.add_documents(memory.get_key_value_pairs())
-
-    @memory.add_memory_hook
-    def hook(key, value):
-        # 这里是在记忆文档增加时，对rag内部文档进行增量维护（添加新的文档）
-        rag.add_documents([f"{key}:{value}"])
+    """初始化记忆系统并加载现有记忆到RAG"""
+    import logging
+    logger = logging.getLogger('main')
+    
+    try:
+        rag = get_rag()
+        memory = get_memory()
+        
+        # 记录初始化信息
+        logger.info("开始初始化记忆系统")
+        
+        # 获取键值对并记录数量
+        key_value_pairs = memory.get_key_value_pairs()
+        if key_value_pairs:
+            pair_count = len(key_value_pairs)
+            logger.info(f"发现现有记忆: {pair_count} 条")
+            
+            # 添加到RAG系统
+            rag.add_documents(key_value_pairs)
+            logger.info(f"已将 {pair_count} 条记忆添加到RAG系统")
+        else:
+            logger.info("未发现现有记忆")
+        
+        # 注册记忆钩子
+        @memory.add_memory_hook
+        def hook(key, value):
+            """记忆文档增加时的钩子函数，对RAG内部文档进行增量维护"""
+            try:
+                # 使用正确的元组格式添加文档
+                rag.add_documents([(key, value)])
+                logger.info(f"已通过钩子添加记忆到RAG系统: {key[:30]}...")
+            except Exception as e:
+                logger.error(f"钩子添加记忆到RAG失败: {str(e)}")
+        
+        logger.info("记忆系统初始化完成")
+        
+    except Exception as e:
+        logger.error(f"初始化记忆系统失败: {str(e)}", exc_info=True)

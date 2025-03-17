@@ -4,7 +4,7 @@ jieba
 openai>=1.0.0
 pandas
 psutil
-PyAutoGUI
+pyautogui
 requests
 snownlp
 SQLAlchemy

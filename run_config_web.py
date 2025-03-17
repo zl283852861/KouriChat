@@ -1002,6 +1002,7 @@ memory - 显示内存使用情况
 start - 启动机器人
 stop - 停止机器人
 restart - 重启机器人
+download_model - 下载本地嵌入模型
 
 支持所有CMD命令，例如:
 dir - 显示目录内容
@@ -1010,6 +1011,48 @@ echo - 显示消息
 type - 显示文件内容
 等...'''
             })
+
+        # 处理RAG相关命令
+        elif command.lower() == 'download_model':
+            # 执行模型下载
+            from src.memories.memory.core.rag import LocalEmbeddingModel
+            from src.config import config
+            
+            # 获取模型路径配置
+            model_path = config.rag.local_embedding_model_path
+            if not model_path:
+                model_path = "paraphrase-multilingual-MiniLM-L12-v2"
+            
+            try:
+                # 打印下载信息
+                output = [
+                    f"开始下载本地嵌入模型: {model_path}",
+                    "下载过程可能需要几分钟，请耐心等待...",
+                    "正在准备下载环境..."
+                ]
+                
+                # 实例化模型以触发下载
+                import time
+                start_time = time.time()
+                
+                local_model = LocalEmbeddingModel(model_path)
+                
+                # 计算下载时间
+                download_time = time.time() - start_time
+                
+                # 更新输出信息
+                output.append(f"✅ 模型下载成功! 用时: {download_time:.2f}秒")
+                output.append(f"模型已保存到本地缓存，可以在API调用失败时使用")
+                
+                return jsonify({
+                    'status': 'success',
+                    'output': '\n'.join(output)
+                })
+            except Exception as e:
+                return jsonify({
+                    'status': 'error',
+                    'error': f"模型下载失败: {str(e)}\n请检查网络连接和代理设置"
+                })
 
         elif command.lower() == 'clear':
             # 清空日志队列
@@ -1229,26 +1272,47 @@ type - 显示文件内容
         else:
             try:
                 # 使用subprocess执行命令并捕获输出
-                process = subprocess.Popen(
-                    command,
-                    shell=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                    encoding='utf-8',
-                    errors='replace'
-                )
+                # Windows下设置特殊编码处理
+                if sys.platform.startswith('win'):
+                    # 在Windows中，设置命令行编码为GBK，这是中文Windows的默认编码
+                    process = subprocess.Popen(
+                        command,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding='gbk',  # 使用GBK编码
+                        errors='replace'  # 替换无法解码的字符
+                    )
+                else:
+                    # 非Windows系统使用UTF-8
+                    process = subprocess.Popen(
+                        command,
+                        shell=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        encoding='utf-8',
+                        errors='replace'
+                    )
 
                 # 获取命令输出
                 stdout, stderr = process.communicate(timeout=30)
-
+                
+                # 处理命令不存在的情况 (Windows下特有的错误信息模式)
+                if sys.platform.startswith('win') and stderr and ("不是内部或外部命令" in stderr or "不能被识别" in stderr):
+                    return jsonify({
+                        'status': 'error',
+                        'error': f"'{command}' 不是内部或外部命令，也不是可运行的程序或批处理文件。"
+                    })
+                
                 # 如果有错误输出
                 if stderr:
                     return jsonify({
                         'status': 'error',
                         'error': stderr
                     })
-
+                
                 # 返回命令执行结果
                 return jsonify({
                     'status': 'success',
@@ -2546,6 +2610,39 @@ def get_all_configs():
                 'schedule_settings']:
                 if 'tasks' in config_data['categories']['schedule_settings']['settings']:
                     tasks = config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
+
+            # 添加RAG记忆配置
+            if 'rag_settings' in config_data['categories'] and 'settings' in config_data['categories']['rag_settings']:
+                rag_settings = config_data['categories']['rag_settings']['settings']
+                configs['RAG记忆配置'] = {}
+                
+                # API配置
+                if 'api_key' in rag_settings:
+                    configs['RAG记忆配置']['OPENAI_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
+                if 'base_url' in rag_settings:
+                    configs['RAG记忆配置']['OPENAI_API_BASE'] = {'value': rag_settings['base_url'].get('value', '')}
+                    
+                # 模型配置    
+                if 'embedding_model' in rag_settings:
+                    configs['RAG记忆配置']['EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
+                if 'reranker_model' in rag_settings:
+                    configs['RAG记忆配置']['RAG_RERANKER_MODEL'] = {'value': rag_settings['reranker_model'].get('value', '')}
+                if 'local_embedding_model_path' in rag_settings:
+                    configs['RAG记忆配置']['LOCAL_EMBEDDING_MODEL_PATH'] = {'value': rag_settings['local_embedding_model_path'].get('value', 'paraphrase-multilingual-MiniLM-L12-v2')}
+                
+                # 查询配置
+                if 'top_k' in rag_settings:
+                    configs['RAG记忆配置']['RAG_TOP_K'] = {'value': int(rag_settings['top_k'].get('value', 5))}
+                if 'is_rerank' in rag_settings:
+                    configs['RAG记忆配置']['RAG_IS_RERANK'] = {'value': rag_settings['is_rerank'].get('value', True)}
+                
+                # 自动化配置    
+                if 'auto_download_local_model' in rag_settings:
+                    auto_download = rag_settings['auto_download_local_model'].get('value')
+                    if auto_download is not None:
+                        configs['RAG记忆配置']['AUTO_DOWNLOAD_LOCAL_MODEL'] = {'value': auto_download}
+                if 'auto_adapt_siliconflow' in rag_settings:
+                    configs['RAG记忆配置']['AUTO_ADAPT_SILICONFLOW'] = {'value': rag_settings['auto_adapt_siliconflow'].get('value', True)}
 
         logger.debug(f"获取到的所有配置数据: {configs}")
         logger.debug(f"获取到的任务数据: {tasks}")

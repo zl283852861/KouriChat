@@ -48,14 +48,63 @@ categories:
         description: 定时任务列表
   
   rag_settings:
-    title: rag记忆配置
+    title: RAG记忆配置
     settings:
-      base_url: ""
-      api_key: ""
-      is_rerank: false
-      reranker_model: "gpt-4o-mini-2024-07-18"
-      embedding_model: "text-embedding-3-large"
-      top_k: 5
+      api_key:
+        value: ""
+        type: string
+        description: 嵌入API密钥（OpenAI/KouriChat/硅基流动）
+        is_secret: true
+      base_url:
+        value: ""
+        type: string
+        description: 嵌入API基础URL（留空使用LLM模块配置）
+      
+      embedding_model:
+        value: "text-embedding-3-large"
+        type: string
+        description: 嵌入模型名称
+        options:
+          - "text-embedding-3-large"
+          - "text-embedding-3-small"
+          - "BAAI/bge-m3"
+          - "text-embedding-ada-002"
+          
+      reranker_model:
+        value: ""
+        type: string
+        description: 重排模型名称（留空使用当前LLM模型）
+        
+      local_embedding_model_path:
+        value: "paraphrase-multilingual-MiniLM-L12-v2"
+        type: string
+        description: 本地嵌入模型路径（Hugging Face模型ID）
+        
+      top_k:
+        value: 5
+        type: number
+        description: 记忆查询返回的最大记忆数量
+        min: 1
+        max: 20
+        
+      is_rerank:
+        value: true
+        type: boolean
+        description: 是否对检索结果进行重排序（提高相关性）
+        
+      auto_download_local_model:
+        value: "interactive"
+        type: string
+        description: 是否自动下载本地模型（true=自动下载，false=不下载，interactive=交互式询问）
+        options:
+          - "true"
+          - "false"
+          - "interactive"
+        
+      auto_adapt_siliconflow:
+        value: true
+        type: boolean
+        description: 使用硅基流动API时自动切换到兼容模型
   
   media_settings:
     title: 媒体设置

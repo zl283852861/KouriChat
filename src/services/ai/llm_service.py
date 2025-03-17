@@ -46,7 +46,7 @@ class LLMService:
             max_context_messages=max_groups,
             n_ctx=4096,  # 默认上下文长度
             system_prompt=sys_prompt,
-            singleton=False  # 使用单例模式
+            singleton=True  # 使用单例模式
         )
         
         self.config = {
