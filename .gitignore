@@ -6,7 +6,6 @@
 *.db
 *.sqlite
 *.sqlite3
-memory/
 
 # Config files
 src/config/config.yaml
