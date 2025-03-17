@@ -1367,9 +1367,7 @@ class MessageHandler:
             logger.info(f"选择的目标用户: {target_user}")
             
             # 检查最近是否有聊天记录（30分钟内）
-            from src.handlers.memory import MemoryHandler
-            recent_chat = self.memory_handler.get_recent_chat_time(target_user)
-            if recent_chat:
+            if recent_chat := self.deepseek.llm.user_recent_chat_time.get(target_user):
                 current_time = datetime.now()
                 time_diff = current_time - recent_chat
                 # 如果30分钟内有聊天，跳过本次主动消息

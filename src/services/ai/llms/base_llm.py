@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Callable, List, Dict, Optional, Tuple
 from logging import Logger
 from src.services.ai.llms.llm import online_llm
@@ -52,6 +53,9 @@ class BaseLLM(online_llm):
             self.system_prompt = system_prompt
         else:
             self.system_prompt = None
+        
+        # 2025-03-17 修复适配获取最近时间
+        self.user_recent_chat_time = {}
     
     def context_handler(self, func: Callable[[str, str, str], None]):
         """
@@ -195,6 +199,8 @@ class BaseLLM(online_llm):
             self.logger.info(f"[上下文管理后] 更新后的上下文消息数: {len(post_manage_context)}")
             
             self.logger.info(f"[API响应] 收到回复: {response}")
+            
+            self.user_recent_chat_time[user_id] = datetime.now()
             return response
             
         except Exception as e:
