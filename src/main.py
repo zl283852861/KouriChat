@@ -71,12 +71,6 @@ chat_contexts = {}  # 存储上下文
 # 初始化colorama
 init()
 
-# 预热情感分析模块（全局单例）
-logger.info("开始预热情感分析模块..")
-sentiment_resource_loader = SentimentResourceLoader()
-sentiment_analyzer = SentimentAnalyzer(sentiment_resource_loader)
-logger.info("情感分析模块预热完成")
-
 # 在初始化memory_handler前添加此日志
 logger.info(f"配置文件中的模型: {config.llm.model}")
 logger.info(f"常量MODEL的值 {MODEL}")
@@ -913,6 +907,11 @@ def main(debug_mode=False):
 
     if debug_mode: ROBOT_WX_NAME = "Debuger"
 
+    logger.info("开始预热情感分析模块..")
+    sentiment_resource_loader = SentimentResourceLoader()
+    sentiment_analyzer = SentimentAnalyzer(sentiment_resource_loader)
+    logger.info("情感分析模块预热完成")
+    
     # try:
         # 设置wxauto日志路径
     automation_log_dir = os.path.join(root_dir, "logs", "automation")
@@ -921,7 +920,13 @@ def main(debug_mode=False):
     os.environ["WXAUTO_LOG_PATH"] = os.path.join(automation_log_dir, "AutomationLog.txt")
 
     files_handler = FileHandler()
-    emoji_handler = EmojiHandler(root_dir)
+    
+    emoji_handler = EmojiHandler(
+        root_dir=root_dir,
+        wx_instance=wx,  # 如果不需要可以移除
+        sentiment_analyzer=sentiment_analyzer
+    )
+    
     image_handler = ImageHandler(
         root_dir=root_dir,
         api_key=config.llm.api_key,
