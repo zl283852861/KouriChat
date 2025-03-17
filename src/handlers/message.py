@@ -532,10 +532,6 @@ class MessageHandler:
             if is_group:
                 reply = f"@{sender_name} {reply}"
             self.wx.SendMsg(msg=reply, who=chat_id)
-
-        # 异步保存消息记录
-        threading.Thread(target=self.save_message,
-                         args=(username, sender_name, content, reply, is_group)).start()
         return reply
 
     def _handle_random_image_request(self, content, chat_id, sender_name, username, is_group):
@@ -559,10 +555,6 @@ class MessageHandler:
             if is_group:
                 reply = f"@{sender_name} {reply}"
             self.wx.SendMsg(msg=reply, who=chat_id)
-
-            # 异步保存消息记录
-            threading.Thread(target=self.save_message,
-                             args=(username, sender_name, content, reply, is_group)).start()
             return reply
         return None
 
@@ -587,10 +579,6 @@ class MessageHandler:
             if is_group:
                 reply = f"@{sender_name} {reply}"
             self.wx.SendMsg(msg=reply, who=chat_id)
-
-            # 异步保存消息记录
-            threading.Thread(target=self.save_message,
-                             args=(username, sender_name, content, reply, is_group)).start()
             return reply
         return None
 
@@ -729,11 +717,6 @@ class MessageHandler:
             except Exception as e:
                 logger.error(f"发送文件分析结果失败: {str(e)}")
                 self.wx.SendMsg(msg="抱歉，文件分析结果发送失败", who=chat_id)
-
-            # 异步保存消息记录
-            threading.Thread(target=self.save_message,
-                             args=(username, sender_name, prompt, reply, is_group)).start()
-
             # 重置计数器（如果大于0）
             if self.unanswered_counters.get(username, 0) > 0:
                 self.unanswered_counters[username] = 0
@@ -1045,8 +1028,6 @@ class MessageHandler:
 
         voice_path = self.voice_handler.generate_voice(reply)
         # 异步保存消息记录
-        threading.Thread(target=self.save_message,
-                         args=(qqid, sender_name, content, reply, False)).start()
         if voice_path:
             return voice_path
         else:
@@ -1057,8 +1038,6 @@ class MessageHandler:
         logger.info("处理随机图片请求")
         image_path = self.image_handler.get_random_image()
         if image_path:
-            reply = "给主人你找了一张好看的图片哦~"
-            threading.Thread(target=self.save_message, args=(qqid, sender_name, content, reply, False)).start()
 
             return image_path
             # 异步保存消息记录
@@ -1070,21 +1049,9 @@ class MessageHandler:
         try:
             image_path = self.image_handler.generate_image(content)
             if image_path:
-                reply = "这是按照主人您的要求生成的图片\\(^o^)/~"
-                threading.Thread(target=self.save_message,
-                                 args=(qqid, sender_name, content, reply, False)).start()
-
                 return image_path
-                # 异步保存消息记录
-            else:
-                reply = "抱歉主人，图片生成失败了..."
-                threading.Thread(target=self.save_message,
-                                 args=(qqid, sender_name, content, reply, False)).start()
             return None
         except:
-            reply = "抱歉主人，图片生成失败了..."
-            threading.Thread(target=self.save_message,
-                             args=(qqid, sender_name, content, reply, False)).start()
             return None
 
     def QQ_handle_text_message(self, content, qqid, sender_name):
@@ -1159,10 +1126,6 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"消息处理过程中发生错误: {str(e)}")
             delayed_reply = [reply]  # 出错时使用原始回复
-            
-        # 异步保存消息记录
-        threading.Thread(target=self.save_message,
-                         args=(qqid, sender_name, content, reply, False)).start()
         return delayed_reply
 
     def _split_message_for_sending(self, reply):
@@ -1411,15 +1374,6 @@ class MessageHandler:
                             time.sleep(1)  # 添加短暂延迟避免发送过快
                         
                         logger.info(f"已发送主动消息到 {target_user}: {ai_response[:50]}...")
-                        
-                        # 保存消息记录
-                        self.save_message(
-                            sender_id=robot_wx_name,
-                            sender_name=robot_wx_name,
-                            message=system_instruction,
-                            reply=ai_response,
-                            is_group=False
-                        )
                     else:
                         logger.warning(f"AI未生成有效回复，跳过发送")
                     # 重新开始倒计时
