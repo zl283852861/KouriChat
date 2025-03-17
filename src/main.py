@@ -907,6 +907,9 @@ def main(debug_mode=False):
     # 初始化listener_thread为None，避免引用错误
     listener_thread = None
     wx = None  # 初始化wx为None
+    
+    avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+    prompt_path = os.path.join(avatar_dir, "avatar.md")
 
     if debug_mode: ROBOT_WX_NAME = "Debuger"
 
@@ -929,15 +932,16 @@ def main(debug_mode=False):
         root_dir=root_dir,
         tts_api_url=config.media.text_to_speech.tts_api_url
     )
-
-    deepseek = LLMService(
-        api_key=config.llm.api_key,
-        base_url=config.llm.base_url,
-        model=config.llm.model,
-        max_token=config.llm.max_tokens,
-        temperature=config.llm.temperature,
-        max_groups=config.behavior.context.max_groups,
-    )
+    with open(prompt_path, "r", encoding="utf-8") as f:
+        deepseek = LLMService(
+            sys_prompt=f.read(),
+            api_key=config.llm.api_key,
+            base_url=config.llm.base_url,
+            model=config.llm.model,
+            max_token=config.llm.max_tokens,
+            temperature=config.llm.temperature,
+            max_groups=config.behavior.context.max_groups,
+            )
     
     memory_handler = MemoryHandler(
         root_dir=root_dir,
@@ -1038,8 +1042,6 @@ def main(debug_mode=False):
             os.makedirs(memory_dir)
             print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
 
-        avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
-        prompt_path = os.path.join(avatar_dir, "avatar.md")
         if not os.path.exists(prompt_path):
             with open(prompt_path, "w", encoding="utf-8") as f:
                 f.write("# 核心人格\n[默认内容]")

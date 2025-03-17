@@ -20,7 +20,8 @@ logger = logging.getLogger('main')
 
 class LLMService:
     def __init__(self, api_key: str, base_url: str, model: str,
-                 max_token: int, temperature: float, max_groups: int):
+                 max_token: int, temperature: float, max_groups: int, 
+                 sys_prompt: str = None):
         """
         强化版AI服务初始化
 
@@ -44,6 +45,7 @@ class LLMService:
             max_tokens=max_token,
             max_context_messages=max_groups,
             n_ctx=4096,  # 默认上下文长度
+            system_prompt=sys_prompt,
             singleton=False  # 使用单例模式
         )
         
