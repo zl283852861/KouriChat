@@ -882,31 +882,22 @@ class MessageHandler:
                 if not self.is_debug:
                     self._send_split_messages(split_messages, chat_id)
                 
-                # 检查回复中是否包含情感关键词并发送表情包
-                logger.info("开始检查AI回复的情感关键词")
-                emotion_detected = False
-                
-                if hasattr(self.emoji_handler, 'emotion_map'):
-                    for emotion, keywords in self.emoji_handler.emotion_map.items():
-                        if not keywords:  # 跳过空的关键词列表
-                            continue
-                        
-                        if any(keyword in reply for keyword in keywords):
-                            emotion_detected = True
-                            logger.info(f"在回复中检测到情感: {emotion}")
-                            
-                            emoji_path = self.emoji_handler.get_emotion_emoji(reply)
-                            if emoji_path:
-                                # 将表情包路径添加到回复列表中，由响应器处理
-                                delayed_reply.append(emoji_path)
-                            else:
-                                logger.warning(f"未找到对应情感 {emotion} 的表情包")
-                            break
-                    
-                    if not emotion_detected:
-                        logger.info("未在回复中检测到明显情感")
-                else:
-                    logger.error("emoji_handler 缺少 emotion_map 属性")
+                # 检查是否需要发送表情包
+                emoji_path = None
+                if self.emoji_handler and hasattr(self.emoji_handler, 'get_emotion_emoji'):
+                    try:
+                        # 传入原始文本和用户ID进行判断
+                        emoji_path = self.emoji_handler.get_emotion_emoji(raw_content, username)
+                    except Exception as e:
+                        logger.error(f"获取表情包失败: {str(e)}")
+            
+                # 发送回复
+                if emoji_path:
+                    try:
+                        self.wx.SendFiles(filepath=emoji_path, who=chat_id)
+                        delayed_reply.append(emoji_path)
+                    except Exception as e:
+                        logger.error(f"发送表情包失败: {str(e)}")
             except Exception as e:
                 logger.error(f"发送回复失败: {str(e)}")
                 return delayed_reply
