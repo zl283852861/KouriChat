@@ -66,7 +66,7 @@ class MessageHandler:
         try:
             # 使用正确的属性名和方法名
             if not hasattr(self, 'deepseek') or self.deepseek is None:
-                logger.error("LLM服务未初始化")
+                logger.error("LLM服务未初始化，无法生成回复")
                 return "系统错误：LLM服务未初始化"
             
             # 记录请求信息
@@ -74,10 +74,26 @@ class MessageHandler:
             logger.info(f"用户ID: {user_id}")
             logger.info(f"消息长度: {len(message)} 字符")
             logger.info(f"消息前50字符: {message[:50]}...")
+            logger.info(f"使用模型: {self.deepseek.llm.model_name}")
+            logger.info(f"API地址: {self.deepseek.llm.url}")
+            logger.info(f"API密钥前4位: {self.deepseek.llm.api_key[:4] if len(self.deepseek.llm.api_key) > 4 else '无效'}")
             logger.info("==============================")
             
             # 使用正确的属性名称调用方法
             try:
+                # 修改：检查URL末尾是否有斜杠，并记录日志
+                if hasattr(self.deepseek.llm, 'url') and self.deepseek.llm.url.endswith('/'):
+                    logger.warning(f"发现API URL末尾有斜杠，可能导致请求失败: {self.deepseek.llm.url}")
+                    # 尝试在本地临时修复URL
+                    fixed_url = self.deepseek.llm.url.rstrip('/')
+                    logger.info(f"尝试修复URL: {fixed_url}")
+                    temp_url = self.deepseek.llm.url
+                    self.deepseek.llm.url = fixed_url
+                    
+                    # 记录修复操作
+                    logger.info(f"临时修改URL从 {temp_url} 到 {self.deepseek.llm.url}")
+                
+                # 调用API获取响应
                 response = self.deepseek.llm.handel_prompt(message, user_id)
                 
                 # 记录响应信息
@@ -95,18 +111,51 @@ class MessageHandler:
                     "Connection error" in response or
                     "服务暂时不可用" in response or
                     "Error:" in response or
-                    "错误:" in response
+                    "错误:" in response or
+                    "认证错误" in response
                 ):
                     logger.error(f"API调用返回错误: {response}")
-                    return f"抱歉，我暂时无法回应。错误信息：{response}"
+                    
+                    # 增加错误类型的分类
+                    if "Connection error" in response or "连接错误" in response:
+                        logger.error("网络连接错误 - 请检查网络连接和API地址配置")
+                        # 尝试ping服务器
+                        logger.info(f"尝试通过DNS解析检查连接: api.siliconflow.cn")
+                        return f"抱歉，我暂时无法连接到API服务器。请检查网络连接和API地址配置。"
+                    
+                    elif "认证错误" in response or "API密钥" in response:
+                        logger.error("API认证错误 - 请检查API密钥是否正确")
+                        return f"抱歉，API认证失败。请检查API密钥配置。"
+                    
+                    elif "模型" in response and ("错误" in response or "不存在" in response):
+                        logger.error("模型错误 - 模型名称可能不正确或不可用")
+                        return f"抱歉，无法使用指定的AI模型。请检查模型名称配置。"
+                    
+                    else:
+                        return f"抱歉，我暂时无法回应。错误信息：{response}"
                     
                 return response
                 
             except Exception as api_error:
                 error_msg = str(api_error)
                 logger.error(f"API调用异常: {error_msg}")
-                logger.error(f"API配置 - URL: {self.deepseek.llm.base_url}, Model: {self.deepseek.llm.model}")
-                return f"API调用出错：{error_msg}"
+                logger.error(f"API配置 - URL: {self.deepseek.llm.url}, Model: {self.deepseek.llm.model_name}")
+                
+                # 增加异常处理的详细分类
+                if "Connection" in error_msg or "connect" in error_msg.lower():
+                    logger.error(f"网络连接错误 - 请检查网络连接和API地址: {self.deepseek.llm.url}")
+                    return f"API调用失败: 无法连接到服务器。请检查网络连接和API地址配置。"
+                
+                elif "authenticate" in error_msg.lower() or "authorization" in error_msg.lower() or "auth" in error_msg.lower():
+                    logger.error(f"API认证错误 - 请检查API密钥是否正确")
+                    return f"API调用失败: 认证错误。请检查API密钥配置。"
+                
+                elif "not found" in error_msg.lower() or "404" in error_msg:
+                    logger.error(f"API资源不存在 - 请检查API地址和路径是否正确")
+                    return f"API调用失败: 请求的资源不存在。请检查API地址和路径。"
+                
+                else:
+                    return f"API调用出错：{error_msg}"
                 
         except Exception as e:
             logger.error(f"获取API回复失败: {str(e)}")
@@ -151,17 +200,29 @@ class MessageHandler:
 
             # 提取实际消息内容，去除时间戳和前缀
             actual_content = content
-            # 匹配并去除时间戳和前缀，如 "(2025-03-15 04:37:12) ta私聊对你说 "
-            # 修正：同时支持圆括号和方括号格式的时间戳
-            time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
-            time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+            # 匹配并去除时间戳和前缀，匹配多种可能的格式
+            # 1. "(2025-03-15 04:37:12) ta私聊对你说 "
+            # 2. "[2025-03-15 04:37:12] ta私聊对你说 "
+            # 3. "(此时时间为2025-03-19 04:31:31) ta私聊对你说"
+            time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s*'
+            time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s*'
+            time_prefix_pattern3 = r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*'
             
             if re.search(time_prefix_pattern, actual_content):
                 actual_content = re.sub(time_prefix_pattern, '', actual_content)
-                logger.info(f"去除时间前缀后的内容: {actual_content}")
+                logger.info(f"去除标准时间前缀后的内容: {actual_content}")
             elif re.search(time_prefix_pattern2, actual_content):
                 actual_content = re.sub(time_prefix_pattern2, '', actual_content)
                 logger.info(f"去除方括号时间前缀后的内容: {actual_content}")
+            elif re.search(time_prefix_pattern3, actual_content):
+                actual_content = re.sub(time_prefix_pattern3, '', actual_content)
+                logger.info(f"去除'此时时间为'前缀后的内容: {actual_content}")
+            else:
+                # 如果没有匹配到任何模式，尝试一个更通用的模式
+                general_pattern = r'^.*?ta私聊对你说\s*'
+                if re.search(general_pattern, actual_content):
+                    actual_content = re.sub(general_pattern, '', actual_content)
+                    logger.info(f"使用通用模式去除前缀后的内容: {actual_content}")
             
             # 获取实际消息内容的长度，用于判断是否需要缓存
             content_length = len(actual_content)
@@ -222,13 +283,13 @@ class MessageHandler:
                 
                 # 根据消息数量调整等待时间
                 if msg_count == 1:
-                    # 第一条消息，给予更长的等待时间
-                    wait_time = base_wait_time + 6.0  # 总共12秒
+                    # 第一条消息，给予一定的等待时间
+                    wait_time = base_wait_time + 2.0  # 总共8秒
                     logger.info(f"首条消息，设置较长等待时间: {wait_time:.1f}秒")
                 else:
                     # 后续消息，根据打字速度和消息长度动态调整
                     # 预估用户输入下一条消息所需的时间
-                    estimated_typing_time = min(10.0, content_length * typing_speed)
+                    estimated_typing_time = min(8.0, content_length * typing_speed)
                     wait_time = base_wait_time + estimated_typing_time
                     logger.info(f"后续消息，根据打字速度设置等待时间: {wait_time:.1f}秒")
                 
@@ -352,7 +413,9 @@ class MessageHandler:
             general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
             time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
             time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+            time_prefix_pattern3 = r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*'
             reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
+            context_pattern = r'对话\d+:\n用户:.+\nAI:.+'
             
             # 组合多种格式的嵌套时间和前缀模式
             complex_patterns = [
@@ -382,12 +445,15 @@ class MessageHandler:
                 # 提取时间戳 - 支持两种格式
                 timestamp_match1 = re.search(r'^\((\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)', original_content)
                 timestamp_match2 = re.search(r'^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]', original_content)
+                timestamp_match3 = re.search(r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*', original_content)
                 
                 timestamp = None
                 if timestamp_match1:
                     timestamp = timestamp_match1.group(1)
                 elif timestamp_match2:
                     timestamp = timestamp_match2.group(1)
+                elif timestamp_match3:
+                    timestamp = timestamp_match3.group(1)
                 else:
                     # 如果没有找到时间戳，使用当前时间
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -404,6 +470,7 @@ class MessageHandler:
                 # 去除"ta私聊对你说"前缀，包括时间戳前缀
                 content = re.sub(time_prefix_pattern, '', content)
                 content = re.sub(time_prefix_pattern2, '', content)
+                content = re.sub(time_prefix_pattern3, '', content)
                 
                 # 处理嵌套的时间戳和前缀情况
                 # 使用外层已定义的complex_patterns
@@ -553,6 +620,7 @@ class MessageHandler:
         # 定义系统提示词模式
         time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
         time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+        time_prefix_pattern3 = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*'
         reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
         context_pattern = r'对话\d+:\n用户:.+\nAI:.+'
         system_patterns = [
@@ -566,6 +634,8 @@ class MessageHandler:
             content = re.sub(time_prefix_pattern, '', content)
         elif re.search(time_prefix_pattern2, content):
             content = re.sub(time_prefix_pattern2, '', content)
+        elif re.search(time_prefix_pattern3, content):
+            content = re.sub(time_prefix_pattern3, '', content)
         
         # 去除其他系统提示词
         content = re.sub(reminder_pattern, '', content)
