@@ -320,56 +320,117 @@ class MessageHandler:
             time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
             reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
             
+            # 组合多种格式的嵌套时间和前缀模式
+            complex_patterns = [
+                # 圆括号时间+前缀
+                r'\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s*ta私聊对你说\s*',
+                # 方括号时间+前缀
+                r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s*ta私聊对你说\s*',
+                # 单独的前缀
+                r'ta私聊对你说\s*',
+                # 单独的时间格式1（圆括号）
+                r'\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s*',
+                # 单独的时间格式2（方括号）
+                r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s*',
+                # 普通格式的日期时间
+                r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\s*'
+            ]
+            
             # 首先提取所有消息的实际内容（去除时间戳和前缀）
             raw_contents = []
+            original_timestamps = []
+            
             for msg in combined_messages:
                 # 获取原始内容
                 original_content = msg.get('content', '')
                 
-                # 预处理消息内容，去除时间戳和前缀
+                # 提取时间戳 - 支持两种格式
+                timestamp_match1 = re.search(r'^\((\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)', original_content)
+                timestamp_match2 = re.search(r'^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]', original_content)
+                
+                timestamp = None
+                if timestamp_match1:
+                    timestamp = timestamp_match1.group(1)
+                elif timestamp_match2:
+                    timestamp = timestamp_match2.group(1)
+                else:
+                    # 如果没有找到时间戳，使用当前时间
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                original_timestamps.append(timestamp)
+                
+                # 预处理消息内容，去除所有时间戳和前缀（包括嵌套的情况）
                 content = original_content
                 
-                # 过滤时间戳
+                # 首先去除最外层的时间戳和前缀
                 content = re.sub(time_pattern, '', content)
-                
-                # 过滤通用模式
                 content = re.sub(general_pattern, '', content)
                 
-                # 过滤消息前缀
-                if re.search(time_prefix_pattern, content):
-                    content = re.sub(time_prefix_pattern, '', content)
-                elif re.search(time_prefix_pattern2, content):
-                    content = re.sub(time_prefix_pattern2, '', content)
+                # 去除"ta私聊对你说"前缀，包括时间戳前缀
+                content = re.sub(time_prefix_pattern, '', content)
+                content = re.sub(time_prefix_pattern2, '', content)
+                
+                # 处理嵌套的时间戳和前缀情况
+                # 使用外层已定义的complex_patterns
+                
+                # 反复应用正则表达式，直到没有变化为止（处理多层嵌套）
+                prev_content = None
+                while prev_content != content:
+                    prev_content = content
+                    # 应用所有复杂模式
+                    for pattern in complex_patterns:
+                        content = re.sub(pattern, '', content)
                 
                 # 彻底移除所有上下文提示词
                 content = re.sub(reminder_pattern, '', content)
                 
-                # 记录清理后的内容
-                raw_contents.append(content.strip())
+                # 去除多余的空格、冒号和特殊符号
+                content = re.sub(r'\s+', ' ', content).strip()
+                content = re.sub(r'^[:：\s]+', '', content).strip()  # 移除开头的冒号
+                content = re.sub(r'[:：\s]+$', '', content).strip()  # 移除结尾的冒号
                 
-                # 统计字数
-                total_chars += len(content.strip())
-                
-                # 统计句数
-                for char in content:
-                    if char in sentence_endings:
-                        total_sentences += 1
+                # 确保内容非空
+                if content:
+                    # 记录清理后的内容
+                    raw_contents.append(content.strip())
+                    
+                    # 统计字数
+                    total_chars += len(content.strip())
+                    
+                    # 统计句数
+                    for char in content:
+                        if char in sentence_endings:
+                            total_sentences += 1
             
-            # 合并清理后的内容，不再添加时间前缀
-            merged_content = " ".join(raw_contents)
+            # 最终清理合并内容
+            # 提取第一条消息的时间作为时间刻
+            first_timestamp = original_timestamps[0] if original_timestamps else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            # 从时间戳中提取年月日时分
+            date_parts = first_timestamp.split(' ')[0].split('-')
+            time_parts = first_timestamp.split(' ')[1].split(':')
+            
+            # 格式化为 [YYYY-MM-DD HH:MM]
+            formatted_time = f"{date_parts[0]}-{date_parts[1]}-{date_parts[2]} {time_parts[0]}:{time_parts[1]}"
+            
+            # 合并所有内容，不重复添加前缀
+            if raw_contents:
+                content_text = ' '.join(raw_contents)
+                # 进行最后的清理，确保没有遗漏的模式
+                for pattern in complex_patterns:
+                    content_text = re.sub(pattern, '', content_text)
+                merged_content = f"[{formatted_time}]ta 私聊对你说：{content_text}"
+            else:
+                # 如果没有有效内容，使用占位符
+                merged_content = f"[{formatted_time}]ta 私聊对你说：(未检测到有效内容)"
+            
+            # 为了日志显示，记录格式化后的消息
             cleaned_messages = raw_contents
             
             # 确保句子数至少为1
             total_sentences = max(1, total_sentences)
             
-            # 输出清理后的所有消息内容
-            if cleaned_messages:
-                # 如果消息太多，只显示前3条和最后1条
-                if len(cleaned_messages) > 4:
-                    display_msgs = cleaned_messages[:3] + ["..."] + [cleaned_messages[-1]]
-                    logger.info(f"合并消息: {' | '.join(display_msgs)}")
-                else:
-                    logger.info(f"合并消息: {' | '.join(cleaned_messages)}")
+            # 只输出清理后的合并消息，不再输出原始内容
+            logger.info(f"合并消息: {merged_content}")
             
             # 使用最后一条消息的参数
             last_message = messages[-1]
@@ -382,19 +443,22 @@ class MessageHandler:
             # 确保目标句子数至少为1
             target_sentences = max(1, target_sentences)
             
-            # 将合并后的内容添加到上下文中
-            if combined_content:
-                combined_content += merged_content
+            # 构建完整的处理内容
+            # 如果有上下文，添加上下文和上下文提示词
+            if context:
+                final_content = f"{context}\n\n(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容)\n\n{merged_content}"
             else:
-                combined_content = merged_content
+                final_content = merged_content
             
             # 在合并内容中添加字数和句数控制提示
-            combined_content += f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_chars}个字符和{target_sentences}个句子左右。"
-
+            final_content += f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_chars}个字符和{target_sentences}个句子左右。"
+            
+            # 为处理日志添加更有用的信息
+            logger.info(f"处理合并消息 - 用户: {username}, 内容长度: {len(final_content)}")
+            
             # 处理合并后的消息
-            logger.info(f"处理合并消息 - 用户: {username}, 内容长度: {len(combined_content)}")
             result = self._handle_text_message(
-                combined_content,
+                final_content,
                 last_message['chat_id'],
                 last_message['sender_name'],
                 username,
@@ -847,6 +911,24 @@ class MessageHandler:
             if not self.is_debug:
                 logger.info("\nAI回复:")
                 logger.info(reply)
+            
+            # 显式存储对话记忆 - 确保每次对话都被保存
+            try:
+                if self.memory_handler and hasattr(self.memory_handler, 'short_term_memory'):
+                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    # 创建记忆键值对
+                    memory_key = f"[{timestamp}] 对方(ID:{username}): {raw_content}"
+                    memory_value = f"[{timestamp}] 你: {reply}"
+                    
+                    # 清理记忆内容
+                    if hasattr(self.memory_handler, 'clean_memory_content'):
+                        memory_key, memory_value = self.memory_handler.clean_memory_content(memory_key, memory_value)
+                    
+                    # 添加到短期记忆
+                    logger.info(f"主动添加对话到短期记忆 - 用户: {username}")
+                    self.memory_handler.short_term_memory.add_memory(memory_key, memory_value)
+            except Exception as mem_err:
+                logger.error(f"保存对话记忆失败: {str(mem_err)}")
             
             # 过滤括号内的动作和情感描述
             reply = self._filter_action_emotion(reply)
