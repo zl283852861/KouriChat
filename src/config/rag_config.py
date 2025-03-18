@@ -48,17 +48,34 @@ try:
     # LLM配置默认值
     llm.api_key = os.getenv("DEEPSEEK_API_KEY", "")
     llm.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.siliconflow.cn/v1/")
-    llm.model = "deepseek-ai/DeepSeek-V3"
-    llm.max_tokens = 1000
-    llm.temperature = 1.2
+    llm.model = os.getenv("MODEL", "deepseek-chat")
+    llm.max_tokens = int(os.getenv("MAX_TOKEN", "2048"))
+    llm.temperature = float(os.getenv("TEMPERATURE", "0.7"))
     
     # RAG配置默认值
     rag.api_key = os.getenv("OPENAI_API_KEY", "")
-    rag.base_url = "https://api.kourichat.com"
-    rag.embedding_model = "text-embedding-3-large"
-    rag.top_k = 5
-    rag.is_rerank = False
-    rag.reranker_model = "gpt-4o-mini-2024-07-18"
+    rag.base_url = os.getenv("OPENAI_API_BASE", "")
+    rag.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+    rag.reranker_model = os.getenv("RAG_RERANKER_MODEL", "")  # 默认为空，将使用LLM模型
+    rag.top_k = int(os.getenv("RAG_TOP_K", "5"))
+    rag.is_rerank = os.getenv("RAG_IS_RERANK", "True").lower() in ("true", "1", "yes", "y")
+    
+    # 添加本地模型自动下载配置
+    # False: 不下载, True: 自动下载
+    auto_download_env = os.getenv("AUTO_DOWNLOAD_LOCAL_MODEL")
+    if auto_download_env is not None:
+        if auto_download_env.lower() in ("true", "1", "yes", "y"):
+            rag.auto_download_local_model = True
+        else:
+            rag.auto_download_local_model = False
+    else:
+        rag.auto_download_local_model = False  # 默认不下载
+        
+    # 添加硅基流动自动适配配置
+    rag.auto_adapt_siliconflow = os.getenv("AUTO_ADAPT_SILICONFLOW", "True").lower() in ("true", "1", "yes", "y")
+    
+    # 添加本地模型路径配置
+    rag.local_embedding_model_path = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "paraphrase-multilingual-MiniLM-L12-v2")
     
     # 行为配置默认值
     behavior.context = SimpleNamespace()
@@ -207,17 +224,34 @@ except Exception as e:
     # LLM配置默认值
     llm.api_key = os.getenv("DEEPSEEK_API_KEY", "")
     llm.base_url = os.getenv("DEEPSEEK_BASE_URL", "https://api.siliconflow.cn/v1/")
-    llm.model = "deepseek-ai/DeepSeek-V3"
-    llm.max_tokens = 1000
-    llm.temperature = 1.2
+    llm.model = os.getenv("MODEL", "deepseek-chat")
+    llm.max_tokens = int(os.getenv("MAX_TOKEN", "2048"))
+    llm.temperature = float(os.getenv("TEMPERATURE", "0.7"))
     
     # RAG配置默认值
     rag.api_key = os.getenv("OPENAI_API_KEY", "")
-    rag.base_url = "https://api.kourichat.com"
-    rag.embedding_model = "text-embedding-3-large"
-    rag.top_k = 5
-    rag.is_rerank = False
-    rag.reranker_model = "gpt-4o-mini-2024-07-18"
+    rag.base_url = os.getenv("OPENAI_API_BASE", "")
+    rag.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-large")
+    rag.reranker_model = os.getenv("RAG_RERANKER_MODEL", "")  # 默认为空，将使用LLM模型
+    rag.top_k = int(os.getenv("RAG_TOP_K", "5"))
+    rag.is_rerank = os.getenv("RAG_IS_RERANK", "True").lower() in ("true", "1", "yes", "y")
+    
+    # 添加本地模型自动下载配置
+    # False: 不下载, True: 自动下载
+    auto_download_env = os.getenv("AUTO_DOWNLOAD_LOCAL_MODEL")
+    if auto_download_env is not None:
+        if auto_download_env.lower() in ("true", "1", "yes", "y"):
+            rag.auto_download_local_model = True
+        else:
+            rag.auto_download_local_model = False
+    else:
+        rag.auto_download_local_model = False  # 默认不下载
+        
+    # 添加硅基流动自动适配配置
+    rag.auto_adapt_siliconflow = os.getenv("AUTO_ADAPT_SILICONFLOW", "True").lower() in ("true", "1", "yes", "y")
+    
+    # 添加本地模型路径配置
+    rag.local_embedding_model_path = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "paraphrase-multilingual-MiniLM-L12-v2")
     
     # 行为配置默认值
     behavior.context = SimpleNamespace()

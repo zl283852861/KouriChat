@@ -63,14 +63,28 @@ voice_handler = VoiceHandler(
     root_dir=root_dir,
     tts_api_url=config.media.text_to_speech.tts_api_url
 )
+
+# 创建LLMService实例
+with open(prompt_path, "r", encoding="utf-8") as f:
+    deepseek = LLMService(
+        sys_prompt=f.read(),
+        api_key=config.llm.api_key,
+        base_url=config.llm.base_url,
+        model=config.llm.model,
+        max_token=config.llm.max_tokens,
+        temperature=config.llm.temperature,
+        max_groups=config.behavior.context.max_groups,
+    )
+
 memory_handler = MemoryHandler(
     root_dir=root_dir,
     api_key=DEEPSEEK_API_KEY,
     base_url=DEEPSEEK_BASE_URL,
-    model=MODEL,                # 从config.py获取
-    max_token=MAX_TOKEN,        # 从config.py获取
-    temperature=TEMPERATURE,    # 从config.py获取
-    max_groups=MAX_GROUPS       # 从config.py获取
+    model=MODEL,
+    max_token=MAX_TOKEN,
+    temperature=TEMPERATURE,
+    max_groups=MAX_GROUPS,
+    llm=deepseek  # 传递LLMService实例
 )
 
 moonshot_ai = ImageRecognitionService(
@@ -82,12 +96,7 @@ moonshot_ai = ImageRecognitionService(
 
 message_handler = MessageHandler(
     root_dir=root_dir,
-    api_key=config.llm.api_key,
-    base_url=config.llm.base_url,
-    model=config.llm.model,
-    max_token=config.llm.max_tokens,
-    temperature=config.llm.temperature,
-    max_groups=config.behavior.context.max_groups,
+    llm=deepseek,  # 传递LLMService实例
     robot_name="KOURIQQ",  # QQ侧，使用固定机器人名称
     prompt_content=prompt_content,
     image_handler=image_handler,

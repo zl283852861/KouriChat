@@ -548,6 +548,174 @@
             -webkit-backdrop-filter: blur(10px);
             backdrop-filter: blur(10px);
         }
+
+        /* 控制台相关样式 */
+        .console-input-area {
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            padding-top: 10px;
+            position: relative;
+        }
+
+        .console-input-area .input-group {
+            background-color: rgba(255, 255, 255, 0.05);
+            border-radius: 6px;
+        }
+
+        .console-input-area .form-control {
+            background-color: transparent;
+            color: #e0e0e0;
+            font-family: 'Consolas', monospace;
+            letter-spacing: 0.5px;
+        }
+
+        .console-input-area .form-control:focus {
+            box-shadow: none;
+            background-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .console-input-area .input-group-text {
+            color: #6366f1;
+        }
+
+        /* 发送按钮样式 */
+        #sendCommandBtn {
+            background-color: #6366f1;
+            border-color: #6366f1;
+            transition: all 0.2s ease;
+        }
+
+        #sendCommandBtn:hover {
+            background-color: #4f46e5;
+            border-color: #4f46e5;
+            transform: translateY(-1px);
+        }
+
+        #sendCommandBtn:active {
+            transform: translateY(0);
+        }
+
+        /* 响应式样式 */
+        @media (max-width: 576px) {
+            #sendCommandBtn {
+                padding: 0.25rem 0.5rem;
+                font-size: 0.75rem;
+            }
+            
+            #sendCommandBtn i {
+                margin-right: 0;
+            }
+            
+            .console-input-area .form-control {
+                font-size: 0.875rem;
+            }
+        }
+
+        .console-input-container {
+            display: flex;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        #consoleInput {
+            flex: 1;
+            padding: 10px;
+            background-color: var(--input-bg);
+            color: var(--text-color);
+            border: 1px solid var(--card-border);
+            border-radius: 4px 0 0 4px;
+            font-family: var(--monospace-font);
+        }
+
+        #sendCommandBtn {
+            padding: 8px 15px;
+            background-color: var(--primary-color);
+            color: #fff;
+            border: none;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        #sendCommandBtn:hover {
+            background-color: var(--primary-hover);
+            transform: translateX(2px);
+        }
+
+        @media (max-width: 768px) {
+            .console-input-container {
+                flex-direction: row;
+            }
+            
+            #consoleInput {
+                flex: 1;
+                font-size: 14px;
+            }
+            
+            #sendCommandBtn {
+                width: auto;
+                padding: 8px 10px;
+            }
+            
+            #sendCommandBtn i {
+                margin-right: 0;
+            }
+        }
+
+        .dark-mode #consoleInput {
+            background-color: var(--dm-input-bg, #2d3748);
+            color: var(--dm-text-color, #e2e8f0);
+            border-color: var(--dm-border-color, #4a5568);
+        }
+
+        .dark-mode #sendCommandBtn {
+            background-color: var(--dm-primary-color, #3182ce);
+        }
+
+        .dark-mode #sendCommandBtn:hover {
+            background-color: var(--dm-primary-hover, #2b6cb0);
+        }
+
+        .console-input-container {
+            display: flex;
+            margin-top: 10px;
+            width: 100%;
+        }
+
+        #consoleInput {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px 0 0 4px;
+            font-family: monospace;
+        }
+
+        #sendCommandBtn {
+            padding: 8px 15px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 0 4px 4px 0;
+            cursor: pointer;
+        }
+
+        #sendCommandBtn:hover {
+            background-color: #45a049;
+        }
+
+        @media (max-width: 768px) {
+            .console-input-container {
+                flex-direction: row;
+            }
+            
+            #consoleInput {
+                flex: 1;
+            }
+            
+            #sendCommandBtn {
+                width: 60px;
+            }
+        }
+
     </style>
     <!-- 添加 dark-mode.js -->
     <script src="/static/js/bootstrap.bundle.min.js"></script>
@@ -886,15 +1054,17 @@
                     </div>
                     <!-- 添加控制台输入区域 -->
                     <div class="console-input-area mt-3">
-                        <div class="input-group">
-                            <span class="input-group-text bg-transparent border-0">
-                                <i class="bi bi-terminal"></i>
-                            </span>
+                        <div class="console-input-container">
                             <input type="text" 
-                                   class="form-control border-0" 
+                                   class="form-control" 
                                    id="consoleInput" 
                                    placeholder="输入指令并按Enter发送..."
                                    onkeydown="handleConsoleInput(event)">
+                            <button class="btn" 
+                                    id="sendCommandBtn" 
+                                    onclick="sendCommand()">
+                                <i class="bi bi-send"></i> 发送
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -1700,29 +1870,34 @@
                 }
             } else if (event.key === 'Enter') {
                 event.preventDefault();
-                const command = input.value.trim();
+                sendCommand();
+            }
+        }
+
+        function sendCommand() {
+            const input = document.getElementById('consoleInput');
+            const command = input.value.trim();
+            
+            if (command) {
+                // 添加到历史记录
+                commandHistory.unshift(command);
+                historyIndex = -1;
                 
-                if (command) {
-                    // 添加到历史记录
-                    commandHistory.unshift(command);
-                    historyIndex = -1;
-                    
-                    // 显示输入的命令
-                    const logsElement = document.querySelector('.logs');
-                    const commandLine = document.createElement('div');
-                    commandLine.className = 'log-line';
-                    commandLine.innerHTML = `<span class="command-input">$ ${command}</span>`;
-                    logsElement.appendChild(commandLine);
-                    
-                    // 执行命令
-                    executeCommand(command);
-                    
-                    // 清空输入框
-                    input.value = '';
-                    
-                    // 滚动到底部
-                    scrollToBottom();
-                }
+                // 显示输入的命令
+                const logsElement = document.querySelector('.logs');
+                const commandLine = document.createElement('div');
+                commandLine.className = 'log-line';
+                commandLine.innerHTML = `<span class="command-input">$ ${command}</span>`;
+                logsElement.appendChild(commandLine);
+                
+                // 执行命令
+                executeCommand(command);
+                
+                // 清空输入框
+                input.value = '';
+                
+                // 滚动到底部
+                scrollToBottom();
             }
         }
 
