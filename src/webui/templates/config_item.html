@@ -255,36 +255,63 @@
     }
         // 更新模型选择框
     async function updateModelSelect(providerId) {
+        // 更新模型选择框
         const modelSelect = document.getElementById('model_select');
+        const modelInput = document.getElementById('MODEL');
+        const customModelInput = document.getElementById('customModelInput');
+        
         modelSelect.innerHTML = '<option value="">请选择模型</option>';
 
         if (providerId === 'custom') {
             modelSelect.innerHTML += '<option value="custom">自定义模型</option>';
+            modelSelect.value = 'custom';
+            customModelInput.style.display = 'block';
+            const currentValue = modelInput.value;
+            if (currentValue && currentValue !== 'custom') {
+                customModelInput.querySelector('input').value = currentValue;
+            }
             return;
         }
 
-        if (!providerId) return;
+        if (!providerId) {
+            modelInput.value = '';
+            return;
+        }
 
-        // 如果是 Ollama，尝试获取本地模型列表
-        if (providerId === 'ollama') {
-            try {
-                const response = await fetch('http://localhost:11434/api/tags');
-                if (response.ok) {
-                    const data = await response.json();
-                    const ollamaModels = data.models || [];
-                    ollamaModels.forEach(model => {
-                        modelSelect.innerHTML += `
-                            <option value="${model.name}" 
-                                data-type="chat"
-                                data-context-length="16000"
-                                >${model.name}</option>`;
+        try {
+            // 如果是 Ollama，尝试获取本地模型列表
+            if (providerId === 'ollama') {
+                try {
+                    const response = await fetch('http://localhost:11434/api/tags');
+                    if (response.ok) {
+                        const data = await response.json();
+                        const ollamaModels = data.models || [];
+                        ollamaModels.forEach(model => {
+                            modelSelect.innerHTML += `
+                                <option value="${model.name}" 
+                                    data-type="chat"
+                                    data-context-length="16000"
+                                    >${model.name}</option>`;
+                        });
+                    }
+                } catch (error) {
+                    console.error('获取Ollama模型列表失败:', error);
+                    // 如果获取失败，使用配置文件中的默认模型
+                    const defaultModels = modelConfigs.models[providerId] || [];
+                    defaultModels.forEach(model => {
+                        if (model.status === 'active') {
+                            modelSelect.innerHTML += `
+                                <option value="${model.id}" 
+                                    data-type="${model.type}"
+                                    data-context-length="${model.context_length}"
+                                    >${model.name}</option>`;
+                        }
                     });
                 }
-            } catch (error) {
-                console.error('获取Ollama模型列表失败:', error);
-                // 如果获取失败，使用配置文件中的默认模型
-                const defaultModels = modelConfigs.models[providerId] || [];
-                defaultModels.forEach(model => {
+            } else {
+                // 其他提供商使用配置文件中的模型列表
+                const providerModels = modelConfigs.models[providerId] || [];
+                providerModels.forEach(model => {
                     if (model.status === 'active') {
                         modelSelect.innerHTML += `
                             <option value="${model.id}" 
@@ -294,35 +321,38 @@
                     }
                 });
             }
-        } else {
-            //  其他提供商使用配置文件中的模型列表
-            const providerModels = modelConfigs.models[providerId] || [];
-            providerModels.forEach(model => {
-                if (model.status === 'active') {
-                    modelSelect.innerHTML += `
-                        <option value="${model.id}" 
-                            data-type="${model.type}"
-                            data-context-length="${model.context_length}"
-                            >${model.name}</option>`;
+
+            // 添加自定义选项
+            modelSelect.innerHTML += '<option value="custom">自定义模型</option>';
+
+            // 设置当前选中的模型
+            const currentModel = modelInput.value;
+            const modelOptions = Array.from(modelSelect.options);
+            const modelExists = modelOptions.some(option => option.value === currentModel);
+
+            if (modelExists) {
+                modelSelect.value = currentModel;
+                customModelInput.style.display = 'none';
+            } else if (currentModel) {
+                modelSelect.value = 'custom';
+                customModelInput.style.display = 'block';
+                customModelInput.querySelector('input').value = currentModel;
+            } else {
+                // 如果没有当前模型，选择第一个可用的模型
+                const firstModel = modelOptions.find(option => option.value && option.value !== 'custom');
+                if (firstModel) {
+                    modelSelect.value = firstModel.value;
+                    modelInput.value = firstModel.value;
+                    customModelInput.style.display = 'none';
                 }
-            });
-        }
+            }
 
-        // 添加自定义选项
-        modelSelect.innerHTML += '<option value="custom">自定义模型</option>';
-
-        // 设置当前选中的模型
-        const currentModel = document.getElementById('MODEL').value;
-        const allModels = providerId === 'ollama' ? 
-            (modelSelect.querySelectorAll('option') || []) : 
-            (modelConfigs.models[providerId] || []);
-        
-        if (Array.from(allModels).some(m => m.value === currentModel || m.id === currentModel)) {
-            modelSelect.value = currentModel;
-        } else if (currentModel) {
-            modelSelect.value = 'custom';
-            document.getElementById('customModelInput').style.display = 'block';
-            document.getElementById('customModelInput').querySelector('input').value = currentModel;
+            // 触发change事件
+            const event = new Event('change', { bubbles: true });
+            modelSelect.dispatchEvent(event);
+            
+        } catch (error) {
+            console.error('更新模型选择失败:', error);
         }
     }
 
@@ -333,15 +363,29 @@
         
         if (value === 'custom') {
             customModelInput.style.display = 'block';
+            // 保持当前值不变，让用户可以编辑
+            const currentValue = modelInput.value;
+            if (currentValue && currentValue !== 'custom') {
+                customModelInput.querySelector('input').value = currentValue;
+            }
         } else {
             customModelInput.style.display = 'none';
             modelInput.value = value;
+            // 触发change事件
+            const event = new Event('change', { bubbles: true });
+            modelInput.dispatchEvent(event);
         }
     }
 
     // 更新自定义模型
     function updateCustomModel(value) {
-        document.getElementById('MODEL').value = value;
+        const modelInput = document.getElementById('MODEL');
+        if (value.trim()) {
+            modelInput.value = value.trim();
+            // 触发change事件
+            const event = new Event('change', { bubbles: true });
+            modelInput.dispatchEvent(event);
+        }
     }
     // 更新API提供商
     function updateApiProvider(value) {
@@ -490,6 +534,9 @@
                     modelSelect.value = 'custom';
                     customModelInput.style.display = 'block';
                     customModelInput.querySelector('input').value = currentModel;
+                } else {
+                    modelSelect.value = currentModel;
+                    customModelInput.style.display = 'none';
                 }
             }
         });
@@ -917,8 +964,8 @@
     
     <script>
         let timeSelection_{{ key }} = {
-            hour: '{{ config.value.split(":")[0] if ":" in config.value else "00" }}',
-            minute: '{{ config.value.split(":")[1] if ":" in config.value and config.value.split(":")|length > 1 else "00" }}'
+            hour: '{{ (config.value|string).split(":")[0] if ":" in (config.value|string) else "00" }}',
+            minute: '{{ (config.value|string).split(":")[1] if ":" in (config.value|string) and (config.value|string).split(":")|length > 1 else "00" }}'
         };
         
         // 修改显示时间选择器的函数
@@ -944,14 +991,45 @@
             }, 300);
 
             // 初始化选择状态
-            const currentValue = document.getElementById('{{ key }}').value;
-            if (currentValue) {
-                const [hour, minute] = currentValue.split(':');
-                timeSelection_{{ key }}.hour = hour || '00';
-                timeSelection_{{ key }}.minute = minute || '00';
-                
-                highlightSelectedTime_{{ key }}();
-                scrollToSelected_{{ key }}();
+            const currentInput = document.getElementById('{{ key }}');
+            if (currentInput) {
+                let currentValue = currentInput.value;
+                if (currentValue) {
+                    // 处理可能的非字符串格式（当值直接从后端传递时）
+                    currentValue = String(currentValue);
+                    
+                    // 格式化时间值
+                    if (!currentValue.includes(':')) {
+                        // 尝试将纯数字格式转换为时间格式
+                        if (/^\d+$/.test(currentValue)) {
+                            if (currentValue.length === 4) {
+                                // 如 "2200" -> "22:00"
+                                currentValue = `${currentValue.substring(0, 2)}:${currentValue.substring(2, 4)}`;
+                            } else if (currentValue.length === 3) {
+                                // 如 "900" -> "09:00"
+                                currentValue = `0${currentValue.substring(0, 1)}:${currentValue.substring(1, 3)}`;
+                            } else if (currentValue.length === 2) {
+                                // 如 "23" -> "23:00"
+                                currentValue = `${currentValue}:00`;
+                            } else if (currentValue.length === 1) {
+                                // 如 "9" -> "09:00"
+                                currentValue = `0${currentValue}:00`;
+                            }
+                        }
+                    }
+                    
+                    // 更新显示值
+                    document.getElementById('{{ key }}_display').value = currentValue;
+                    document.getElementById('{{ key }}').value = currentValue;
+                    
+                    // 更新选中状态
+                    const [hour, minute] = currentValue.includes(':') ? currentValue.split(':') : [currentValue, '00'];
+                    timeSelection_{{ key }}.hour = hour || '00';
+                    timeSelection_{{ key }}.minute = minute || '00';
+                    
+                    highlightSelectedTime_{{ key }}();
+                    scrollToSelected_{{ key }}();
+                }
             }
         }
         

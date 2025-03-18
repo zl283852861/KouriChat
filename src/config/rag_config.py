@@ -60,22 +60,12 @@ try:
     rag.top_k = int(os.getenv("RAG_TOP_K", "5"))
     rag.is_rerank = os.getenv("RAG_IS_RERANK", "True").lower() in ("true", "1", "yes", "y")
     
-    # 添加本地模型自动下载配置
-    # False: 不下载, True: 自动下载
-    auto_download_env = os.getenv("AUTO_DOWNLOAD_LOCAL_MODEL")
-    if auto_download_env is not None:
-        if auto_download_env.lower() in ("true", "1", "yes", "y"):
-            rag.auto_download_local_model = True
-        else:
-            rag.auto_download_local_model = False
-    else:
-        rag.auto_download_local_model = False  # 默认不下载
+    # 添加本地模型设置
+    rag.local_model_enabled = os.getenv("LOCAL_MODEL_ENABLED", "False").lower() in ("true", "1", "yes", "y")
+    rag.local_embedding_model_path = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "paraphrase-multilingual-MiniLM-L12-v2")
         
     # 添加硅基流动自动适配配置
     rag.auto_adapt_siliconflow = os.getenv("AUTO_ADAPT_SILICONFLOW", "True").lower() in ("true", "1", "yes", "y")
-    
-    # 添加本地模型路径配置
-    rag.local_embedding_model_path = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "paraphrase-multilingual-MiniLM-L12-v2")
     
     # 行为配置默认值
     behavior.context = SimpleNamespace()
@@ -125,10 +115,43 @@ try:
         if hasattr(config_reader, 'rag'):
             rag.api_key = getattr(config_reader.rag, 'api_key', rag.api_key)
             rag.base_url = getattr(config_reader.rag, 'base_url', rag.base_url)
-            rag.embedding_model = getattr(config_reader.rag, 'embedding_model', rag.embedding_model)
+            
+            # 处理embedding_model，支持字典或字符串类型
+            embedding_model_config = getattr(config_reader.rag, 'embedding_model', rag.embedding_model)
+            if isinstance(embedding_model_config, dict) and 'value' in embedding_model_config:
+                rag.embedding_model = embedding_model_config['value']
+            else:
+                rag.embedding_model = embedding_model_config
+                
             rag.top_k = getattr(config_reader.rag, 'top_k', rag.top_k)
             rag.is_rerank = getattr(config_reader.rag, 'is_rerank', rag.is_rerank)
-            rag.reranker_model = getattr(config_reader.rag, 'reranker_model', rag.reranker_model)
+            
+            # 处理reranker_model，支持字典或字符串类型
+            reranker_model_config = getattr(config_reader.rag, 'reranker_model', rag.reranker_model)
+            if isinstance(reranker_model_config, dict) and 'value' in reranker_model_config:
+                rag.reranker_model = reranker_model_config['value']
+            else:
+                rag.reranker_model = reranker_model_config
+                
+            # 读取本地模型设置
+            local_model_enabled = getattr(config_reader.rag, 'local_model_enabled', rag.local_model_enabled)
+            if isinstance(local_model_enabled, dict) and 'value' in local_model_enabled:
+                rag.local_model_enabled = local_model_enabled['value']
+            else:
+                rag.local_model_enabled = local_model_enabled
+                
+            local_model_path = getattr(config_reader.rag, 'local_embedding_model_path', rag.local_embedding_model_path)
+            if isinstance(local_model_path, dict) and 'value' in local_model_path:
+                rag.local_embedding_model_path = local_model_path['value']
+            else:
+                rag.local_embedding_model_path = local_model_path
+                
+            # 读取硅基流动自动适配设置
+            auto_adapt = getattr(config_reader.rag, 'auto_adapt_siliconflow', rag.auto_adapt_siliconflow)
+            if isinstance(auto_adapt, dict) and 'value' in auto_adapt:
+                rag.auto_adapt_siliconflow = auto_adapt['value']
+            else:
+                rag.auto_adapt_siliconflow = auto_adapt
         
         # 读取行为配置
         if hasattr(config_reader, 'behavior'):
@@ -185,6 +208,9 @@ try:
     RAG_TOP_K = rag.top_k
     RAG_IS_RERANK = rag.is_rerank
     RAG_RERANKER_MODEL = rag.reranker_model
+    LOCAL_MODEL_ENABLED = rag.local_model_enabled
+    LOCAL_EMBEDDING_MODEL_PATH = rag.local_embedding_model_path
+    AUTO_ADAPT_SILICONFLOW = rag.auto_adapt_siliconflow
     DEEPSEEK_API_KEY = llm.api_key
     DEEPSEEK_BASE_URL = llm.base_url
     MODEL = llm.model
@@ -200,6 +226,9 @@ try:
     config.RAG_TOP_K = RAG_TOP_K
     config.RAG_IS_RERANK = RAG_IS_RERANK
     config.RAG_RERANKER_MODEL = RAG_RERANKER_MODEL
+    config.LOCAL_MODEL_ENABLED = LOCAL_MODEL_ENABLED
+    config.LOCAL_EMBEDDING_MODEL_PATH = LOCAL_EMBEDDING_MODEL_PATH
+    config.AUTO_ADAPT_SILICONFLOW = AUTO_ADAPT_SILICONFLOW
     config.DEEPSEEK_API_KEY = DEEPSEEK_API_KEY
     config.DEEPSEEK_BASE_URL = DEEPSEEK_BASE_URL
     config.MODEL = MODEL
@@ -236,22 +265,12 @@ except Exception as e:
     rag.top_k = int(os.getenv("RAG_TOP_K", "5"))
     rag.is_rerank = os.getenv("RAG_IS_RERANK", "True").lower() in ("true", "1", "yes", "y")
     
-    # 添加本地模型自动下载配置
-    # False: 不下载, True: 自动下载
-    auto_download_env = os.getenv("AUTO_DOWNLOAD_LOCAL_MODEL")
-    if auto_download_env is not None:
-        if auto_download_env.lower() in ("true", "1", "yes", "y"):
-            rag.auto_download_local_model = True
-        else:
-            rag.auto_download_local_model = False
-    else:
-        rag.auto_download_local_model = False  # 默认不下载
+    # 添加本地模型设置
+    rag.local_model_enabled = os.getenv("LOCAL_MODEL_ENABLED", "False").lower() in ("true", "1", "yes", "y")
+    rag.local_embedding_model_path = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "paraphrase-multilingual-MiniLM-L12-v2")
         
     # 添加硅基流动自动适配配置
     rag.auto_adapt_siliconflow = os.getenv("AUTO_ADAPT_SILICONFLOW", "True").lower() in ("true", "1", "yes", "y")
-    
-    # 添加本地模型路径配置
-    rag.local_embedding_model_path = os.getenv("LOCAL_EMBEDDING_MODEL_PATH", "paraphrase-multilingual-MiniLM-L12-v2")
     
     # 行为配置默认值
     behavior.context = SimpleNamespace()
@@ -302,6 +321,9 @@ except Exception as e:
     RAG_TOP_K = rag.top_k
     RAG_IS_RERANK = rag.is_rerank
     RAG_RERANKER_MODEL = rag.reranker_model
+    LOCAL_MODEL_ENABLED = rag.local_model_enabled
+    LOCAL_EMBEDDING_MODEL_PATH = rag.local_embedding_model_path
+    AUTO_ADAPT_SILICONFLOW = rag.auto_adapt_siliconflow
     DEEPSEEK_API_KEY = llm.api_key
     DEEPSEEK_BASE_URL = llm.base_url
     MODEL = llm.model
@@ -317,6 +339,9 @@ except Exception as e:
     config.RAG_TOP_K = RAG_TOP_K
     config.RAG_IS_RERANK = RAG_IS_RERANK
     config.RAG_RERANKER_MODEL = RAG_RERANKER_MODEL
+    config.LOCAL_MODEL_ENABLED = LOCAL_MODEL_ENABLED
+    config.LOCAL_EMBEDDING_MODEL_PATH = LOCAL_EMBEDDING_MODEL_PATH
+    config.AUTO_ADAPT_SILICONFLOW = AUTO_ADAPT_SILICONFLOW
     config.DEEPSEEK_API_KEY = DEEPSEEK_API_KEY
     config.DEEPSEEK_BASE_URL = DEEPSEEK_BASE_URL
     config.MODEL = MODEL
@@ -340,6 +365,9 @@ __all__ = [
     "RAG_TOP_K",
     "RAG_IS_RERANK",
     "RAG_RERANKER_MODEL",
+    "LOCAL_MODEL_ENABLED",
+    "LOCAL_EMBEDDING_MODEL_PATH",
+    "AUTO_ADAPT_SILICONFLOW",
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_BASE_URL",
     "MODEL",
@@ -350,4 +378,4 @@ __all__ = [
 
 # 记录当前使用的配置
 logger.info(f"使用嵌入模型: {EMBEDDING_MODEL}，备用模型: {EMBEDDING_FALLBACK_MODEL}")
-logger.info(f"RAG配置: TOP_K={RAG_TOP_K}, 重排序={RAG_IS_RERANK}") 
+logger.info(f"RAG配置: TOP_K={RAG_TOP_K}, 重排序={RAG_IS_RERANK}, 本地模型启用={LOCAL_MODEL_ENABLED}") 

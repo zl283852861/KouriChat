@@ -1,45 +1,43 @@
 # 添加命令处理部分，包含download_model命令
-@bot.command("download_model", "下载本地备用嵌入模型")
+from src.config.rag_config import config
+from src.memories.memory.core.rag import HybridEmbeddingModel, OnlineEmbeddingModel, LocalEmbeddingModel
+
+@bot.command("initialize_local_model", "初始化本地嵌入模型")
 def download_model_cmd():
+    """
+    初始化本地嵌入模型，用于RAG记忆系统
+    """
     try:
-        # 优先检查ShortTermMemory实例
-        from src.memories.short_term_memory import ShortTermMemory
-        stm = ShortTermMemory.get_instance()
-        if hasattr(stm, 'command_download_model'):
-            return stm.command_download_model()
-        
-        # 检查是否有RAG嵌入模型实例
-        from src.memories.memory.core.rag import RAG
-        rag_instance = RAG()
-        if rag_instance.embedding_model and hasattr(rag_instance.embedding_model, 'download_model_web_cmd'):
-            return rag_instance.embedding_model.download_model_web_cmd()
-        
-        # 如果没有直接实例或不是混合模型，尝试创建一个新的模型并下载
-        from src.memories.memory.core.rag import HybridEmbeddingModel, OnlineEmbeddingModel
-        
-        # 从配置获取信息
-        from src.config import config
-        
-        api_key = config.rag.api_key or config.llm.api_key
-        base_url = config.rag.base_url or config.llm.base_url
-        embedding_model_name = config.rag.embedding_model or "text-embedding-3-large"
         local_model_path = config.rag.local_embedding_model_path or "paraphrase-multilingual-MiniLM-L12-v2"
         
-        # 创建临时模型实例
-        api_model = OnlineEmbeddingModel(
-            api_key=api_key,
-            base_url=base_url,
-            model_name=embedding_model_name
-        )
+        # 直接初始化本地模型
+        try:
+            local_model = LocalEmbeddingModel(local_model_path)
+            # 测试嵌入功能
+            test_embedding = local_model.embed(["测试嵌入功能"])
+            embedding_dim = len(test_embedding[0])
+            
+            # 更新配置，启用本地模型
+            from src.run_config_web import update_config_value
+            import json
+            
+            config_data = {}
+            with open("src/config/config.yaml", "r", encoding="utf-8") as f:
+                import yaml
+                config_data = yaml.safe_load(f)
+            
+            # 更新本地模型启用状态
+            update_config_value(config_data, "LOCAL_MODEL_ENABLED", True)
+            
+            # 保存配置
+            with open("src/config/config.yaml", "w", encoding="utf-8") as f:
+                yaml.dump(config_data, f, allow_unicode=True)
+            
+            return f"本地模型初始化成功！模型维度: {embedding_dim}\n模型路径: {local_model_path}\n系统已自动更新配置，启用本地模型。"
+        except Exception as e:
+            return f"本地模型初始化失败: {str(e)}\n请检查模型路径是否正确，可能需要先下载模型文件。"
         
-        hybrid_model = HybridEmbeddingModel(
-            api_model=api_model,
-            local_model_path=local_model_path,
-            auto_download=True
-        )
-        
-        return "本地备用模型下载任务已完成"
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
-        return f"下载模型出错: {str(e)}\n详细错误: {error_details}" 
+        return f"初始化模型出错: {str(e)}\n详细错误: {error_details}" 

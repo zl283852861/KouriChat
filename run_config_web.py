@@ -373,7 +373,9 @@ def save_config():
             elif key in ['LISTEN_LIST', 'DEEPSEEK_BASE_URL', 'MODEL', 'DEEPSEEK_API_KEY', 'MAX_TOKEN', 'TEMPERATURE',
                          'MOONSHOT_API_KEY', 'MOONSHOT_BASE_URL', 'MOONSHOT_TEMPERATURE', 'MOONSHOT_MODEL',
                          'IMAGE_MODEL', 'TEMP_IMAGE_DIR', 'AUTO_MESSAGE', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS',
-                         'QUIET_TIME_START', 'QUIET_TIME_END', 'TTS_API_URL', 'VOICE_DIR', 'MAX_GROUPS', 'AVATAR_DIR']:
+                         'QUIET_TIME_START', 'QUIET_TIME_END', 'TTS_API_URL', 'VOICE_DIR', 'MAX_GROUPS', 'AVATAR_DIR',
+                         'RAG_API_KEY', 'RAG_BASE_URL', 'RAG_EMBEDDING_MODEL', 'RAG_IS_RERANK', 'RAG_RERANKER_MODEL',
+                         'RAG_TOP_K', 'AUTO_DOWNLOAD_LOCAL_MODEL', 'AUTO_ADAPT_SILICONFLOW']:
                 # 这里可以添加更多的配置项映射
                 update_config_value(current_config, key, value)
 
@@ -469,6 +471,14 @@ def update_config_value(config_data, key, value):
             'QUIET_TIME_END': ['categories', 'behavior_settings', 'settings', 'quiet_time', 'end', 'value'],
             'MAX_GROUPS': ['categories', 'behavior_settings', 'settings', 'context', 'max_groups', 'value'],
             'AVATAR_DIR': ['categories', 'behavior_settings', 'settings', 'context', 'avatar_dir', 'value'],
+            'RAG_API_KEY': ['categories', 'rag_settings', 'settings', 'api_key', 'value'],
+            'RAG_BASE_URL': ['categories', 'rag_settings', 'settings', 'base_url', 'value'],
+            'RAG_EMBEDDING_MODEL': ['categories', 'rag_settings', 'settings', 'embedding_model', 'value'],
+            'RAG_IS_RERANK': ['categories', 'rag_settings', 'settings', 'is_rerank', 'value'],
+            'RAG_RERANKER_MODEL': ['categories', 'rag_settings', 'settings', 'reranker_model', 'value'],
+            'RAG_TOP_K': ['categories', 'rag_settings', 'settings', 'top_k', 'value'],
+            'AUTO_DOWNLOAD_LOCAL_MODEL': ['categories', 'rag_settings', 'settings', 'auto_download_local_model', 'value'],
+            'AUTO_ADAPT_SILICONFLOW': ['categories', 'rag_settings', 'settings', 'auto_adapt_siliconflow', 'value'],
         }
 
         if key in mapping:
@@ -484,20 +494,44 @@ def update_config_value(config_data, key, value):
             # 特殊处理时间格式
             if key in ['QUIET_TIME_START', 'QUIET_TIME_END']:
                 # 确保时间格式为 HH:MM
-                if value == '1320':
-                    value = '13:20'
-                elif value and isinstance(value, str) and not ':' in value:
-                    # 尝试将数字格式转换为时间格式
-                    try:
-                        hour = int(value) // 100
-                        minute = int(value) % 100
-                        value = f"{hour:02d}:{minute:02d}"
-                        logger.info(f"转换时间格式 {key}: {value}")
-                    except (ValueError, TypeError):
-                        logger.warning(f"无法转换时间格式 {key}: {value}")
-
-            # 设置最终值
-            current[path[-1]] = value
+                if isinstance(value, str):
+                    # 移除所有空格
+                    value = value.strip()
+                    # 如果没有冒号，尝试格式化
+                    if ':' not in value:
+                        # 尝试将纯数字格式转换为时间格式
+                        if value.isdigit():
+                            if len(value) == 4:
+                                # 如 "2200" -> "22:00"
+                                value = f"{value[:2]}:{value[2:]}"
+                            elif len(value) == 3:
+                                # 如 "900" -> "09:00"
+                                value = f"0{value[0]}:{value[1:]}"
+                            elif len(value) == 2:
+                                # 如 "23" -> "23:00"
+                                value = f"{value}:00"
+                            elif len(value) == 1:
+                                # 如 "9" -> "09:00"
+                                value = f"0{value}:00"
+                elif isinstance(value, int):
+                    # 整数转换为字符串时间
+                    value_str = str(value)
+                    if len(value_str) == 4:
+                        value = f"{value_str[:2]}:{value_str[2:]}"
+                    elif len(value_str) == 3:
+                        value = f"0{value_str[0]}:{value_str[1:]}"
+                    elif len(value_str) == 2:
+                        value = f"{value_str}:00"
+                    elif len(value_str) == 1:
+                        value = f"0{value_str}:00"
+                
+                logger.info(f"处理{key}时间格式: 输入={value}")
+                
+                # 设置最终值
+                current[path[-1]] = value
+            else:
+                # 设置普通值
+                current[path[-1]] = value
             logger.debug(f"已更新配置 {key}: {value}")
         else:
             logger.warning(f"未知的配置项: {key}")
@@ -2618,13 +2652,13 @@ def get_all_configs():
                 
                 # API配置
                 if 'api_key' in rag_settings:
-                    configs['RAG记忆配置']['OPENAI_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
+                    configs['RAG记忆配置']['RAG_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
                 if 'base_url' in rag_settings:
-                    configs['RAG记忆配置']['OPENAI_API_BASE'] = {'value': rag_settings['base_url'].get('value', '')}
+                    configs['RAG记忆配置']['RAG_BASE_URL'] = {'value': rag_settings['base_url'].get('value', '')}
                     
                 # 模型配置    
                 if 'embedding_model' in rag_settings:
-                    configs['RAG记忆配置']['EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
+                    configs['RAG记忆配置']['RAG_EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
                 if 'reranker_model' in rag_settings:
                     configs['RAG记忆配置']['RAG_RERANKER_MODEL'] = {'value': rag_settings['reranker_model'].get('value', '')}
                 if 'local_embedding_model_path' in rag_settings:
