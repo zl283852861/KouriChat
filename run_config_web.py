@@ -2648,35 +2648,42 @@ def get_all_configs():
             # 添加RAG记忆配置
             if 'rag_settings' in config_data['categories'] and 'settings' in config_data['categories']['rag_settings']:
                 rag_settings = config_data['categories']['rag_settings']['settings']
-                configs['RAG记忆配置'] = {}
                 
-                # API配置
-                if 'api_key' in rag_settings:
-                    configs['RAG记忆配置']['RAG_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
-                if 'base_url' in rag_settings:
-                    configs['RAG记忆配置']['RAG_BASE_URL'] = {'value': rag_settings['base_url'].get('value', '')}
+                # 检查是否使用SiliconFlow API
+                base_url = rag_settings.get('base_url', {}).get('value', '')
+                is_siliconflow = "siliconflow" in base_url.lower() if base_url else False
+                
+                # 如果不是SiliconFlow，才添加RAG记忆配置到前端
+                if not is_siliconflow:
+                    configs['RAG记忆配置'] = {}
                     
-                # 模型配置    
-                if 'embedding_model' in rag_settings:
-                    configs['RAG记忆配置']['RAG_EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
-                if 'reranker_model' in rag_settings:
-                    configs['RAG记忆配置']['RAG_RERANKER_MODEL'] = {'value': rag_settings['reranker_model'].get('value', '')}
-                if 'local_embedding_model_path' in rag_settings:
-                    configs['RAG记忆配置']['LOCAL_EMBEDDING_MODEL_PATH'] = {'value': rag_settings['local_embedding_model_path'].get('value', 'paraphrase-multilingual-MiniLM-L12-v2')}
-                
-                # 查询配置
-                if 'top_k' in rag_settings:
-                    configs['RAG记忆配置']['RAG_TOP_K'] = {'value': int(rag_settings['top_k'].get('value', 5))}
-                if 'is_rerank' in rag_settings:
-                    configs['RAG记忆配置']['RAG_IS_RERANK'] = {'value': rag_settings['is_rerank'].get('value', True)}
-                
-                # 自动化配置    
-                if 'auto_download_local_model' in rag_settings:
-                    auto_download = rag_settings['auto_download_local_model'].get('value')
-                    if auto_download is not None:
-                        configs['RAG记忆配置']['AUTO_DOWNLOAD_LOCAL_MODEL'] = {'value': auto_download}
-                if 'auto_adapt_siliconflow' in rag_settings:
-                    configs['RAG记忆配置']['AUTO_ADAPT_SILICONFLOW'] = {'value': rag_settings['auto_adapt_siliconflow'].get('value', True)}
+                    # API配置
+                    if 'api_key' in rag_settings:
+                        configs['RAG记忆配置']['RAG_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
+                    if 'base_url' in rag_settings:
+                        configs['RAG记忆配置']['RAG_BASE_URL'] = {'value': rag_settings['base_url'].get('value', '')}
+                        
+                    # 模型配置    
+                    if 'embedding_model' in rag_settings:
+                        configs['RAG记忆配置']['RAG_EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
+                    if 'reranker_model' in rag_settings:
+                        configs['RAG记忆配置']['RAG_RERANKER_MODEL'] = {'value': rag_settings['reranker_model'].get('value', '')}
+                    if 'local_embedding_model_path' in rag_settings:
+                        configs['RAG记忆配置']['LOCAL_EMBEDDING_MODEL_PATH'] = {'value': rag_settings['local_embedding_model_path'].get('value', 'paraphrase-multilingual-MiniLM-L12-v2')}
+                    
+                    # 查询配置
+                    if 'top_k' in rag_settings:
+                        configs['RAG记忆配置']['RAG_TOP_K'] = {'value': int(rag_settings['top_k'].get('value', 5))}
+                    if 'is_rerank' in rag_settings:
+                        configs['RAG记忆配置']['RAG_IS_RERANK'] = {'value': rag_settings['is_rerank'].get('value', True)}
+                    
+                    # 自动化配置    
+                    if 'auto_download_local_model' in rag_settings:
+                        auto_download = rag_settings['auto_download_local_model'].get('value')
+                        if auto_download is not None:
+                            configs['RAG记忆配置']['AUTO_DOWNLOAD_LOCAL_MODEL'] = {'value': auto_download}
+                    if 'auto_adapt_siliconflow' in rag_settings:
+                        configs['RAG记忆配置']['AUTO_ADAPT_SILICONFLOW'] = {'value': rag_settings['auto_adapt_siliconflow'].get('value', True)}
 
         logger.debug(f"获取到的所有配置数据: {configs}")
         logger.debug(f"获取到的任务数据: {tasks}")

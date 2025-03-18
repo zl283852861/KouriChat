@@ -90,6 +90,9 @@ class RagSettings:
     reranker_model: str
     embedding_model: str
     top_k: int
+    local_model_enabled: bool = False
+    auto_adapt_siliconflow: bool = True
+    local_embedding_model_path: str = "paraphrase-multilingual-MiniLM-L12-v2"
 
 
 class SettingReader:
@@ -238,13 +241,32 @@ class SettingReader:
         # RAG设置
         if 'rag_settings' in categories:
             rag_data = categories['rag_settings'].get('settings', {})
+            
+            # 处理local_model_enabled
+            local_model_enabled = rag_data.get('local_model_enabled', False)
+            if isinstance(local_model_enabled, dict) and 'value' in local_model_enabled:
+                local_model_enabled = local_model_enabled['value']
+                
+            # 处理auto_adapt_siliconflow
+            auto_adapt = rag_data.get('auto_adapt_siliconflow', True)
+            if isinstance(auto_adapt, dict) and 'value' in auto_adapt:
+                auto_adapt = auto_adapt['value']
+                
+            # 处理local_embedding_model_path
+            local_model_path = rag_data.get('local_embedding_model_path', "paraphrase-multilingual-MiniLM-L12-v2")
+            if isinstance(local_model_path, dict) and 'value' in local_model_path:
+                local_model_path = local_model_path['value']
+            
             object.__setattr__(self, 'rag', RagSettings(
                 base_url=rag_data.get('base_url', ''),
                 api_key=rag_data.get('api_key', ''),
                 is_rerank=rag_data.get('is_rerank', False),
                 reranker_model=rag_data.get('reranker_model', ''),
                 embedding_model=rag_data.get('embedding_model', ''),
-                top_k=rag_data.get('top_k', 5)
+                top_k=rag_data.get('top_k', 5),
+                local_model_enabled=local_model_enabled,
+                auto_adapt_siliconflow=auto_adapt,
+                local_embedding_model_path=local_model_path
             ))
         
         # 媒体设置

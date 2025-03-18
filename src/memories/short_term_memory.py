@@ -74,73 +74,96 @@ class ShortTermMemory:
             self._handle_start_hook()
         start_memory()
         
-    def _async_add_memory(self, memory_key, memory_value):
-        """线程池中执行的实际添加记忆操作"""
-        import traceback
+    def _async_add_memory(self, memory_key, memory_value, user_id=None):
+        """
+        异步处理记忆添加的内部方法
         
+        Args:
+            memory_key: 记忆键（用户输入）
+            memory_value: 记忆值（AI回复）
+            user_id: 用户ID（可选）
+        """
         try:
-            # 添加到Memory
-            self.memory[memory_key] = memory_value
-            self.logger.info(f"已添加记忆到Memory对象")
+            # 详细记录函数调用
+            self.logger.debug(f"异步添加记忆 - 键长度: {len(memory_key)}, 值长度: {len(memory_value)}")
             
-            # 将记忆写入RAG系统
-            # 确保使用正确的元组格式
-            memory_pair = [(memory_key, memory_value)]
-            self.rag.add_documents(documents=memory_pair)
-            self.logger.info(f"已添加记忆到RAG系统")
-            
-            # 保存记忆状态
-            self.save_memory()
-            self.logger.info(f"已保存记忆状态")
-            
-            # 验证添加是否成功
+            # 增强重复检查
             if memory_key in self.memory.settings:
-                self.logger.info(f"验证成功: 记忆键已存在于Memory对象中")
-                return True
-            else:
-                self.logger.warning(f"验证失败: 记忆键未存在于Memory对象中")
-                return False
+                self.logger.warning(f"跳过重复记忆键: {memory_key[:30]}...")
+                return
+            
+            # 检查值是否已存在
+            if memory_value in self.memory.settings.values():
+                self.logger.warning(f"跳过重复记忆值: {memory_value[:30]}...")
+                return
+            
+            # 检查RAG中是否已存在
+            if self.rag and hasattr(self.rag, 'documents'):
+                if memory_key in self.rag.documents or memory_value in self.rag.documents:
+                    self.logger.warning(f"跳过RAG中已存在的记忆")
+                    return
+            
+            # 添加到记忆系统
+            self.memory.add(memory_key, memory_value)
+            
+            # 更新RAG系统
+            if self.rag:
+                # 添加记忆到RAG系统，包含用户ID信息
+                document_info = f"USER:{user_id} - " if user_id else ""
+                self.rag.add([
+                    f"{document_info}{memory_key}",
+                    f"{document_info}{memory_value}"
+                ])
                 
+            self.logger.info(f"成功异步添加记忆 - 键: {memory_key[:30]}...")
+            return True
         except Exception as e:
-            # 记录详细错误信息
-            self.logger.error(f"[异步处理]添加记忆时发生错误: {str(e)}")
-            self.logger.error(traceback.format_exc())
+            self.logger.error(f"异步添加记忆失败: {str(e)}")
             return False
 
-    def add_memory(self, memory_key, memory_value):
-        """添加记忆到短期记忆 - 异步处理方式"""
-        # 打印调用跟踪
-        import traceback
+    def add_memory(self, memory_key, memory_value, user_id=None):
+        """
+        添加记忆到短期记忆 - 异步处理方式
         
-        # 详细记录函数调用
-        stack = traceback.extract_stack()
-        caller = stack[-2]
-        self.logger.info(f"记忆添加调用源: {caller.filename}:{caller.lineno}")
+        Args:
+            memory_key: 记忆键（用户输入）
+            memory_value: 记忆值（AI回复）
+            user_id: 用户ID（可选）
+            
+        Returns:
+            bool: 是否成功添加到处理队列
+        """
+        # 输入验证
+        if not memory_key or not memory_value:
+            self.logger.error("无法添加空记忆")
+            return False
+            
+        if isinstance(memory_key, str) and "API调用失败" in memory_key:
+            self.logger.warning(f"记忆键包含API错误信息，跳过添加: {memory_key[:50]}...")
+            return False
+            
+        if isinstance(memory_value, str) and "API调用失败" in memory_value:
+            self.logger.warning(f"记忆值包含API错误信息，跳过添加: {memory_value[:50]}...")
+            return False
         
-        # 输出更多调试信息
-        self.logger.info(f"添加记忆 - 键长度: {len(memory_key)}, 值长度: {len(memory_value)}")
-        self.logger.info(f"键开头: {memory_key[:30]}..., 值开头: {memory_value[:30]}...")
-        
-        # 增强重复检查
-        if memory_key in self.memory.settings:
-            self.logger.warning(f"跳过重复记忆键: {memory_key[:30]}...")
-            return
-        
-        # 检查值是否已存在
-        if memory_value in self.memory.settings.values():
-            self.logger.warning(f"跳过重复记忆值: {memory_value[:30]}...")
-            return
-        
-        # 检查RAG中是否已存在
-        if self.rag and hasattr(self.rag, 'documents'):
-            if memory_key in self.rag.documents or memory_value in self.rag.documents:
-                self.logger.warning(f"跳过RAG中已存在的记忆")
-                return
+        # 保护性检查，确保不添加过长的记忆
+        try:
+            if len(memory_key) > 2000 or len(memory_value) > 2000:
+                self.logger.warning(f"记忆过长，截断处理: key={len(memory_key)}, value={len(memory_value)}")
+                memory_key = memory_key[:2000] + "..." if len(memory_key) > 2000 else memory_key
+                memory_value = memory_value[:2000] + "..." if len(memory_value) > 2000 else memory_value
+        except Exception as e:
+            self.logger.error(f"检查记忆长度时出错: {str(e)}")
         
         # 提交到线程池异步处理
         try:
             self.logger.info(f"提交记忆到异步处理线程: {memory_key[:30]}...")
-            future = self.thread_pool.submit(self._async_add_memory, memory_key, memory_value)
+            # 如果提供了user_id，将其作为额外参数传递给异步处理函数
+            if user_id:
+                future = self.thread_pool.submit(self._async_add_memory, memory_key, memory_value, user_id)
+            else:
+                future = self.thread_pool.submit(self._async_add_memory, memory_key, memory_value)
+                
             self.memory_ops_queue.append(future)
             
             # 清理已完成的操作
