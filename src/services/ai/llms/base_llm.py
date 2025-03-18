@@ -1,7 +1,9 @@
-from datetime import datetime
+import logging
+from abc import ABC, abstractmethod
 from typing import Callable, List, Dict, Optional, Tuple
 from logging import Logger
 from src.services.ai.llms.llm import online_llm
+from datetime import datetime
 
 
 class BaseLLM(online_llm):
@@ -146,7 +148,21 @@ class BaseLLM(online_llm):
     
     def handel_prompt(self, prompt: str, user_id: str = None) -> str:
         """
-        处理用户输入并生成回复
+        处理用户输入并生成回复 (方法名拼写已知问题，保留兼容性)
+        
+        Args:
+            prompt: 用户输入的提示
+            user_id: 用户ID，用于关联上下文
+            
+        Returns:
+            模型生成的回复
+        """
+        # 为保持向后兼容，调用正确拼写的方法
+        return self.handle_prompt(prompt, user_id)
+        
+    def handle_prompt(self, prompt: str, user_id: str = None) -> str:
+        """
+        处理用户输入并生成回复 (正确拼写)
         
         Args:
             prompt: 用户输入的提示
@@ -183,24 +199,66 @@ class BaseLLM(online_llm):
                 content_preview = msg["content"][:100] + "..." if len(msg["content"]) > 100 else msg["content"]
                 self.logger.info(f"[上下文消息 {idx}] 角色: {msg['role']}, 内容: {content_preview}")
             
-            # 这里需要子类实现具体的API调用逻辑
-            response = self.generate_response(current_context)
+            # 添加重试逻辑
+            max_retries = 3
+            retry_count = 0
+            response = None
+            last_error = None
             
-            # 更新用户上下文
-            self.user_contexts[context_key].append({"role": "user", "content": prompt})
-            self.user_contexts[context_key].append({"role": "assistant", "content": response})
+            while retry_count < max_retries:
+                try:
+                    # 这里需要子类实现具体的API调用逻辑
+                    response = self.generate_response(current_context)
+                    
+                    # 检查返回是否为错误信息
+                    if any(error_text in response for error_text in ["API调用失败", "Connection error", "服务暂时不可用"]):
+                        self.logger.warning(f"API返回错误信息: {response[:100]}...")
+                        last_error = response
+                        retry_count += 1
+                        if retry_count < max_retries:
+                            self.logger.info(f"进行第 {retry_count+1} 次重试...")
+                            continue
+                    else:
+                        # 成功获取响应，跳出循环
+                        break
+                        
+                except Exception as e:
+                    self.logger.error(f"API调用错误: {str(e)}")
+                    last_error = str(e)
+                    retry_count += 1
+                    if retry_count < max_retries:
+                        self.logger.info(f"进行第 {retry_count+1} 次重试...")
+                        continue
+                    else:
+                        response = f"API调用失败: {str(e)}"
+                        break
             
-            # 关键修复点：立即调用上下文管理，确保每次对话后检查并截断上下文
-            self.logger.info(f"[上下文管理] 开始管理上下文长度，最大允许对话对数: {self.max_context_messages}")
-            self._manage_context_length(context_key)
+            # 如果所有重试都失败，返回最后的错误
+            if response is None and last_error:
+                response = f"多次尝试后仍然失败: {last_error}"
             
-            # 打印更新后的上下文信息
-            post_manage_context = self.user_contexts[context_key]
-            self.logger.info(f"[上下文管理后] 更新后的上下文消息数: {len(post_manage_context)}")
+            # 只有在成功获取有效响应时才更新上下文
+            if not any(error_text in response for error_text in ["API调用失败", "Connection error", "服务暂时不可用"]):
+                # 更新用户上下文
+                self.user_contexts[context_key].append({"role": "user", "content": prompt})
+                self.user_contexts[context_key].append({"role": "assistant", "content": response})
+                
+                # 关键修复点：立即调用上下文管理，确保每次对话后检查并截断上下文
+                self.logger.info(f"[上下文管理] 开始管理上下文长度，最大允许对话对数: {self.max_context_messages}")
+                self._manage_context_length(context_key)
+                
+                # 打印更新后的上下文信息
+                post_manage_context = self.user_contexts[context_key]
+                self.logger.info(f"[上下文管理后] 更新后的上下文消息数: {len(post_manage_context)}")
+            else:
+                self.logger.warning(f"检测到API错误响应，不更新上下文: {response[:100]}...")
             
-            self.logger.info(f"[API响应] 收到回复: {response}")
+            self.logger.info(f"[API响应] 最终回复: {response[:100]}...")
             
-            self.user_recent_chat_time[user_id] = datetime.now()
+            # 更新最近交互时间
+            if hasattr(self, 'user_recent_chat_time'):
+                self.user_recent_chat_time[user_id if user_id else "default"] = datetime.now()
+                
             return response
             
         except Exception as e:

@@ -56,6 +56,7 @@ class OpenAILLM(BaseLLM):
         """
         try:
             self.logger.debug(f"发送请求到OpenAI API，消息数: {len(messages)}")
+            self.logger.info(f"使用模型: {self.model_name}, API URL: {self.url}, 温度: {self.temperature}")
             
             # 调用API
             response = self.client.chat.completions.create(
@@ -81,5 +82,19 @@ class OpenAILLM(BaseLLM):
             return assistant_response
             
         except Exception as e:
-            self.logger.error(f"OpenAI API调用失败: {str(e)}")
-            return f"API调用失败: {str(e)}"  # 直接返回错误信息而不是抛出异常
+            error_message = str(e)
+            self.logger.error(f"OpenAI API调用失败: {error_message}")
+            
+            # 增强错误日志
+            if "Connection" in error_message:
+                self.logger.error(f"连接错误详情 - URL: {self.url}, API密钥前4位: {self.api_key[:4] if len(self.api_key) > 4 else '无效'}")
+                self.logger.error(f"请检查网络连接和API配置。确保API URL和API密钥在config.yaml中正确设置。")
+                return f"API调用失败: 连接错误。请检查API配置和网络连接。"
+            elif "authorization" in error_message.lower() or "authenticate" in error_message.lower():
+                self.logger.error(f"认证错误 - 请检查API密钥是否正确设置")
+                return f"API调用失败: 认证错误。请检查API密钥设置。"
+            elif "timeout" in error_message.lower():
+                self.logger.error(f"请求超时 - 服务器响应时间过长")
+                return f"API调用失败: 请求超时。请稍后重试。"
+            else:
+                return f"API调用失败: {error_message}"  # 直接返回错误信息而不是抛出异常

@@ -66,18 +66,52 @@ class MessageHandler:
         try:
             # 使用正确的属性名和方法名
             if not hasattr(self, 'deepseek') or self.deepseek is None:
-                logger.warning("LLM服务未初始化，重新创建实例")
-                # 在这里通常会初始化LLM
+                logger.error("LLM服务未初始化")
+                return "系统错误：LLM服务未初始化"
             
-            # 修正方法名拼写错误：handel_prompt -> handle_prompt
-            response = self.deepseek.llm.handel_prompt(message, user_id)
-            return response
+            # 记录请求信息
+            logger.info("========= API请求信息 =========")
+            logger.info(f"用户ID: {user_id}")
+            logger.info(f"消息长度: {len(message)} 字符")
+            logger.info(f"消息前50字符: {message[:50]}...")
+            logger.info("==============================")
+            
+            # 使用正确的属性名称调用方法
+            try:
+                response = self.deepseek.llm.handel_prompt(message, user_id)
+                
+                # 记录响应信息
+                logger.info("========= API响应信息 =========")
+                if response:
+                    logger.info(f"响应长度: {len(response)} 字符")
+                    logger.info(f"响应前50字符: {response[:50]}...")
+                else:
+                    logger.error("收到空响应")
+                logger.info("==============================")
+                
+                # 增加异常检测，避免将错误信息存入记忆
+                if response and (
+                    "API调用失败" in response or 
+                    "Connection error" in response or
+                    "服务暂时不可用" in response or
+                    "Error:" in response or
+                    "错误:" in response
+                ):
+                    logger.error(f"API调用返回错误: {response}")
+                    return f"抱歉，我暂时无法回应。错误信息：{response}"
+                    
+                return response
+                
+            except Exception as api_error:
+                error_msg = str(api_error)
+                logger.error(f"API调用异常: {error_msg}")
+                logger.error(f"API配置 - URL: {self.deepseek.llm.base_url}, Model: {self.deepseek.llm.model}")
+                return f"API调用出错：{error_msg}"
                 
         except Exception as e:
             logger.error(f"获取API回复失败: {str(e)}")
             # 降级处理：使用简化的提示
             try:
-                # 如果出错，可以尝试使用备用方法
                 return f"抱歉，我暂时无法回应，请稍后再试。(错误: {str(e)[:50]}...)"
             except Exception as fallback_error:
                 logger.error(f"降级处理也失败: {str(fallback_error)}")
@@ -184,12 +218,12 @@ class MessageHandler:
                 
                 # 修改等待时间计算逻辑，更加智能地根据打字速度和消息长度调整
                 # 基础等待时间 + 根据打字速度和消息长度计算的额外等待时间
-                base_wait_time = 5.0  # 基础等待时间5秒
+                base_wait_time = 6.0  # 基础等待时间6秒
                 
                 # 根据消息数量调整等待时间
                 if msg_count == 1:
                     # 第一条消息，给予更长的等待时间
-                    wait_time = base_wait_time + 7.0  # 总共12秒
+                    wait_time = base_wait_time + 6.0  # 总共12秒
                     logger.info(f"首条消息，设置较长等待时间: {wait_time:.1f}秒")
                 else:
                     # 后续消息，根据打字速度和消息长度动态调整
@@ -326,8 +360,9 @@ class MessageHandler:
                 r'\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s*ta私聊对你说\s*',
                 # 方括号时间+前缀
                 r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s*ta私聊对你说\s*',
-                # 单独的前缀
-                r'ta私聊对你说\s*',
+                # 单独的前缀 - 确保同时匹配有无空格和冒号的情况
+                r'ta(?:\s*)私聊(?:\s*)对(?:\s*)你(?:\s*)说(?:：|:)?\s*',
+                r'ta(?:\s*)私聊(?:\s*)对(?:\s*)你(?:\s*)说\s*',
                 # 单独的时间格式1（圆括号）
                 r'\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s*',
                 # 单独的时间格式2（方括号）
@@ -389,18 +424,20 @@ class MessageHandler:
                 content = re.sub(r'^[:：\s]+', '', content).strip()  # 移除开头的冒号
                 content = re.sub(r'[:：\s]+$', '', content).strip()  # 移除结尾的冒号
                 
-                # 确保内容非空
-                if content:
-                    # 记录清理后的内容
-                    raw_contents.append(content.strip())
-                    
-                    # 统计字数
-                    total_chars += len(content.strip())
-                    
-                    # 统计句数
-                    for char in content:
-                        if char in sentence_endings:
-                            total_sentences += 1
+                # 记录过滤前后的内容变化，用于调试
+                logger.debug(f"过滤前内容: '{original_content}'")
+                logger.debug(f"过滤后内容: '{content}'")
+                
+                raw_contents.append(content)
+                
+                # 计算字符数和句子数
+                total_chars += len(content)
+                total_sentences += sum(1 for char in content if char in sentence_endings) + (1 if content and content[-1] not in sentence_endings else 0)
+            
+            # 记录统计信息
+            logger.info(f"实际内容长度: {total_chars}")
+            logger.info(f"句子数量: {total_sentences}")
+            logger.info(f"过滤后的实际消息内容: {', '.join(f'[{i+1}] {content}' for i, content in enumerate(raw_contents))}")
             
             # 最终清理合并内容
             # 提取第一条消息的时间作为时间刻
@@ -512,15 +549,36 @@ class MessageHandler:
         
         # 获取实际内容（去除时间戳和前缀）
         content = recent_msgs[0].get('content', '')
+        
+        # 定义系统提示词模式
         time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
         time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
+        reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
+        context_pattern = r'对话\d+:\n用户:.+\nAI:.+'
+        system_patterns = [
+            r'\n\n请注意：你的回复应当与用户消息的长度相当，控制在约\d+个字符和\d+个句子左右。',
+            r'\(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容\)',
+            r'请你回应用户的结束语'
+        ]
         
+        # 先去除基本的时间戳和前缀
         if re.search(time_prefix_pattern, content):
             content = re.sub(time_prefix_pattern, '', content)
         elif re.search(time_prefix_pattern2, content):
             content = re.sub(time_prefix_pattern2, '', content)
-            
-        char_count = len(content)
+        
+        # 去除其他系统提示词
+        content = re.sub(reminder_pattern, '', content)
+        content = re.sub(context_pattern, '', content, flags=re.DOTALL)
+        
+        for pattern in system_patterns:
+            content = re.sub(pattern, '', content)
+        
+        # 计算过滤后的实际用户内容长度
+        filtered_content = content.strip()
+        char_count = len(filtered_content)
+        
+        logger.info(f"过滤系统提示词后的实际内容长度: {char_count}")
         
         # 如果时间差或字符数无效，使用默认值
         if time_diff <= 0 or char_count <= 0:
@@ -916,17 +974,33 @@ class MessageHandler:
             try:
                 if self.memory_handler and hasattr(self.memory_handler, 'short_term_memory'):
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    # 创建记忆键值对
-                    memory_key = f"[{timestamp}] 对方(ID:{username}): {raw_content}"
-                    memory_value = f"[{timestamp}] 你: {reply}"
                     
-                    # 清理记忆内容
-                    if hasattr(self.memory_handler, 'clean_memory_content'):
-                        memory_key, memory_value = self.memory_handler.clean_memory_content(memory_key, memory_value)
-                    
-                    # 添加到短期记忆
-                    logger.info(f"主动添加对话到短期记忆 - 用户: {username}")
-                    self.memory_handler.short_term_memory.add_memory(memory_key, memory_value)
+                    # 检查回复是否包含API错误信息
+                    if isinstance(reply, str) and "API调用失败" in reply:
+                        logger.warning(f"检测到API错误，跳过记忆保存: {reply[:100]}...")
+                    else:
+                        # 创建记忆键值对
+                        memory_key = f"[{timestamp}] 对方(ID:{username}): {raw_content}"
+                        memory_value = f"[{timestamp}] 你: {reply}"
+                        
+                        # 清理记忆内容
+                        if hasattr(self.memory_handler, 'clean_memory_content'):
+                            try:
+                                memory_key, memory_value = self.memory_handler.clean_memory_content(memory_key, memory_value)
+                                
+                                # 检查清理后的内容是否有效
+                                if memory_key and memory_value:
+                                    # 添加到短期记忆
+                                    logger.info(f"主动添加对话到短期记忆 - 用户: {username}")
+                                    self.memory_handler.short_term_memory.add_memory(
+                                        user_id=username,
+                                        memory_key=memory_key,
+                                        memory_value=memory_value
+                                    )
+                                else:
+                                    logger.warning("清理后的记忆内容为空，跳过添加")
+                            except Exception as clean_err:
+                                logger.error(f"清理记忆内容失败: {str(clean_err)}")
             except Exception as mem_err:
                 logger.error(f"保存对话记忆失败: {str(mem_err)}")
             

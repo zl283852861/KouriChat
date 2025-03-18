@@ -7,7 +7,7 @@ import os
 import shutil
 import win32gui
 import win32con
-from src.config.rag_config import config, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE, MAX_GROUPS
+from src.config import config
 from wxauto import WeChat
 import re
 from handlers.emoji import EmojiHandler
@@ -72,8 +72,14 @@ chat_contexts = {}  # 存储上下文
 init()
 
 # 在初始化memory_handler前添加此日志
-logger.info(f"配置文件中的模型: {config.llm.model}")
-logger.info(f"常量MODEL的值 {MODEL}")
+logger.info("========= LLM配置信息 =========")
+logger.info(f"模型名称: {config.llm.model}")
+logger.info(f"API基础URL: {config.llm.base_url}")
+logger.info(f"API密钥前4位: {config.llm.api_key[:4] if config.llm.api_key else 'None'}")
+logger.info(f"温度参数: {config.llm.temperature}")
+logger.info(f"最大Token数: {config.llm.max_tokens}")
+logger.info(f"最大对话组数: {config.behavior.context.max_groups}")
+logger.info("================================")
 
 # ... 现有ChatBot类代码...
 
@@ -947,6 +953,11 @@ def main(debug_mode=False):
             temperature=config.llm.temperature,
             max_groups=config.behavior.context.max_groups,
             )
+    
+    # 在初始化memory_handler前添加此日志
+    logger.info(f"配置文件中的模型: {config.llm.model}")
+    logger.info(f"API基础URL: {config.llm.base_url}")
+    logger.info(f"温度参数: {config.llm.temperature}")
     
     memory_handler = MemoryHandler(
         root_dir=root_dir,
