@@ -360,10 +360,10 @@ class HybridEmbeddingModel(EmbeddingModel):
     参数:
         api_model: API嵌入模型实例
         local_model_path: 本地模型路径
-        auto_download: 是否自动下载本地模型，设置为None时进行交互式询问，True自动下载，False不下载
+        local_model_enabled: 是否启用本地模型
     """
     def __init__(self, api_model: OnlineEmbeddingModel, local_model_path: str = "paraphrase-multilingual-MiniLM-L12-v2", 
-                 auto_download: Optional[bool] = None):
+                 local_model_enabled: bool = False):
         self.api_model = api_model
         self.local_model = None
         self.local_model_path = local_model_path
@@ -429,57 +429,33 @@ class HybridEmbeddingModel(EmbeddingModel):
         else:
             print("⚠️ API连接测试失败")
         
-        # 检测是否在Windows环境下
-        import os
-        is_windows = os.name == 'nt'
-            
-        # 无论API连接是否成功，根据auto_download参数决定是否下载本地模型
-        if auto_download is True:
-            # 明确设置为自动下载
-            print("\n系统配置为自动下载本地备用模型")
-            self._download_local_model()
-        elif auto_download is False:
-            # 明确设置为不下载
-            print("\n系统配置为不下载本地备用模型，仅使用API模型")
-            print("您可以稍后通过Web控制台手动下载模型")
-            self.local_model_failed = True
+        # 根据local_model_enabled决定是否初始化本地模型
+        if local_model_enabled:
+            print("\n本地模型已启用，正在初始化本地模型...")
+            self._initialize_local_model()
         else:
-            # auto_download为None，可能进行交互式询问
-            print()
-            if api_connected:
-                print("即使API连接成功，也建议下载本地备用模型，以防网络不稳定或API服务中断")
-            else:
-                print("由于API连接失败，强烈建议下载本地备用模型，确保系统正常运行")
+            print("\n本地模型未启用，将仅使用API模型")
+            self.local_model_failed = True
             
-            # 在Windows环境下直接提示使用Web控制台，避免交互式输入问题
-            if is_windows:
-                # Windows环境下，仅显示提示信息，不进行交互式询问
-                print("\n检测到Windows环境，为避免输入问题，请使用Web控制台下载本地模型")
-                print("请在Web控制台启动后，使用命令 'download_model' 下载本地模型")
-                print("您也可以稍后再通过Web控制台随时下载模型")
-            else:
-                # 非Windows环境下，调用交互式下载方法
-                self._interactive_download()
-        
         print("\n" + "="*80)
-        print(f"嵌入模型初始化完成: API优先{' + 本地备用' if self.use_local_model else ''}")
+        print(f"嵌入模型初始化完成: {'API + 本地备用' if self.use_local_model else 'API' }")
         print("="*80 + "\n")
     
-    def _download_local_model(self):
-        """尝试下载本地模型"""
-        print(f"\n开始下载本地备用模型: '{self.local_model_path}'")
-        print("下载过程可能需要几分钟，请耐心等待...")
+    def _initialize_local_model(self):
+        """初始化本地模型"""
+        print(f"\n开始初始化本地模型: '{self.local_model_path}'")
+        print("初始化过程可能需要几分钟，请耐心等待...")
         
         try:
-            # 设置下载超时和模型大小估计
+            # 设置初始化超时和模型大小估计
             import time
             import threading
             import sys
             
             start_time = time.time()
-            download_started = False
-            download_completed = False
-            download_error = None
+            init_started = False
+            init_completed = False
+            init_error = None
             
             # 创建进度显示线程
             def show_progress():
@@ -487,11 +463,11 @@ class HybridEmbeddingModel(EmbeddingModel):
                 spinner_idx = 0
                 elapsed_time = 0
                 
-                while not (download_completed or download_error):
-                    if download_started:
+                while not (init_completed or init_error):
+                    if init_started:
                         # 显示进度动画
                         elapsed_time = time.time() - start_time
-                        sys.stdout.write(f"\r下载中... {spinner[spinner_idx]} 已用时: {elapsed_time:.1f}秒")
+                        sys.stdout.write(f"\r初始化中... {spinner[spinner_idx]} 已用时: {elapsed_time:.1f}秒")
                         sys.stdout.flush()
                         spinner_idx = (spinner_idx + 1) % len(spinner)
                     time.sleep(0.1)
@@ -501,148 +477,51 @@ class HybridEmbeddingModel(EmbeddingModel):
             progress_thread.daemon = True
             progress_thread.start()
             
-            # 创建下载线程
-            def download_model():
-                nonlocal download_started, download_completed, download_error
+            # 创建初始化线程
+            def init_model():
+                nonlocal init_started, init_completed, init_error
                 try:
-                    download_started = True
-                    # 尝试初始化本地模型（这会触发下载）
+                    init_started = True
+                    # 尝试初始化本地模型
                     self.local_model = LocalEmbeddingModel(self.local_model_path)
-                    download_completed = True
+                    init_completed = True
                 except Exception as e:
-                    download_error = e
+                    init_error = e
             
-            # 启动下载线程
-            download_thread = threading.Thread(target=download_model)
-            download_thread.start()
+            # 启动初始化线程
+            init_thread = threading.Thread(target=init_model)
+            init_thread.start()
             
-            # 等待下载完成或超时
-            max_wait_time = 600  # 最多等待10分钟
-            while download_thread.is_alive() and time.time() - start_time < max_wait_time:
+            # 等待初始化完成或超时
+            max_wait_time = 300  # 最多等待5分钟
+            while init_thread.is_alive() and time.time() - start_time < max_wait_time:
                 time.sleep(1)  # 每秒检查一次状态
             
-            # 检查下载结果
-            if download_completed:
-                download_time = time.time() - start_time
+            # 检查初始化结果
+            if init_completed:
+                init_time = time.time() - start_time
                 sys.stdout.write("\r" + " " * 50 + "\r")  # 清除进度行
-                print(f"\n✅ 本地模型下载成功! 用时: {download_time:.1f}秒")
-                print(f"模型已保存到本地缓存，今后将在API调用失败时使用")
+                print(f"\n✅ 本地模型初始化成功! 用时: {init_time:.1f}秒")
+                print(f"模型已加载到内存，将在API调用失败时使用")
                 self.use_local_model = True
-            elif download_error:
+            elif init_error:
                 sys.stdout.write("\r" + " " * 50 + "\r")  # 清除进度行
-                print(f"\n❌ 本地模型下载失败: {str(download_error)}")
-                print("请检查您的网络连接和代理设置")
-                print("系统将仅使用API模型，您可以稍后通过Web控制台再次尝试下载")
+                print(f"\n❌ 本地模型初始化失败: {str(init_error)}")
+                print("请检查模型路径是否正确")
+                print("系统将仅使用API模型")
                 self.local_model_failed = True
             else:
                 sys.stdout.write("\r" + " " * 50 + "\r")  # 清除进度行
-                print(f"\n❌ 本地模型下载超时（超过{max_wait_time/60:.1f}分钟）")
-                print("请检查您的网络速度，或稍后再试")
-                print("系统将仅使用API模型，您可以稍后通过Web控制台再次尝试下载")
+                print(f"\n❌ 本地模型初始化超时（超过{max_wait_time/60:.1f}分钟）")
+                print("请检查模型路径和系统资源")
+                print("系统将仅使用API模型")
                 self.local_model_failed = True
                 
         except Exception as e:
-            print(f"\n❌ 本地模型下载过程出错: {str(e)}")
-            print("请检查您的网络连接和代理设置")
-            print("系统将仅使用API模型，您可以稍后通过Web控制台再次尝试下载")
+            print(f"\n❌ 本地模型初始化过程出错: {str(e)}")
+            print("请检查模型路径和系统资源")
+            print("系统将仅使用API模型")
             self.local_model_failed = True
-    
-    def _interactive_download(self):
-        """交互式询问用户是否下载本地模型"""
-        # 获取可能的Web控制台地址
-        import socket
-        import os
-        import sys
-        
-        # 检测是否在Windows环境下
-        is_windows = os.name == 'nt'
-        
-        web_console_urls = ["http://localhost:8502"]
-        try:
-            # 获取本机IP地址
-            hostname = socket.gethostname()
-            ip_address = socket.gethostbyname(hostname)
-            if ip_address and ip_address != "127.0.0.1":
-                web_console_urls.append(f"http://{ip_address}:8502")
-        except:
-            pass
-        
-        # 统一的提示信息
-        print("\n" + "="*80)
-        print("【本地备用模型】".center(60))
-        print("="*80)
-        
-        # 在Windows环境下，强制使用Web控制台方式
-        if is_windows:
-            print("检测到Windows环境，为避免输入问题，推荐使用Web控制台下载")
-            print("\n📱 请使用Web控制台下载:")
-            print("  1. 打开Web控制台，访问以下地址之一:")
-            for url in web_console_urls:
-                print(f"     · {url}")
-            print("  2. 在控制台底部的命令输入框中输入: download_model")
-            print("  3. 点击发送按钮或按Enter键开始下载")
-            
-            print("\n本地备用模型的优势:")
-            print("  - 当API服务临时不可用时提供备用")
-            print("  - 在网络连接不稳定时保持系统运行")
-            print("  - 避免API配额限制问题")
-            print("  - 提供更好的隐私保护")
-            
-            print("\n✅ 请在Web控制台启动后，使用命令 'download_model' 下载本地模型")
-            print("您也可以稍后再通过Web控制台随时下载模型")
-            print("="*80 + "\n")
-            return
-        
-        # 非Windows环境显示完整选项
-        print("您可以通过以下两种方式之一下载本地备用模型:")
-        
-        # 方式1: Web控制台
-        print("\n📱 方式1: 使用Web控制台下载（推荐）")
-        print("  1. 打开Web控制台，访问以下地址之一:")
-        for url in web_console_urls:
-            print(f"     · {url}")
-        print("  2. 在控制台底部的命令输入框中输入: download_model")
-        print("  3. 点击发送按钮或按Enter键开始下载")
-        
-        # 方式2: 直接控制台下载
-        print("\n💻 方式2: 在当前控制台直接下载")
-        print("  · 输入 y: 立即在当前控制台下载模型（约100MB）")
-        print("  · 输入 n: 不下载本地模型，仅使用API模型")
-        print("  · 输入 l: 稍后通过Web控制台下载（推荐Windows用户选择）")
-        
-        print("\n本地备用模型的优势:")
-        print("  - 当API服务临时不可用时提供备用")
-        print("  - 在网络连接不稳定时保持系统运行")
-        print("  - 避免API配额限制问题")
-        print("  - 提供更好的隐私保护")
-        
-        print("-"*80)
-        
-        try:
-            user_choice = input(">>> 请输入您的选择 (y/n/l): ").strip().lower()
-            print(f"您的选择是: {user_choice}")
-            
-            if user_choice == 'y':
-                # 立即下载
-                self._download_local_model()
-            elif user_choice == 'n':
-                # 不下载
-                print("\n您选择不下载本地备用模型，系统将仅使用API模型")
-                self.local_model_failed = True
-            elif user_choice == 'l':
-                # 稍后通过Web控制台下载
-                print("\n✅ 请在Web控制台启动后，使用命令 'download_model' 下载本地模型")
-                print("您也可以稍后再通过Web控制台随时下载")
-                # 不设置local_model_failed，表示用户有意向下载
-            else:
-                # 无效输入
-                print(f"\n无效的输入: '{user_choice}'，推荐稍后通过Web控制台手动下载模型")
-                # 对于无效输入，不直接设置local_model_failed
-        except Exception as e:
-            print(f"\n交互过程出错: {str(e)}，推荐稍后通过Web控制台手动下载模型")
-            # 出现异常时，不直接设置local_model_failed
-        
-        print("="*80 + "\n")
 
     def embed(self, texts: List[str], async_mode: bool = False, timeout: float = 5.0) -> List[List[float]]:
         """
@@ -743,15 +622,6 @@ class HybridEmbeddingModel(EmbeddingModel):
         cache_size = len(self.cache)
         self.cache.clear()
         return f"已清除 {cache_size} 条缓存嵌入"
-
-    def download_model_web_cmd(self):
-        """Web控制台命令处理方法，用于从Web控制台下载模型"""
-        try:
-            print(f"\n开始下载本地备用模型: '{self.local_model_path}'")
-            self._download_local_model()
-            return "模型下载任务已完成。"
-        except Exception as e:
-            return f"模型下载出错: {str(e)}"
 
 
 class ReRanker(ABC):

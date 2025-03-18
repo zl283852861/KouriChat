@@ -79,121 +79,27 @@ class MemoryHandler:
         # 创建API嵌入模型
         api_key = config.rag.api_key
         base_url = config.rag.base_url
-        embedding_model_name = config.rag.embedding_model
-        reranker_model_name = config.rag.reranker_model
+        embedding_model_name = config.rag.embedding_model or "text-embedding-3-large"
+        reranker_model_name = config.rag.reranker_model or model
         
-        # 如果未设置嵌入模型特定配置，则使用LLM模块的同样配置
-        if not api_key or not isinstance(api_key, str) or not api_key.strip():
-            logger.info("未设置嵌入API密钥，使用LLM模块配置")
-            api_key = config.llm.api_key
-            
-        if not base_url or not isinstance(base_url, str) or not base_url.strip():
-            logger.info("未设置嵌入API基础URL，使用LLM模块配置")
-            base_url = config.llm.base_url
+        # 检查是否需要自动适配硅基流动API
+        if "siliconflow" in base_url and config.AUTO_ADAPT_SILICONFLOW:
+            if "bge" not in embedding_model_name.lower():
+                logger.info(f"硅基流动自动适配: 将嵌入模型从 {embedding_model_name} 切换为 BAAI/bge-m3")
+                embedding_model_name = "BAAI/bge-m3"
         
-        # 根据LLM提供商自动匹配合适的嵌入模型和重排模型
-        is_siliconflow = False
-        if base_url and "siliconflow" in base_url.lower():
-            is_siliconflow = True
-            # 检查是否启用了自动适配功能
-            auto_adapt = True
-            if hasattr(config.rag, 'auto_adapt_siliconflow'):
-                auto_adapt = config.rag.auto_adapt_siliconflow
-                
-            if auto_adapt:
-                logger.info("检测到使用硅基流动API，且自动适配已开启")
-                if embedding_model_name == "text-embedding-3-large" or not embedding_model_name:
-                    embedding_model_name = "BAAI/bge-m3"
-                    logger.info(f"自动调整嵌入模型为: {embedding_model_name}")
-                # 保持重排模型为原有LLM
-                if reranker_model_name != config.llm.model:
-                    reranker_model_name = config.llm.model
-                    logger.info(f"自动调整重排模型为当前LLM模型: {reranker_model_name}")
-            else:
-                logger.info("检测到使用硅基流动API，但自动适配已关闭，使用原始配置")
-        else:
-            logger.info(f"使用标准API服务，嵌入模型: {embedding_model_name}")
-            if not reranker_model_name or reranker_model_name.strip() == "":
-                reranker_model_name = config.llm.model
-                logger.info(f"未指定重排模型，使用当前LLM模型: {reranker_model_name}")
-        
-        logger.info(f"嵌入模型配置: 模型={embedding_model_name}, 基础URL={base_url}")
-        logger.info(f"重排模型配置: 模型={reranker_model_name}, 基础URL={base_url}")
-        
-        # 确保API参数有效
-        if not api_key or not isinstance(api_key, str) or not api_key.strip():
-            logger.warning("所有配置源中均未设置有效的API密钥，使用空值")
-            api_key = "sk-dummy-key"
-        
-        # 创建嵌入模型
+        # 创建API嵌入模型
         api_embedding_model = OnlineEmbeddingModel(
+            model_name=embedding_model_name,
             api_key=api_key,
-            base_url=base_url,
-            model_name=embedding_model_name
+            base_url=base_url
         )
-        
-        # 获取本地模型自动下载配置
-        # 可以在配置中添加auto_download_local_model选项，或者使用环境变量
-        # auto_download可以有三种状态:
-        # - True: 自动下载，不询问
-        # - False: 不下载，不询问
-        # - None: 交互模式，询问用户是否下载
-        auto_download = None  # 默认为交互模式
-        
-        # 尝试从配置中获取
-        if hasattr(config.rag, 'auto_download_local_model'):
-            config_value = config.rag.auto_download_local_model
-            # 检查配置值类型和内容
-            if isinstance(config_value, bool):
-                auto_download = config_value
-                logger.info(f"从配置中获取本地模型自动下载设置: {auto_download} (布尔值)")
-            elif isinstance(config_value, str):
-                if config_value.lower() in ('true', 'yes', 'y', '1'):
-                    auto_download = True
-                    logger.info(f"从配置中获取本地模型自动下载设置: {auto_download} (字符串转布尔值)")
-                elif config_value.lower() in ('interactive', 'ask', 'prompt', 'i'):
-                    auto_download = None
-                    logger.info("从配置中获取本地模型自动下载设置: 交互模式")
-                elif config_value.lower() in ('false', 'no', 'n', '0'):
-                    auto_download = False
-                    logger.info(f"从配置中获取本地模型自动下载设置: {auto_download} (字符串转布尔值)")
-        
-        # 尝试从环境变量获取
-        env_auto_download = os.environ.get('AUTO_DOWNLOAD_LOCAL_MODEL')
-        if env_auto_download is not None:
-            if env_auto_download.lower() in ('true', '1', 'yes', 'y'):
-                auto_download = True
-                logger.info(f"从环境变量获取本地模型自动下载设置: {auto_download}")
-            elif env_auto_download.lower() in ('interactive', 'ask', 'prompt', 'i'):
-                auto_download = None
-                logger.info("从环境变量获取本地模型自动下载设置: 交互模式")
-            elif env_auto_download.lower() in ('false', '0', 'no', 'n'):
-                auto_download = False
-                logger.info(f"从环境变量获取本地模型自动下载设置: {auto_download}")
-        
-        # 获取首次运行标志，如果是首次运行且没有明确设置，则使用交互模式
-        first_run_flag_file = os.path.join(os.path.expanduser("~"), ".kourichat_first_run")
-        is_first_run = not os.path.exists(first_run_flag_file)
-        
-        if is_first_run and auto_download is not None:
-            # 首次运行时，若配置不是交互模式，记录信息但仍使用交互模式
-            logger.info(f"首次运行检测，虽然配置为 {auto_download}，但将使用交互模式询问用户")
-            auto_download = None
-            
-            # 创建首次运行标志文件
-            try:
-                with open(first_run_flag_file, 'w') as f:
-                    f.write(f"首次运行时间: {time.strftime('%Y-%m-%d %H:%M:%S')}")
-            except:
-                logger.warning("无法创建首次运行标志文件")
-        
-        logger.info(f"最终本地模型下载设置: {'交互模式' if auto_download is None else auto_download}")
         
         # 创建混合嵌入模型，优先使用API模型，允许用户选择是否下载本地备用模型
         hybrid_embedding_model = HybridEmbeddingModel(
             api_model=api_embedding_model,
             local_model_path=LOCAL_EMBEDDING_MODEL_PATH,
-            auto_download=auto_download
+            local_model_enabled=config.LOCAL_MODEL_ENABLED
         )
 
         # 初始化Rag记忆的方法
@@ -202,9 +108,9 @@ class MemoryHandler:
             memory_path=os.path.join(self.memory_base_dir, "rag-memory.json"),
             embedding_model=hybrid_embedding_model,
             reranker=OnlineCrossEncoderReRanker(
+                model_name=reranker_model_name,
                 api_key=api_key,
-                base_url=base_url,
-                model_name=reranker_model_name
+                base_url=base_url
             ) if config.rag.is_rerank is True else None
         )
         self.key_memory = KeyMemory.get_instance(
@@ -233,9 +139,9 @@ class MemoryHandler:
         self.lg_tm_m_and_k_m = RAG(
             embedding_model=hybrid_embedding_model,
             reranker=OnlineCrossEncoderReRanker(
+                model_name=reranker_model_name,
                 api_key=api_key,
-                base_url=base_url,
-                model_name=reranker_model_name
+                base_url=base_url
             ) if config.rag.is_rerank is True else None
         )
         self.init_lg_tm_m_and_k_m()
