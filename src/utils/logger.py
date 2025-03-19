@@ -85,4 +85,30 @@ class LoggerConfig:
                 except ValueError:
                     continue
         except Exception as e:
-            print(f"清理日志文件失败: {str(e)}") 
+            print(f"清理日志文件失败: {str(e)}")
+
+# 添加一个兼容函数，用于获取日志记录器
+def get_logger(name: Optional[str] = None, level: int = logging.INFO):
+    """
+    获取一个日志记录器实例。这是一个兼容函数，用于与依赖于get_logger函数的模块兼容。
+    
+    Args:
+        name: 日志记录器名称
+        level: 日志级别
+        
+    Returns:
+        logger: 日志记录器实例
+    """
+    # 创建或获取日志记录器
+    logger = logging.getLogger(name)
+    logger.setLevel(level)
+    
+    # 如果没有处理器，添加一个简单的控制台处理器
+    if not logger.handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(level)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+    
+    return logger 

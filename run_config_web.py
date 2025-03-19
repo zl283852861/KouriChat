@@ -129,7 +129,8 @@ def get_available_avatars() -> List[str]:
         if os.path.isdir(avatar_dir):
             if os.path.exists(os.path.join(avatar_dir, "avatar.md")) and \
                     os.path.exists(os.path.join(avatar_dir, "emojis")):
-                avatars.append(f"data/avatars/{item}")
+                # 只添加人设目录名，不包含路径
+                avatars.append(item)
 
     return avatars
 
@@ -2238,7 +2239,8 @@ def get_available_avatars_route():
                         logger.error(f"为人设 {item} 创建 emojis 目录失败: {str(e)}")
                         continue
 
-                avatars.append(f"data/avatars/{item}")
+                # 只添加人设目录名，不包含路径
+                avatars.append(item)
 
         logger.info(f"找到 {len(avatars)} 个有效人设: {avatars}")
 

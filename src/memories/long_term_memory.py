@@ -1,3 +1,6 @@
+"""
+长期记忆模块 - 提供长期记忆的存储和检索功能
+"""
 from datetime import datetime
 from typing import List
 from src.memories.memory_saver import MemorySaver

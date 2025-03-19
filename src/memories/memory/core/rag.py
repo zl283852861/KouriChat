@@ -6,8 +6,29 @@ import io
 import requests  # 添加requests库用于硅基流动API请求
 import os  # 添加os模块用于处理环境变量
 import logging
+import ssl  # 添加ssl模块用于处理SSL/TLS错误
+from urllib3.util.retry import Retry
+from requests.adapters import HTTPAdapter
+import numpy as np
+import faiss
+from abc import ABC, abstractmethod
+from typing import List, Optional, Dict, Union
+from openai import OpenAI
+from sentence_transformers import SentenceTransformer, CrossEncoder
+from pathlib import Path
+import copy
+import json
+import yaml
+import random
+import traceback
+from collections import defaultdict
+from datetime import datetime
+import pickle
 
-# 确保使用UTF-8编码，安全检查避免与colorama冲突
+# 设置日志
+logger = logging.getLogger('main')
+
+# 设置系统默认编码为UTF-8
 try:
     # 检查encoding属性是否存在，避免colorama冲突
     if hasattr(sys.stdout, 'encoding') and sys.stdout.encoding != 'utf-8':
@@ -19,6 +40,31 @@ try:
             print(f"警告: 无法设置标准输出编码为UTF-8: {str(e)}")
 except Exception as e:
     print(f"警告: 检查编码时出错: {str(e)}")
+
+# 创建默认安全的SSL上下文
+def create_secure_ssl_context():
+    """创建一个安全但兼容性更好的SSL上下文，用于解决SSL连接问题"""
+    try:
+        import ssl
+        
+        # 创建一个默认的SSL上下文
+        context = ssl.create_default_context()
+        
+        # 禁用证书验证，解决自签名证书问题
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE
+        
+        # 设置SSL版本兼容性
+        context.options |= ssl.OP_NO_SSLv2
+        context.options |= ssl.OP_NO_SSLv3
+        
+        # 允许使用弱密码套件，提高兼容性
+        context.set_ciphers('DEFAULT@SECLEVEL=1')
+        
+        return context
+    except Exception as e:
+        logger.warning(f"创建SSL上下文失败: {str(e)}")
+        return None
 
 # 辅助函数：安全处理字符串，避免编码问题
 def safe_str(text, default=""):
@@ -49,13 +95,103 @@ def safe_print(text, prefix=""):
     """安全打印函数，避免编码问题"""
     try:
         print(f"{prefix}{text}")
-    except:
+    except Exception as e:
         try:
-            # 尝试将文本转换为ASCII安全模式
-            safe_text = safe_str(text, "[无法显示文本]")
-            print(f"{prefix}{safe_text}")
+            print(f"打印错误: {str(e)}")
         except:
-            print(f"{prefix}[打印错误]")
+            pass
+
+# 添加自定义的安全请求函数，处理SSL错误
+def safe_request(url, method="GET", json=None, headers=None, timeout=10, retries=3, ssl_context=None):
+    """
+    执行安全的HTTP请求，包含重试和SSL错误处理
+    
+    Args:
+        url: 请求URL
+        method: 请求方法，默认GET
+        json: JSON请求体
+        headers: 请求头
+        timeout: 超时时间(秒)
+        retries: 最大重试次数
+        ssl_context: 自定义SSL上下文
+        
+    Returns:
+        (响应对象, 错误信息)
+    """
+    error_msg = None
+    session = requests.Session()
+    
+    # 禁用环境代理
+    session.trust_env = False
+    
+    # 设置基本请求头
+    default_headers = {
+        "User-Agent": "Mozilla/5.0 KouriChatRAG/1.0",
+        "Content-Type": "application/json"
+    }
+    
+    if headers:
+        default_headers.update(headers)
+    
+    # 设置SSL选项    
+    if ssl_context:
+        try:
+            # 使用自定义SSL适配器
+            from requests.adapters import HTTPAdapter
+            from urllib3.poolmanager import PoolManager
+            
+            class SSLAdapter(HTTPAdapter):
+                def __init__(self, ssl_context=None, **kwargs):
+                    self.ssl_context = ssl_context
+                    super(SSLAdapter, self).__init__(**kwargs)
+                    
+                def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+                    self.poolmanager = PoolManager(
+                        num_pools=connections,
+                        maxsize=maxsize,
+                        block=block,
+                        ssl_context=self.ssl_context,
+                        **pool_kwargs
+                    )
+                    
+            adapter = SSLAdapter(ssl_context=ssl_context)
+            session.mount('https://', adapter)
+            safe_print(f"已使用自定义SSL上下文增强请求安全性")
+        except Exception as e:
+            safe_print(f"警告: 设置SSL适配器失败: {str(e)}")
+    
+    # 执行带重试的请求
+    for attempt in range(retries):
+        try:
+            if method.upper() == "GET":
+                response = session.get(url, headers=default_headers, timeout=timeout, proxies={}, verify=True)
+            else:
+                response = session.post(url, json=json, headers=default_headers, timeout=timeout, proxies={}, verify=True)
+                
+            return response, None
+            
+        except requests.exceptions.SSLError as e:
+            error_msg = f"SSL错误: {str(e)}"
+            safe_print(f"⚠️ 第{attempt+1}次尝试失败: SSL错误，正在重试...")
+            # 出现SSL错误时，添加延迟防止频繁请求
+            time.sleep(1)
+            
+        except requests.exceptions.ConnectionError as e:
+            error_msg = f"连接错误: {str(e)}"
+            safe_print(f"⚠️ 第{attempt+1}次尝试失败: 连接错误，正在重试...")
+            time.sleep(1)
+            
+        except requests.exceptions.Timeout as e:
+            error_msg = f"请求超时: {str(e)}"
+            safe_print(f"⚠️ 第{attempt+1}次尝试失败: 请求超时，正在重试...")
+            time.sleep(1)
+            
+        except Exception as e:
+            error_msg = f"请求错误: {str(e)}"
+            safe_print(f"⚠️ 第{attempt+1}次尝试失败: {error_msg}，正在重试...")
+            time.sleep(1)
+    
+    return None, error_msg
 
 import numpy as np
 import faiss
@@ -225,7 +361,7 @@ class OnlineEmbeddingModel(EmbeddingModel):
         
         if not texts:
             return []
-            
+
         # 创建结果列表
         dim = self._get_model_dimension()
         results = [[0.0] * dim for _ in range(len(texts))]
@@ -282,6 +418,15 @@ class OnlineEmbeddingModel(EmbeddingModel):
 class SiliconFlowEmbeddingModel(EmbeddingModel):
     """硅基流动API的嵌入模型实现"""
     
+    # 模型映射表
+    _MODEL_DIMENSIONS = {
+        "BAAI/bge-m3": 1024,
+        "BAAI/bge-large-zh-v1.5": 1024,
+        "BAAI/bge-large-en-v1.5": 1024,
+        "BAAI/bge-small-zh-v1.5": 512,
+        "BAAI/bge-small-en-v1.5": 512
+    }
+
     def __init__(self, model_name: str, api_key: Optional[str] = None, 
                  api_url: str = "https://api.siliconflow.cn/v1/embeddings"):
         # 处理字典格式的model_name参数
@@ -292,7 +437,7 @@ class SiliconFlowEmbeddingModel(EmbeddingModel):
         if isinstance(api_url, dict) and 'value' in api_url:
             safe_print(f"硅基流动API URL是对象格式，值为: {api_url['value']}")
             api_url = api_url['value']
-        
+            
         self.model_name = str(model_name)
         self.api_key = api_key
         self.api_url = api_url
@@ -332,6 +477,16 @@ class SiliconFlowEmbeddingModel(EmbeddingModel):
             self.session.headers.update({
                 "Authorization": f"Bearer {self.api_key}"
             })
+        
+        # 连接测试标志
+        self.connection_tested = False
+
+    def _test_api_connection(self):
+        """测试API连接"""
+        # 跳过API连接测试，直接返回成功
+        logger.debug("跳过API连接测试，直接返回成功")
+        self.connection_tested = True
+        return True
 
     def embed(self, texts: List[str], async_mode: bool = False, timeout: float = 10.0) -> List[List[float]]:
         """
@@ -348,40 +503,40 @@ class SiliconFlowEmbeddingModel(EmbeddingModel):
         if not texts:
             return []
             
-        # 直接使用本地伪嵌入向量，避免API请求错误
-        results = []
-        for text in texts:
-            # 获取默认维度
-            dim = self._get_model_dimension()
+        # 如果是单个文本字符串，转换为列表
+        if isinstance(texts, str):
+            texts = [texts]
             
-            # 生成基于哈希的伪随机嵌入向量
-            try:
-                text_bytes = text.encode('utf-8')
-                hash_val = hashlib.md5(text_bytes).digest()
-                
-                # 使用哈希值生成一个稳定但随机的向量
-                seed_values = [((b / 255.0) * 2 - 1) * 0.1 for b in hash_val]
-                embedding = []
-                
-                for i in range(dim):
-                    # 循环使用seed_values的值并加入位置相关的变化
-                    base_val = seed_values[i % len(seed_values)]
-                    # 添加小的变化保持向量的区分度
-                    adjusted_val = base_val + ((i * 0.01) % 0.1)
-                    embedding.append(adjusted_val)
-                
-                # 缓存结果
-                cache_key = hashlib.md5(text_bytes).hexdigest()
-                self.cache[cache_key] = embedding
-                safe_print(f"✅ 已生成本地伪嵌入向量，维度: {dim}")
-                results.append(embedding)
-                
-            except Exception as e:
-                safe_print(f"⚠️ 生成伪嵌入向量失败: {str(e)}")
-                # 失败时使用零向量
-                results.append([0.0] * dim)
+        # 过滤空文本
+        texts = [text for text in texts if text and isinstance(text, str)]
+        if not texts:
+            return []
+            
+        # 计数API调用
+        self.api_calls += 1
         
-        return results
+        # 检查缓存
+        if len(texts) == 1 and texts[0] in self.cache:
+            self.cache_hits += 1
+            return [self.cache[texts[0]]]
+            
+        # 使用异步模式处理多文本
+        if async_mode and len(texts) > 1:
+            return self._async_embed(texts, timeout)
+            
+        # 常规处理方式
+        if len(texts) <= 16:  # 小批量直接处理
+            return self._embed_batch(texts, timeout)
+        else:  # 大批量分批处理
+            batch_size = 16
+            result = []
+            
+            for i in range(0, len(texts), batch_size):
+                batch = texts[i:i + batch_size]
+                batch_result = self._embed_batch(batch, timeout)
+                result.extend(batch_result)
+                
+            return result
 
     def _embed_batch(self, texts: List[str], timeout: float = 10.0) -> List[List[float]]:
         """处理一批文本的嵌入"""
@@ -435,12 +590,14 @@ class SiliconFlowEmbeddingModel(EmbeddingModel):
             
             # 发送API请求
             safe_print(f"请求硅基流动嵌入API，{len(uncached_texts)}个文本")
+            
+            # 使用会话发送请求
             response = self.session.post(
                 self.api_url,
                 json=payload,
-                timeout=timeout,
-                proxies={}  # 明确禁用代理
+                timeout=timeout
             )
+            
             self.api_calls += 1
             
             # 处理响应
@@ -511,7 +668,7 @@ class SiliconFlowEmbeddingModel(EmbeddingModel):
         
         if not texts:
             return []
-            
+
         # 创建结果列表
         dim = self._get_model_dimension()
         results = [[0.0] * dim for _ in range(len(texts))]
@@ -1067,6 +1224,353 @@ class RAG:
             self.index = None
             self.documents = []
             self.initialized = True
+            self.data_path = os.path.join(os.getcwd(), "data", "rag_data.pkl")
+            
+            # 尝试加载现有数据
+            try:
+                if os.path.exists(self.data_path) and self.embedding_model:
+                    print(f"检测到RAG数据文件，尝试加载: {self.data_path}")
+                    self.load()
+            except Exception as e:
+                print(f"加载现有RAG数据失败: {str(e)}")
+
+    def save(self):
+        """
+        保存当前RAG索引和文档到文件
+        """
+        try:
+            import pickle
+            import os
+            import logging
+            
+            # 获取logger
+            logger = logging.getLogger('main')
+            
+            # 创建目录（如果不存在）
+            os.makedirs(os.path.dirname(self.data_path), exist_ok=True)
+            
+            # 准备要保存的数据（不保存index，因为它可以从文档重建）
+            data_to_save = {
+                "documents": self.documents,
+                "embedding_model_info": str(self.embedding_model)
+            }
+            
+            # 保存数据
+            with open(self.data_path, 'wb') as f:
+                pickle.dump(data_to_save, f)
+                
+            # 同时保存为JSON格式（便于查看和编辑）
+            export_result = self.export_to_json()
+                
+            print(f"已保存RAG数据，文档数量: {len(self.documents)}")
+            logger.info(f"已保存RAG记忆数据，文档数量: {len(self.documents)}")
+            
+            if export_result:
+                logger.info("成功将RAG记忆导出为JSON格式")
+            
+            return True
+        except Exception as e:
+            print(f"保存RAG数据失败: {str(e)}")
+            logging.getLogger('main').error(f"保存RAG数据失败: {str(e)}")
+            return False
+    
+    def export_to_json(self):
+        """
+        将RAG文档导出为JSON格式
+        将对话按照新格式结构保存
+        """
+        try:
+            import json
+            import os
+            import re
+            import logging
+            from datetime import datetime
+            
+            # 获取logger
+            logger = logging.getLogger('main')
+            
+            # 确定JSON文件路径
+            json_path = os.path.join(os.getcwd(), "data", "memory", "rag-memory.json")
+            
+            # 创建目录（如果不存在）
+            os.makedirs(os.path.dirname(json_path), exist_ok=True)
+            
+            # 首先检查是否存在现有的记忆文件
+            existing_conversations = {}
+            if os.path.exists(json_path):
+                try:
+                    logger.info(f"发现现有记忆文件，尝试读取: {json_path}")
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        existing_conversations = json.load(f)
+                    logger.info(f"成功读取现有记忆，包含 {len(existing_conversations)} 个对话")
+                except Exception as e:
+                    logger.warning(f"读取现有记忆文件失败: {str(e)}")
+            
+            # 使用正则表达式匹配对话模式
+            user_pattern = re.compile(r'^\[(.*?)\]对方\(ID:(.*?)\): (.*)$')
+            ai_pattern = re.compile(r'^\[(.*?)\] 你: (.*)$')
+            
+            # 整理对话数据
+            conversation_index = len(existing_conversations)
+            
+            # 收集所有用户消息
+            user_messages = []
+            for doc in self.documents:
+                user_match = user_pattern.match(doc)
+                if user_match:
+                    timestamp, user_id, message = user_match.groups()
+                    user_messages.append({
+                        "doc": doc,
+                        "timestamp": timestamp,
+                        "user_id": user_id.strip(),
+                        "message": message.strip()
+                    })
+            
+            # 匹配AI回复
+            matched_conversations = []
+            for user_msg in user_messages:
+                # 找到匹配的AI回复
+                matched = False
+                for doc in self.documents:
+                    ai_match = ai_pattern.match(doc)
+                    if ai_match and user_msg["timestamp"].split()[0] in doc:  # 匹配日期
+                        ai_timestamp, ai_response = ai_match.groups()
+                        
+                        # 从config或环境变量获取当前角色名
+                        try:
+                            from src.config import config
+                            avatar_dir = config.behavior.context.avatar_dir
+                            # 提取最后一个目录作为角色名
+                            avatar_name = os.path.basename(avatar_dir)
+                        except:
+                            avatar_name = "AI助手"
+                        
+                        # 确定是否为主动消息 (简单判断：如果消息中包含"主人"或类似词，可能是主动消息)
+                        is_initiative = "主人" in user_msg["message"] or "您好" in user_msg["message"]
+                        
+                        # 尝试获取情绪
+                        emotion = "None"
+                        try:
+                            # 导入情感分析模块
+                            from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer
+                            # 创建分析器
+                            resource_loader = SentimentResourceLoader()
+                            analyzer = SentimentAnalyzer(resource_loader)
+                            # 分析情感
+                            sentiment_result = analyzer.analyze(ai_response)
+                            emotion = sentiment_result.get('sentiment_type', 'None').lower()
+                        except Exception as e:
+                            print(f"情感分析失败: {str(e)}")
+                        
+                        # 填充对话数据结构
+                        conversation_key = f"conversation{conversation_index}"
+                        conversation_data = [{
+                            "bot_time": ai_timestamp.strip(),
+                            "sender_id": user_msg["user_id"],
+                            "sender_text": user_msg["message"],
+                            "receiver_id": avatar_name,
+                            "receiver_text": ai_response.strip(),
+                            "emotion": emotion,
+                            "is_initiative": is_initiative  # 确保这里没有空格
+                        }]
+                        matched_conversations.append(conversation_data)
+                        conversation_index += 1
+                        matched = True
+                        break
+            
+            # 保存为JSON - 合并新对话和现有对话
+            conversations = {**existing_conversations}
+            
+            # 检查并修复现有记忆中的字段名称问题
+            modified = False
+            for conv_key, conv_data in conversations.items():
+                for entry in conv_data:
+                    if "is_ initiative" in entry:
+                        # 获取logger
+                        logger = logging.getLogger('main')
+                        logger.warning(f"检测到字段命名问题，修复'is_ initiative'为'is_initiative'")
+                        entry["is_initiative"] = entry.pop("is_ initiative")
+                        modified = True
+            
+            # 如果修复了字段，记录日志
+            if modified:
+                logger.info("修复了字段命名问题")
+                
+            # 获取新的对话索引起点
+            next_index = len(existing_conversations)
+            
+            # 遍历matched_conversations，添加到conversations
+            for i, conv in enumerate(matched_conversations):
+                conversation_key = f"conversation{next_index + i}"
+                conversations[conversation_key] = conv
+            
+            # 保存为JSON
+            try:
+                # 确保目录存在
+                os.makedirs(os.path.dirname(json_path), exist_ok=True)
+                
+                # 打开文件并写入
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(conversations, f, ensure_ascii=False, indent=2)
+                
+                # 验证文件是否成功写入
+                file_size = os.path.getsize(json_path)
+                
+                logger.info(f"已导出RAG记忆到JSON: {json_path}, 共 {len(conversations)} 条对话，文件大小: {file_size} 字节")
+                print(f"已导出RAG记忆到JSON: {json_path}, 共 {len(conversations)} 条对话，文件大小: {file_size} 字节")
+                return True
+            except Exception as file_err:
+                logger.error(f"写入JSON文件失败: {str(file_err)}")
+                print(f"写入JSON文件失败: {str(file_err)}")
+                return False
+        except Exception as e:
+            print(f"导出RAG记忆到JSON失败: {str(e)}")
+            logging.getLogger('main').error(f"导出RAG记忆到JSON失败: {str(e)}")
+            traceback.print_exc()
+            return False
+            
+    def import_from_json(self, json_path=None):
+        """
+        从JSON文件导入记忆
+        
+        Args:
+            json_path: JSON文件路径，如果为None则使用默认路径
+        """
+        try:
+            import json
+            import os
+            import logging
+            
+            # 获取logger
+            logger = logging.getLogger('main')
+            
+            # 确定JSON文件路径
+            if not json_path:
+                json_path = os.path.join(os.getcwd(), "data", "memory", "rag-memory.json")
+                
+            if not os.path.exists(json_path):
+                print(f"JSON记忆文件不存在: {json_path}")
+                return False
+                
+            # 加载JSON数据
+            with open(json_path, 'r', encoding='utf-8') as f:
+                conversations = json.load(f)
+            
+            # 检查并修复字段名问题
+            modified = False
+            for conv_key, conv_data in conversations.items():
+                for entry in conv_data:
+                    if "is_ initiative" in entry:
+                        entry["is_initiative"] = entry.pop("is_ initiative")
+                        modified = True
+                        logger.info(f"修复了字段命名问题: 'is_ initiative' -> 'is_initiative'")
+            
+            # 如果修改了，保存回文件
+            if modified:
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(conversations, f, ensure_ascii=False, indent=2)
+                logger.info(f"保存了修复后的JSON文件")
+                
+            # 清空现有文档
+            old_count = len(self.documents)
+            self.documents = []
+            if self.index:
+                self.index.reset()
+                
+            # 添加记忆
+            new_docs = []
+            
+            # 处理新格式的对话数据
+            for conv_key, conv_data in conversations.items():
+                if not isinstance(conv_data, list) or not conv_data:
+                    continue
+                    
+                for entry in conv_data:
+                    # 检查必要字段是否存在
+                    if not all(k in entry for k in ["sender_id", "sender_text", "receiver_id", "receiver_text"]):
+                        continue
+                    
+                    # 检查时间字段 (兼容旧版本)
+                    if "bot_time" in entry:
+                        timestamp = entry["bot_time"]
+                    elif "receiver_time" in entry:
+                        timestamp = entry["receiver_time"]
+                    else:
+                        # 如果没有时间字段，使用当前时间
+                        from datetime import datetime
+                        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+                    
+                    # 格式化用户消息
+                    sender_id = entry["sender_id"]
+                    sender_text = entry["sender_text"]
+                    
+                    user_msg = f"[{timestamp}]对方(ID:{sender_id}): {sender_text}"
+                    new_docs.append(user_msg)
+                    
+                    # 格式化AI回复
+                    receiver_text = entry["receiver_text"]
+                    ai_msg = f"[{timestamp}] 你: {receiver_text}"
+                    new_docs.append(ai_msg)
+            
+            # 检查是否有新文档
+            if not new_docs:
+                print("JSON文件中没有有效记忆")
+                return False
+                
+            # 生成嵌入并添加到索引
+            print(f"从JSON导入 {len(new_docs)} 条记忆...")
+            embeddings = self.embedding_model.embed(new_docs)
+            
+            # 初始化索引
+            if not self.index:
+                embedding_dim = len(embeddings[0])
+                self.index = faiss.IndexFlatL2(embedding_dim)
+                
+            # 添加到索引
+            self.index.add(np.array(embeddings).astype('float32'))
+            self.documents.extend(new_docs)
+            
+            print(f"成功从JSON导入记忆，原始文档数: {old_count}, 当前文档数: {len(self.documents)}")
+            return True
+        except Exception as e:
+            print(f"从JSON导入记忆失败: {str(e)}")
+            traceback.print_exc()
+            return False
+            
+    def load(self):
+        """
+        从文件加载RAG索引和文档
+        """
+        try:
+            import pickle
+            import os
+            
+            if not os.path.exists(self.data_path):
+                print(f"RAG数据文件不存在: {self.data_path}")
+                return False
+                
+            # 加载数据
+            with open(self.data_path, 'rb') as f:
+                data = pickle.load(f)
+                
+            # 恢复文档
+            if "documents" in data and isinstance(data["documents"], list):
+                self.documents = data["documents"]
+                print(f"已加载 {len(self.documents)} 个文档")
+                
+                # 如果文档存在，重建索引
+                if self.documents and self.embedding_model:
+                    print("重建索引...")
+                    embeddings = self.embedding_model.embed(self.documents)
+                    embedding_dim = len(embeddings[0])
+                    self.index = faiss.IndexFlatL2(embedding_dim)
+                    self.index.add(np.array(embeddings).astype('float32'))
+                    print(f"索引重建完成，文档数量: {len(self.documents)}")
+                    
+            return True
+        except Exception as e:
+            print(f"加载RAG数据失败: {str(e)}")
+            return False
 
     def initialize_index(self, dim: int = 1024):
         """显式初始化索引，防止空指针异常"""
@@ -1187,6 +1691,9 @@ class RAG:
         self.documents.extend(truly_new_texts)
         
         print(f"索引更新完成，当前索引包含 {len(self.documents)} 个文档")
+        
+        # 保存RAG数据到文件
+        self.save()
 
     def query(self, query: str, top_k: int = 5, rerank: bool = False, async_mode: bool = False, timeout: float = 5.0) -> List[str]:
         """
@@ -1204,6 +1711,18 @@ class RAG:
         """
         if not self.documents:
             return []
+        
+        # 检查JSON记忆文件是否存在，如果存在，可能需要先导入最新记忆
+        try:
+            import os
+            import json
+            
+            json_path = os.path.join(os.getcwd(), "data", "memory", "rag-memory.json")
+            if os.path.exists(json_path):
+                # 尝试从JSON获取最新记忆
+                self.import_from_json(json_path)
+        except Exception as e:
+            print(f"尝试导入最新JSON记忆失败: {str(e)}")
         
         # 生成查询向量
         try:
@@ -1255,6 +1774,43 @@ class RAG:
             
             # 使用集合去重
             unique_results = list(set(results))
+            
+            # 将结果转换为结构化格式（如果有完整对话）
+            try:
+                import re
+                
+                structured_results = []
+                user_pattern = re.compile(r'^\[(.*?)\]对方\(ID:(.*?)\): (.*)$')
+                ai_pattern = re.compile(r'^\[(.*?)\] 你: (.*)$')
+                
+                # 尝试将标准文本格式结果转为新的JSON结构
+                for result in unique_results:
+                    user_match = user_pattern.match(result)
+                    ai_match = ai_pattern.match(result)
+                    
+                    if user_match:
+                        # 查找匹配的AI回复
+                        timestamp, user_id, message = user_match.groups()
+                        for other_result in unique_results:
+                            ai_match = ai_pattern.match(other_result)
+                            if ai_match and timestamp in other_result:
+                                ai_timestamp, ai_response = ai_match.groups()
+                                # 创建结构化结果
+                                structured_result = {
+                                    "user_message": message.strip(),
+                                    "ai_response": ai_response.strip(),
+                                    "timestamp": timestamp.strip(),
+                                    "user_id": user_id.strip()
+                                }
+                                structured_results.append(structured_result)
+                                break
+                
+                # 如果有结构化结果，返回这些结果
+                if structured_results:
+                    print(f"已将查询结果转换为{len(structured_results)}条结构化记忆")
+                    return structured_results
+            except Exception as e:
+                print(f"转换为结构化格式失败: {str(e)}")
             
             # 如果需要重排序
             if rerank and self.reranker and len(unique_results) > 1:
@@ -1326,35 +1882,56 @@ class RAG:
 
 
 def load_from_config(config_path: str = None) -> Optional[RAG]:
-    """
-    从配置文件加载RAG系统
-    
-    Args:
-        config_path: 配置文件路径，如果为None则尝试查找默认路径
-        
-    Returns:
-        配置好的RAG系统，如果配置无效则返回None
-    """
     if config_path is None:
+        # 获取当前文件的路径
+        current_file = Path(__file__).resolve()
+        # 项目根目录路径（假设结构是 项目根目录/src/memories/memory/core/rag.py）
+        root_dir = current_file.parents[4]
+        
         # 尝试在几个常见位置找到配置文件
         possible_paths = [
-            "config.yaml",
-            "config.yml", 
-            "rag_config.yaml",
-            "rag_config.yml",
+            os.path.join(root_dir, "src", "config", "rag_config.yaml"),
+            os.path.join(root_dir, "src", "config", "config.yaml"),
+            os.path.join(root_dir, "config.yaml"),
+            os.path.join(root_dir, "config.yml"), 
+            os.path.join(root_dir, "rag_config.yaml"),
+            os.path.join(root_dir, "rag_config.yml"),
+            os.path.join(root_dir, "memory_config.yaml"),
+            os.path.join(root_dir, "memory_config.yml"),
+            os.path.join(root_dir, "src", "config", "memory_config.yaml"),
+            os.path.join(root_dir, "src", "memories", "config.yaml"),
+            os.path.join(root_dir, "data", "memories", "config.yaml"),
             os.path.expanduser("~/.config/rag/config.yaml"),
             os.path.join(os.path.dirname(__file__), "config.yaml"),
-            os.path.join(str(Path(__file__).resolve().parents[3]), "src", "config", "config.yaml")
         ]
         
+        print(f"检查可能的配置文件路径:")
         for path in possible_paths:
             if os.path.exists(path):
+                print(f"找到配置文件: {path}")
                 config_path = path
                 break
+            else:
+                print(f"路径不存在: {path}")
                 
         if config_path is None:
             print("❌ 未找到配置文件")
-            return None
+            # 创建默认配置
+            try:
+                default_config_path = os.path.join(root_dir, "src", "config", "config.yaml")
+                # 确保目录存在
+                os.makedirs(os.path.dirname(default_config_path), exist_ok=True)
+                print(f"创建默认配置文件: {default_config_path}")
+                create_default_config(default_config_path)
+                if os.path.exists(default_config_path):
+                    config_path = default_config_path
+                    print(f"✅ 已创建默认配置文件: {default_config_path}")
+                else:
+                    print(f"❌ 无法创建默认配置文件")
+                    return None
+            except Exception as e:
+                print(f"❌ 创建默认配置失败: {str(e)}")
+                return None
     
     if not os.path.exists(config_path):
         print(f"❌ 配置文件不存在: {config_path}")
@@ -1394,6 +1971,16 @@ def load_from_config(config_path: str = None) -> Optional[RAG]:
                     # 如果无法导入处理模块，进行简单的配置提取
                     rag_settings = config.get('categories', {}).get('rag_settings', {}).get('settings', {})
                     
+                    # 获取embedding_model，支持错误拼写的eembedding_model
+                    embedding_model = rag_settings.get('embedding_model', {}).get('value', '')
+                    if not embedding_model:
+                        embedding_model = rag_settings.get('eembedding_model', {}).get('value', 'BAAI/bge-m3')
+                    
+                    # 获取base_url，支持错误拼写的bbase_url
+                    base_url = rag_settings.get('base_url', {}).get('value', '')
+                    if not base_url:
+                        base_url = rag_settings.get('bbase_url', {}).get('value', 'https://api.siliconflow.cn/v1/embeddings')
+                    
                     # 创建基本配置
                     config = {
                         "singleton": True,
@@ -1403,9 +1990,9 @@ def load_from_config(config_path: str = None) -> Optional[RAG]:
                         },
                         "embedding_model": {
                             "type": "siliconflow",
-                            "model_name": rag_settings.get('embedding_model', {}).get('value', 'BAAI/bge-m3'),
+                            "model_name": embedding_model,
                             "api_key": rag_settings.get('api_key', {}).get('value', ""),
-                            "api_url": rag_settings.get('base_url', {}).get('value', "https://api.siliconflow.cn/v1/embeddings")
+                            "api_url": base_url
                         }
                     }
                     

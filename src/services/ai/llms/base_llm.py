@@ -2,7 +2,7 @@ import logging
 from abc import ABC, abstractmethod
 from typing import Callable, List, Dict, Optional, Tuple
 from logging import Logger
-from src.services.ai.llms.llm import online_llm
+from .llm import online_llm
 from datetime import datetime
 
 

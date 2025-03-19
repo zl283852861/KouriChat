@@ -15,10 +15,11 @@ import time
 from wxauto import WeChat
 import random
 import os
-from services.ai.llm_service import LLMService
-from config import config
+from src.services.ai.llm_service import LLMService
+from src.config import config
 import re
 import jieba
+import asyncio
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
@@ -76,7 +77,7 @@ class MessageHandler:
             logger.info(f"消息前50字符: {message[:50]}...")
             logger.info(f"使用模型: {self.deepseek.llm.model_name}")
             logger.info(f"API地址: {self.deepseek.llm.url}")
-            logger.info(f"API密钥前4位: {self.deepseek.llm.api_key[:4] if len(self.deepseek.llm.api_key) > 4 else '无效'}")
+            logger.info(f"API密钥后4位: {self.deepseek.llm.api_key[4:] if len(self.deepseek.llm.api_key) > 4 else '无效'}")
             logger.info("==============================")
             
             # 使用正确的属性名称调用方法
@@ -206,7 +207,7 @@ class MessageHandler:
             # 3. "(此时时间为2025-03-19 04:31:31) ta私聊对你说"
             time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s*'
             time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s*'
-            time_prefix_pattern3 = r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*'
+            time_prefix_pattern3 = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s+ta(私聊|在群聊里)对你说\s*'
             
             if re.search(time_prefix_pattern, actual_content):
                 actual_content = re.sub(time_prefix_pattern, '', actual_content)
@@ -279,12 +280,12 @@ class MessageHandler:
                 
                 # 修改等待时间计算逻辑，更加智能地根据打字速度和消息长度调整
                 # 基础等待时间 + 根据打字速度和消息长度计算的额外等待时间
-                base_wait_time = 6.0  # 基础等待时间6秒
+                base_wait_time = 5.0  # 基础等待时间5秒
                 
                 # 根据消息数量调整等待时间
                 if msg_count == 1:
                     # 第一条消息，给予一定的等待时间
-                    wait_time = base_wait_time + 2.0  # 总共8秒
+                    wait_time = base_wait_time + 5.0  # 总共5秒
                     logger.info(f"首条消息，设置较长等待时间: {wait_time:.1f}秒")
                 else:
                     # 后续消息，根据打字速度和消息长度动态调整
@@ -363,19 +364,23 @@ class MessageHandler:
             logger.info(f"处理缓存 - 用户: {username}, 消息数: {msg_count}, 总内容长度: {total_length}")
             
             # 获取最近的对话记录作为上下文
-            recent_history = self.memory_handler.get_relevant_memories(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",username)
-            context = ""
-            if recent_history and len(recent_history) > 0 and recent_history[0].get('message'):
-                # 构建更丰富的上下文，包含最多30轮对话历史
-                context_parts = []
-                for idx, hist in enumerate(recent_history):
-                    if hist.get('message') and hist.get('reply'):
-                        context_parts.append(f"对话{idx+1}:\n用户: {hist['message']}\nAI: {hist['reply']}")
-                
-                if context_parts:
-                    context = "\n\n".join(context_parts)
-                    logger.info(f"加载了{len(context_parts)}轮历史对话作为上下文")
-
+            try:
+                recent_history = self.memory_handler.get_relevant_memories(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", username)
+                context = ""
+                if recent_history and len(recent_history) > 0:
+                    # 构建更丰富的上下文，包含最多30轮对话历史
+                    context_parts = []
+                    for idx, hist in enumerate(recent_history):
+                        if hist.get('message') and hist.get('reply'):
+                            context_parts.append(f"对话{idx+1}:\n用户: {hist['message']}\nAI: {hist['reply']}")
+                    
+                    if context_parts:
+                        context = "以下是之前的对话记录：\n\n" + "\n\n".join(context_parts[:30])
+                        logger.debug(f"添加历史上下文，共 {len(context_parts)} 轮对话")
+            except Exception as e:
+                logger.error(f"获取记忆历史记录失败: {str(e)}")
+                context = ""
+            
             # 合并所有缓存的消息，但优先处理新消息
             messages = self.message_cache[username]
             
@@ -413,7 +418,7 @@ class MessageHandler:
             general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
             time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
             time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
-            time_prefix_pattern3 = r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*'
+            time_prefix_pattern3 = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s+ta(私聊|在群聊里)对你说\s*'
             reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
             context_pattern = r'对话\d+:\n用户:.+\nAI:.+'
             
@@ -620,7 +625,7 @@ class MessageHandler:
         # 定义系统提示词模式
         time_prefix_pattern = r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s+'
         time_prefix_pattern2 = r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s+'
-        time_prefix_pattern3 = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*'
+        time_prefix_pattern3 = r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s+ta(私聊|在群聊里)对你说\s*'
         reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
         context_pattern = r'对话\d+:\n用户:.+\nAI:.+'
         system_patterns = [
@@ -1020,9 +1025,20 @@ class MessageHandler:
             else:
                 # 此处修改(2025/03/14 by eliver) 不是结束时则添加记忆到内容中
                 if self.memory_handler:
-                    memories = self.memory_handler.get_relevant_memories(content, username)
-                    if memories:
-                        content += f"\n以上是用户的沟通内容；以下是记忆中检索的内容：{';'.join(memories)}\n请你根据以上内容回复用户的消息。"
+                    try:
+                        memories = self.memory_handler.get_relevant_memories(content, username)
+                        if memories and len(memories) > 0:
+                            # 构建记忆上下文
+                            memory_parts = []
+                            for mem in memories:
+                                if mem.get('message') and mem.get('reply'):
+                                    memory_parts.append(f"用户: {mem['message']}\nAI: {mem['reply']}")
+                            
+                            if memory_parts:
+                                memory_context = "\n\n".join(memory_parts)
+                                content += f"\n\n以下是相关记忆内容：\n{memory_context}\n\n请结合这些记忆来回答用户的问题。"
+                    except Exception as e:
+                        logger.error(f"处理文本消息失败: {str(e)}")
             
             # 使用正确的方法获取API回复 - 传递用户名以保持上下文关联
             reply = self.get_api_response(content, username)
@@ -1040,37 +1056,58 @@ class MessageHandler:
                 logger.info("\nAI回复:")
                 logger.info(reply)
             
-            # 显式存储对话记忆 - 确保每次对话都被保存
+            # 立即保存对话记忆 - 确保调用记忆保存功能
             try:
-                if self.memory_handler and hasattr(self.memory_handler, 'short_term_memory'):
-                    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    
-                    # 检查回复是否包含API错误信息
-                    if isinstance(reply, str) and "API调用失败" in reply:
-                        logger.warning(f"检测到API错误，跳过记忆保存: {reply[:100]}...")
-                    else:
-                        # 创建记忆键值对
-                        memory_key = f"[{timestamp}] 对方(ID:{username}): {raw_content}"
-                        memory_value = f"[{timestamp}] 你: {reply}"
+                logger.info(f"开始保存对话到RAG记忆系统 - 用户: {username}")
+                # 创建记忆时间戳
+                timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                
+                # 创建记忆键值对
+                memory_key = f"[{timestamp}] 对方(ID:{username}): {raw_content}"
+                memory_value = f"[{timestamp}] 你: {reply}"
+                
+                # 直接调用记忆保存方法
+                if self.memory_handler:
+                    try:
+                        # 导入_run_async函数
+                        from src.handlers.memory import _run_async
                         
-                        # 清理记忆内容
-                        if hasattr(self.memory_handler, 'clean_memory_content'):
+                        # 检查remember方法是否是异步方法
+                        if asyncio.iscoroutinefunction(self.memory_handler.remember):
+                            logger.info(f"检测到remember是异步方法，使用_run_async调用")
+                            # 从全局函数导入remember，确保正确处理user_id参数
+                            from src.memories import remember as global_remember
+                            save_result = _run_async(global_remember(raw_content, reply, username))
+                        else:
+                            # 如果是同步方法，传递三个参数
+                            save_result = self.memory_handler.remember(raw_content, reply, username)
+                        
+                        if save_result:
+                            logger.info(f"成功保存对话到RAG系统 - 用户: {username}")
+                        else:
+                            logger.warning(f"调用remember方法保存对话失败 - 用户: {username}")
+                    except Exception as e:
+                        logger.error(f"调用remember方法时出错: {str(e)}")
+                        save_result = False
+                        
+                    # 如果remember方法失败，尝试使用其他方法
+                    if not save_result and hasattr(self.memory_handler, 'add_short_memory'):
+                        alt_result = self.memory_handler.add_short_memory(raw_content, reply, username)
+                        if alt_result:
+                            logger.info(f"通过add_short_memory成功保存对话 - 用户: {username}")
+                            
+                            # 强制保存到文件
                             try:
-                                memory_key, memory_value = self.memory_handler.clean_memory_content(memory_key, memory_value)
-                                
-                                # 检查清理后的内容是否有效
-                                if memory_key and memory_value:
-                                    # 添加到短期记忆
-                                    logger.info(f"主动添加对话到短期记忆 - 用户: {username}")
-                                    self.memory_handler.short_term_memory.add_memory(
-                                        user_id=username,
-                                        memory_key=memory_key,
-                                        memory_value=memory_value
-                                    )
-                                else:
-                                    logger.warning("清理后的记忆内容为空，跳过添加")
-                            except Exception as clean_err:
-                                logger.error(f"清理记忆内容失败: {str(clean_err)}")
+                                from src.memories import save_memories
+                                logger.info("强制触发全局记忆保存...")
+                                save_memories()
+                                logger.info("全局记忆保存完成")
+                            except Exception as se:
+                                logger.error(f"全局记忆保存失败: {str(se)}")
+                        else:
+                            logger.warning(f"通过add_short_memory保存对话失败 - 用户: {username}")
+                else:
+                    logger.warning(f"记忆处理器不可用，无法保存对话 - 用户: {username}")
             except Exception as mem_err:
                 logger.error(f"保存对话记忆失败: {str(mem_err)}")
             

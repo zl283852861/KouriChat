@@ -257,13 +257,27 @@ class SettingReader:
             if isinstance(local_model_path, dict) and 'value' in local_model_path:
                 local_model_path = local_model_path['value']
             
+            # 处理base_url，支持错误拼写的bbase_url
+            base_url = rag_data.get('base_url', '')
+            if not base_url and 'bbase_url' in rag_data:
+                base_url = rag_data.get('bbase_url', {}).get('value', '')
+            elif isinstance(base_url, dict) and 'value' in base_url:
+                base_url = base_url['value']
+            
+            # 处理embedding_model，支持错误拼写的eembedding_model
+            embedding_model = rag_data.get('embedding_model', '')
+            if not embedding_model and 'eembedding_model' in rag_data:
+                embedding_model = rag_data.get('eembedding_model', {}).get('value', '')
+            elif isinstance(embedding_model, dict) and 'value' in embedding_model:
+                embedding_model = embedding_model['value']
+            
             object.__setattr__(self, 'rag', RagSettings(
-                base_url=rag_data.get('base_url', ''),
-                api_key=rag_data.get('api_key', ''),
-                is_rerank=rag_data.get('is_rerank', False),
-                reranker_model=rag_data.get('reranker_model', ''),
-                embedding_model=rag_data.get('embedding_model', ''),
-                top_k=rag_data.get('top_k', 5),
+                base_url=base_url,
+                api_key=rag_data.get('api_key', {}).get('value', ''),
+                is_rerank=rag_data.get('is_rerank', {}).get('value', False),
+                reranker_model=rag_data.get('reranker_model', {}).get('value', ''),
+                embedding_model=embedding_model,
+                top_k=rag_data.get('top_k', {}).get('value', 5),
                 local_model_enabled=local_model_enabled,
                 auto_adapt_siliconflow=auto_adapt,
                 local_embedding_model_path=local_model_path

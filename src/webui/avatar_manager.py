@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import shutil
 
+# 使用相对路径，保持与routes/avatar.py一致
 AVATARS_DIR = Path('data/avatars')
 
 def read_avatar_sections(file_path):

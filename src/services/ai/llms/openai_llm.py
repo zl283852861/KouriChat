@@ -1,7 +1,7 @@
 from typing import List, Dict
 import logging
 from openai import OpenAI
-from src.services.ai.llms.base_llm import BaseLLM
+from .base_llm import BaseLLM
 
 class OpenAILLM(BaseLLM):
     """

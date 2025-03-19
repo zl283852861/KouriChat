@@ -1,33 +1,43 @@
-colorama
-Flask
-jieba
-openai>=1.0.0
-pandas
-psutil
-pyautogui
-requests
-SQLAlchemy
-tenacity
-Werkzeug
-wxauto==3.9.11.17.5
-apscheduler
-schedule
-python-dotenv
-urllib3==1.26.3
-python-docx
-mysql-connector-python
+    # Web框架和HTTP
+    Flask
+    Werkzeug
+    requests
+    httpx
+    urllib3==1.26.3
 
-# 嵌入和AI模型相关
-sentence-transformers==2.2.2
-faiss-cpu==1.7.4
-numpy==1.26.4
-ruamel.yaml
+    # 数据处理和存储
+    pandas
+    SQLAlchemy
+    mysql-connector-python
+    python-docx
+    numpy==1.26.4
+    ruamel.yaml
+    pyyaml
 
-# Windows特定依赖
-pywin32
-pypiwin32
-pyyaml
+    # AI和机器学习
+    openai>=1.0.0
+    huggingface-hub==0.10.0
+    sentence-transformers==2.2.2
+    tiktoken
+    faiss-cpu==1.7.4
+    jieba
 
-# 实用工具
-tqdm>=4.65.0
-pillow>=9.4.0
+    # 自动化和系统
+    pyautogui
+    psutil
+    wxauto
+    apscheduler
+    schedule
+
+    # Windows依赖
+    pywin32
+    pypiwin32
+
+    # 开发工具
+    python-dotenv
+    tenacity
+    colorama
+    tqdm>=4.65.0
+
+    # 图像处理
+    pillow>=9.4.0

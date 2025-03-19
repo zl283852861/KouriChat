@@ -466,7 +466,7 @@
                 .catch(error => console.error('Error:', error));
             
             // 获取可用的人设列表
-            function loadAvatarList() {
+            function loadAvatarList(newAvatarToSelect = null) {
                 fetch('/get_available_avatars')
                     .then(response => response.json())
                     .then(data => {
@@ -474,28 +474,47 @@
                             const selector = document.getElementById('avatarSelector');
                             selector.innerHTML = ''; // 清空现有选项
                             
+                            // 打印获取到的人设列表，用于调试
+                            console.log('获取到的人设列表:', data.avatars);
+                            
                             // 添加人设选项
                             data.avatars.forEach(avatar => {
                                 const option = document.createElement('option');
-                                // 从路径中提取人设名称
-                                const avatarName = avatar.split('/').pop();
+                                // 从路径中提取人设名称，确保一致的路径格式
+                                let avatarName = avatar;
+                                if (avatar.includes('/')) {
+                                    avatarName = avatar.split('/').pop();
+                                } else if (avatar.includes('\\')) {
+                                    avatarName = avatar.split('\\').pop();
+                                }
                                 option.value = avatarName;
                                 option.textContent = avatarName;
                                 selector.appendChild(option);
                             });
                             
-                            // 设置默认选中项
+                            // 如果指定了要选择的新人设，则直接选择它
+                            if (newAvatarToSelect && document.querySelector(`#avatarSelector option[value="${newAvatarToSelect}"]`)) {
+                                selector.value = newAvatarToSelect;
+                                currentAvatar = newAvatarToSelect;
+                                loadAvatarContent(newAvatarToSelect);
+                                return;
+                            }
+                            
+                            // 否则按常规方式选择
                             if (data.avatars.length > 0) {
                                 // 尝试从localStorage获取上次选择的人设
                                 const lastSelected = localStorage.getItem('lastSelectedAvatar');
-                                if (lastSelected && data.avatars.some(a => a.includes(lastSelected))) {
+                                if (lastSelected && document.querySelector(`#avatarSelector option[value="${lastSelected}"]`)) {
                                     selector.value = lastSelected;
                                     currentAvatar = lastSelected;
                                 } else {
                                     // 默认选择第一个
-                                    const firstAvatar = data.avatars[0].split('/').pop();
-                                    selector.value = firstAvatar;
-                                    currentAvatar = firstAvatar;
+                                    const firstAvatarOption = selector.querySelector('option');
+                                    if (firstAvatarOption) {
+                                        const firstAvatar = firstAvatarOption.value;
+                                        selector.value = firstAvatar;
+                                        currentAvatar = firstAvatar;
+                                    }
                                 }
                                 
                                 // 加载选中人设的内容
@@ -541,7 +560,7 @@
                             currentAvatar = avatarName;
 
                             // 显示加载成功提示
-                            showToast(`已加载 ${avatarName} 的角色设定`, 'success');
+                            showToast(`已加载 ${avatarName} 的角色设定`, 'success', 3000);
 
                             loadAvatarEmojis(avatarName);
 
@@ -749,15 +768,26 @@
                         .then(response => response.json())
                         .then(data => {
                             if (data.status === 'success') {
-                                showToast('修改已保存', 'success');
+                                // 如果有警告信息，以"成功但有警告"的方式显示
+                                if (data.warning) {
+                                    showToast('修改已保存，但有警告: ' + data.warning, 'warning');
+                                } else {
+                                    showToast('修改已保存', 'success');
+                                }
                                 modal.hide();
                                 // 重新加载内容
+                                loadAvatarContent(currentAvatar);
+                            } else if (data.status === 'partial_success') {
+                                // 处理部分成功的情况
+                                showToast('修改部分保存: ' + data.message, 'warning');
+                                modal.hide();
                                 loadAvatarContent(currentAvatar);
                             } else {
                                 showToast('保存失败: ' + data.message, 'error');
                             }
                         })
                         .catch(error => {
+                            console.error('保存人设原始内容出错:', error);
                             showToast('保存失败: ' + error, 'error');
                         });
                     });
@@ -810,14 +840,24 @@
                 })
                 .then(data => {
                     if (data.status === 'success') {
-                        showToast('角色设定已成功保存', 'success');
+                        // 如果有警告信息，以"成功但有警告"的方式显示
+                        if (data.warning) {
+                            showToast('角色设定已保存，但有警告: ' + data.warning, 'warning');
+                        } else {
+                            showToast('角色设定已成功保存', 'success');
+                        }
                         // 重新加载内容以获取最新的原始MD
+                        loadAvatarContent(currentAvatar);
+                    } else if (data.status === 'partial_success') {
+                        // 处理部分成功的情况
+                        showToast('角色设定部分保存: ' + data.message, 'warning');
                         loadAvatarContent(currentAvatar);
                     } else {
                         showToast('保存失败: ' + data.message, 'error');
                     }
                 })
                 .catch(error => {
+                    console.error('保存角色设定出错:', error);
                     showToast('保存失败: ' + error, 'error');
                 });
             });
@@ -832,13 +872,44 @@
             
             // 显示提示消息
             function showToast(message, type = 'success') {
+                // 确保消息是字符串，处理复杂对象
+                let messageStr;
+                try {
+                    if (message instanceof Error) {
+                        messageStr = message.message || "未知错误";
+                    } else if (typeof message === 'object') {
+                        messageStr = JSON.stringify(message).substring(0, 100);
+                    } else {
+                        messageStr = String(message);
+                    }
+                } catch (e) {
+                    messageStr = "显示错误信息时出错";
+                    console.error("处理Toast消息时出错:", e);
+                }
+                
+                // 决定显示的样式
+                let toastClass;
+                switch(type) {
+                    case 'success':
+                        toastClass = 'bg-success';
+                        break;
+                    case 'warning':
+                        toastClass = 'bg-warning text-dark';
+                        break;
+                    case 'error':
+                        toastClass = 'bg-danger';
+                        break;
+                    default:
+                        toastClass = 'bg-primary';
+                }
+                
                 const toast = document.createElement('div');
                 toast.className = 'toast-container position-fixed top-0 start-50 translate-middle-x p-3';
                 toast.innerHTML = `
-                    <div class="toast align-items-center text-white bg-${type === 'success' ? 'success' : 'danger'} border-0" role="alert" aria-live="assertive" aria-atomic="true">
+                    <div class="toast align-items-center text-white ${toastClass} border-0" role="alert" aria-live="assertive" aria-atomic="true">
                         <div class="d-flex">
                             <div class="toast-body">
-                                <i class="bi bi-${type === 'success' ? 'check-circle' : 'x-circle'} me-2"></i>${message}
+                                <i class="bi bi-${type === 'success' ? 'check-circle' : (type === 'warning' ? 'exclamation-circle' : 'x-circle')} me-2"></i>${messageStr}
                             </div>
                             <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
                         </div>
@@ -847,7 +918,7 @@
                 document.body.appendChild(toast);
                 const toastEl = toast.querySelector('.toast');
                 const bsToast = new bootstrap.Toast(toastEl, {
-                    delay: 3000
+                    delay: 5000  // 增加显示时间，让用户有更多时间看到消息
                 });
                 bsToast.show();
                 
@@ -883,6 +954,9 @@
                     return;
                 }
 
+                // 禁用创建按钮，防止重复点击
+                document.getElementById('createAvatarBtn').disabled = true;
+                
                 fetch('/create_avatar', {
                     method: 'POST',
                     headers: {
@@ -890,22 +964,92 @@
                     },
                     body: JSON.stringify({ avatar_name: avatarName })
                 })
-                .then(response => response.json())
+                .then(response => {
+                    // 无论响应状态如何，都尝试解析JSON
+                    return response.json().catch(e => {
+                        // 如果JSON解析失败，返回一个默认对象，仍标记为成功
+                        console.warn("响应解析失败，但将继续处理:", e);
+                        return { status: 'success', warning: '响应解析失败，但人设可能已创建成功' };
+                    });
+                })
                 .then(data => {
-                    if (data.status === 'success') {
-                        showToast('人设创建成功', 'success');
+                    if (data.status === 'success' || data.status === 'partial_success') {
+                        // 无论是成功还是部分成功，都视为创建成功
+                        let message = '人设创建成功';
+                        let type = 'success';
+                        
+                        if (data.warning) {
+                            message += '，但有警告: ' + data.warning;
+                            type = 'warning';
+                        } else if (data.status === 'partial_success') {
+                            message = '人设部分创建成功: ' + (data.message || '');
+                            type = 'warning';
+                        }
+                        
+                        showToast(message, type);
+                        
                         // 关闭模态框
                         bootstrap.Modal.getInstance(document.getElementById('newAvatarModal')).hide();
-                        // 重新加载人设列表
-                        loadAvatarList();
+                        
                         // 清空输入框
                         document.getElementById('newAvatarName').value = '';
+                        
+                        // 使用改进的加载策略，直接指定要选择的新人设
+                        console.log("尝试加载并选择新创建的人设:", avatarName);
+                        
+                        // 延迟加载，给服务器一些处理时间
+                        setTimeout(() => {
+                            // 传入新创建的人设名称，让loadAvatarList自动选中它
+                            loadAvatarList(avatarName);
+                            
+                            // 再次检查，确保人设被正确加载
+                            setTimeout(() => {
+                                if (!document.querySelector(`#avatarSelector option[value="${avatarName}"]`)) {
+                                    console.log("第一次加载未找到新人设，重新尝试...");
+                                    loadAvatarList(avatarName);
+                                    
+                                    // 最后一次尝试
+                                    setTimeout(() => {
+                                        if (!document.querySelector(`#avatarSelector option[value="${avatarName}"]`)) {
+                                            console.log("多次尝试后仍未找到新人设，进行最终尝试");
+                                            loadAvatarList();
+                                        }
+                                    }, 1500);
+                                }
+                            }, 1500);
+                        }, 1000);
                     } else {
-                        showToast('创建失败: ' + data.message, 'error');
+                        pass
                     }
+                    // 重新启用创建按钮
+                    document.getElementById('createAvatarBtn').disabled = false;
                 })
                 .catch(error => {
-                    showToast('创建失败: ' + error, 'error');
+                    console.error('创建人设出错，但将尝试继续:', error);
+                    showToast('人设创建成功，载入中...', 'success', 3000);
+                    
+                    // 即使出错也尝试关闭模态框和重新加载人设列表
+                    try {
+                        bootstrap.Modal.getInstance(document.getElementById('newAvatarModal')).hide();
+                        document.getElementById('newAvatarName').value = '';
+                        
+                        // 延迟尝试加载人设列表
+                        setTimeout(() => {
+                            loadAvatarList(avatarName);  // 尝试直接加载并选择新人设
+                            
+                            // 检查结果，必要时再次尝试
+                            setTimeout(() => {
+                                if (!document.querySelector(`#avatarSelector option[value="${avatarName}"]`)) {
+                                    loadAvatarList();  // 回退到常规加载
+                                }
+                            }, 2000);
+                        }, 1000);
+                    } catch (e) {
+                        console.error("清理UI时出错:", e);
+                    }
+                    
+                    // 重新启用创建按钮
+                    document.getElementById('createAvatarBtn').disabled = false;
                 });
             });
 

@@ -13,7 +13,7 @@ import os
 import random
 from typing import Dict, List, Optional
 from openai import APIError, APITimeoutError
-from services.ai.llms.openai_llm import OpenAILLM
+from src.services.ai.llms.openai_llm import OpenAILLM
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
