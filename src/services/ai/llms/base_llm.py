@@ -36,6 +36,11 @@ class BaseLLM(online_llm):
             system_prompt: 系统提示词
             singleton: 是否为单例模式
         """
+        # 预处理URL，移除末尾的斜杠
+        if url and url.endswith('/'):
+            url = url.rstrip('/')
+            logger.info(f"BaseLLM: URL末尾斜杠已移除: {url}")
+            
         super().__init__(
             model_name,
             url,

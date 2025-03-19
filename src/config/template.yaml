@@ -17,7 +17,7 @@ categories:
         description: DeepSeek API密钥
         is_secret: true
       base_url:
-        value: "https://api.siliconflow.cn/v1/"
+        value: "https://api.siliconflow.cn/v1"
         type: string
         description: DeepSeek API基础URL
       model:

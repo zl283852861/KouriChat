@@ -49,7 +49,11 @@ class online_llm(abc.ABC):
     def __init__(self, model_name: str, url: str, api_key: str, n_ctx: int, temperature: float, singleton: bool = True):
         if not hasattr(self, 'initialized'):
             self.model_name = model_name
-            self.url = url
+            # 处理URL末尾斜杠
+            if url and url.endswith('/'):
+                self.url = url.rstrip('/')
+            else:
+                self.url = url
             self.api_key = api_key
             self.n_ctx = n_ctx
             self.temperature = temperature

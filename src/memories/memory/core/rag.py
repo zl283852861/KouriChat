@@ -5,6 +5,7 @@ import sys
 import io
 import requests  # 添加requests库用于硅基流动API请求
 import os  # 添加os模块用于处理环境变量
+import logging
 
 # 确保使用UTF-8编码，安全检查避免与colorama冲突
 try:
@@ -1083,28 +1084,39 @@ class RAG:
             
         如果同时提供documents和texts，两者都会被添加
         """
+        import logging
+        logger = logging.getLogger('main')
+        
         if not documents and not texts:
-            print("没有提供文档")
+            logger.warning("没有提供文档")
             return
         
         all_texts = []
         
         # 处理documents参数
         if documents:
-            print("接收到documents参数，类型: ")
-            print(f"列表包含 {len(documents)} 个项目")
+            logger.debug(f"接收到documents参数，类型: {type(documents)}")
+            logger.debug(f"列表包含 {len(documents)} 个项目")
             if len(documents) > 0:
-                print(f"示例项目1: {type(documents[0])}, {str(documents[0])[:100]}...")
+                logger.debug(f"示例项目1: {type(documents[0])}, {str(documents[0])[:100]}...")
             
             # 尝试提取文本
             for doc in documents:
                 if isinstance(doc, str):
+                    # 直接添加字符串文档
                     all_texts.append(doc)
                 elif isinstance(doc, tuple) and len(doc) >= 2:
-                    # 可能是(key, value)格式
-                    print(f"检查键值对 - 键: {str(doc[0])[:30]}..., 值: {str(doc[1])[:30]}...")
-                    # 优先使用值部分
-                    if isinstance(doc[1], str):
+                    # 处理(key, value)格式
+                    logger.debug(f"处理键值对 - 键类型: {type(doc[0])}, 值类型: {type(doc[1])}")
+                    
+                    # 如果都是字符串，合并为一个文档
+                    if isinstance(doc[0], str) and isinstance(doc[1], str):
+                        key_str = str(doc[0])
+                        value_str = str(doc[1])
+                        combined_text = f"{key_str}: {value_str}"
+                        logger.debug(f"合并键值对为单一文档: {combined_text[:50]}...")
+                        all_texts.append(combined_text)
+                    elif isinstance(doc[1], str):
                         all_texts.append(doc[1])
                     elif isinstance(doc[0], str):
                         all_texts.append(doc[0])
@@ -1122,7 +1134,7 @@ class RAG:
                     try:
                         all_texts.append(str(doc))
                     except:
-                        print(f"跳过无法转换为文本的文档: {type(doc)}")
+                        logger.warning(f"跳过无法转换为文本的文档: {type(doc)}")
         
         # 处理texts参数
         if texts:
@@ -1140,14 +1152,14 @@ class RAG:
                 continue
                 
             if text in existing_docs_set:
-                print(f"跳过重复文档: {text[:50]}...")
+                logger.debug(f"跳过重复文档: {text[:50]}...")
                 duplicate_count += 1
             else:
                 truly_new_texts.append(text)
                 existing_docs_set.add(text)
         
         if duplicate_count > 0:
-            print(f"没有新文档需要添加，已跳过 {duplicate_count} 个重复文档")
+            logger.info(f"跳过 {duplicate_count} 个重复文档")
         
         if not truly_new_texts:
             return

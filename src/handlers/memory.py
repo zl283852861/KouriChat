@@ -190,8 +190,20 @@ class MemoryHandler:
         # 初始化Rag记忆的方法
         # 2025-03-15修改，使用ShortTermMemory单例模式
         try:
+            # 确认ShortTermMemory类可用
+            if 'ShortTermMemory' not in globals():
+                from src.memories.short_term_memory import ShortTermMemory
+                logger.info("导入ShortTermMemory类")
+                
+            # 确保记忆路径存在
+            memory_path = os.path.join(self.memory_base_dir, "rag-memory.json")
+            memory_dir = os.path.dirname(memory_path)
+            os.makedirs(memory_dir, exist_ok=True)
+            logger.info(f"确保记忆路径存在: {memory_path}")
+            
+            # 创建短期记忆实例
             self.short_term_memory = ShortTermMemory.get_instance(
-                memory_path=os.path.join(self.memory_base_dir, "rag-memory.json"),
+                memory_path=memory_path,
                 embedding_model=hybrid_embedding_model,
                 reranker=OnlineCrossEncoderReRanker(
                     model_name=reranker_model_name,
@@ -199,9 +211,21 @@ class MemoryHandler:
                     base_url=base_url
                 ) if config.rag.is_rerank is True else None
             )
-            logger.info("成功初始化短期记忆系统")
+            
+            # 检查实例是否有效创建
+            if self.short_term_memory and hasattr(self.short_term_memory, 'add_memory'):
+                logger.info("成功初始化短期记忆系统，add_memory方法可用")
+            elif self.short_term_memory and hasattr(self.short_term_memory, 'memory'):
+                logger.info("成功初始化短期记忆系统，memory属性可用")
+            else:
+                logger.warning("短期记忆系统创建成功，但接口可能不完整")
+                
         except Exception as e:
             logger.error(f"初始化短期记忆系统失败: {str(e)}")
+            # 记录详细的错误堆栈
+            import traceback
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
+            
             # 尝试使用简化参数创建
             try:
                 self.short_term_memory = ShortTermMemory.get_instance(
@@ -351,107 +375,118 @@ class MemoryHandler:
         Returns:
             tuple: (清理后的记忆键, 清理后的记忆值)
         """
-        # 打印原始内容进行调试
-        logger.debug(f"开始清理记忆内容 - 原始键: {memory_key[:100]}")
-        logger.debug(f"开始清理记忆内容 - 原始值: {memory_value[:100]}")
-        
-        # 首先检查AI响应是否包含错误信息
-        api_error_keywords = [
-            "API调用失败", "API call failed", 
-            "Connection error", "连接错误",
-            "服务暂时不可用", "请稍后重试",
-            "无法回应", "暂时无法回应",
-            "Error:", "错误:", "异常:"
-        ]
-        
-        # 直接在clean_memory_content中检查错误，确保不会遗漏
-        if any(keyword in memory_value for keyword in api_error_keywords):
-            logger.warning(f"在clean_memory_content中检测到API错误信息: {memory_value[:100]}")
-            # 返回None表示无效记忆
-            return None, None
-        
-        # 提取时间戳
-        timestamp_pattern = r'^\[(.*?)\]'
-        timestamp_match = re.search(timestamp_pattern, memory_key)
-        timestamp = timestamp_match.group(1) if timestamp_match else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        logger.debug(f"提取的时间戳: {timestamp}")
-        
-        # 提取用户ID (如果需要)
-        user_id_pattern = r'对方\(ID:(.*?)\)'
-        user_id_match = re.search(user_id_pattern, memory_key)
-        user_id = user_id_match.group(1) if user_id_match else ""
-        logger.debug(f"提取的用户ID: {user_id}")
-        
-        # 提取用户实际输入内容的多种模式尝试
-        user_content = ""
-        
-        # 模式1: "ta 私聊对你说：" 格式
-        pattern1 = r'ta 私聊对你说：\s*(.*?)(?:\n\n请注意：|$)'
-        match1 = re.search(pattern1, memory_key, re.DOTALL)
-        
-        # 模式2: "对方(ID:xxx): " 后的内容
-        pattern2 = r'对方\(ID:[^)]*\):\s*(.*?)(?:\n\n请注意：|$)'
-        match2 = re.search(pattern2, memory_key, re.DOTALL)
-        
-        # 模式3: 直接从冒号后提取
-        pattern3 = r':\s*(.*?)(?:\n\n请注意：|$)'
-        match3 = re.search(pattern3, memory_key, re.DOTALL)
-        
-        # 尝试按顺序匹配
-        if match1:
-            user_content = match1.group(1).strip()
-            logger.debug(f"使用模式1提取用户内容: {user_content[:50]}...")
-        elif match2:
-            user_content = match2.group(1).strip()
-            logger.debug(f"使用模式2提取用户内容: {user_content[:50]}...")
-        elif match3:
-            user_content = match3.group(1).strip()
-            logger.debug(f"使用模式3提取用户内容: {user_content[:50]}...")
-        else:
-            # 回退：清理特定模式并保留其余内容
-            user_content = re.sub(r'\[.*?\]', '', memory_key)  # 移除时间戳
-            user_content = re.sub(r'对方\(ID:[^)]*\):', '', user_content)  # 移除ID标记
-            user_content = re.sub(r'\n\n请注意：.*$', '', user_content, flags=re.DOTALL)  # 移除提示词
-            user_content = user_content.strip()
-            logger.debug(f"回退方法提取用户内容: {user_content[:50]}...")
-        
-        # 提取AI回复内容
-        ai_content = ""
-        
-        # AI回复模式1: "你: " 后的内容
-        ai_pattern1 = r'你:\s*(.*?)(?:\n\n以上是用户的沟通内容|$)'
-        ai_match1 = re.search(ai_pattern1, memory_value, re.DOTALL)
-        
-        # AI回复模式2: 移除记忆检索部分并从"你: "后提取
-        if ai_match1:
-            ai_content = ai_match1.group(1).strip()
-            logger.debug(f"使用模式1提取AI内容: {ai_content[:50]}...")
-        else:
-            # 回退：清理特定模式并保留其余内容
-            ai_content = re.sub(r'\[.*?\]', '', memory_value)  # 移除时间戳
-            ai_content = re.sub(r'你:', '', ai_content)  # 移除"你:"标记
-            ai_content = re.sub(r'\n\n以上是用户的沟通内容.*$', '', ai_content, flags=re.DOTALL)  # 移除记忆检索部分
-            ai_content = ai_content.strip()
-            logger.debug(f"回退方法提取AI内容: {ai_content[:50]}...")
-        
-        # 再次检查AI内容是否存在错误信息（可能在提取过程中丢失了一些标记）
-        if any(keyword in ai_content for keyword in api_error_keywords):
-            logger.warning(f"在清理后的AI内容中检测到API错误信息: {ai_content[:100]}")
-            return None, None
+        try:
+            # 打印原始内容进行调试
+            logger.debug(f"开始清理记忆内容 - 原始键: {memory_key[:100]}")
+            logger.debug(f"开始清理记忆内容 - 原始值: {memory_value[:100]}")
             
-        # 检查AI内容长度是否过短
-        if len(ai_content.strip()) < 10:
-            logger.warning(f"AI内容过短，可能是错误信息: {ai_content}")
+            # 首先检查AI响应是否包含错误信息
+            api_error_keywords = [
+                "API调用失败", "API call failed", 
+                "Connection error", "连接错误",
+                "服务暂时不可用", "请稍后重试",
+                "无法回应", "暂时无法回应",
+                "Error:", "错误:", "异常:"
+            ]
+            
+            # 直接在clean_memory_content中检查错误，确保不会遗漏
+            if any(keyword in memory_value for keyword in api_error_keywords):
+                logger.warning(f"在clean_memory_content中检测到API错误信息: {memory_value[:100]}")
+                # 返回None表示无效记忆
+                return None, None
+                
+            # 检查输入类型
+            if not isinstance(memory_key, str) or not isinstance(memory_value, str):
+                logger.error(f"清理记忆内容收到非字符串类型: key={type(memory_key)}, value={type(memory_value)}")
+                return None, None
+            
+            # 提取时间戳
+            timestamp_pattern = r'^\[(.*?)\]'
+            timestamp_match = re.search(timestamp_pattern, memory_key)
+            timestamp = timestamp_match.group(1) if timestamp_match else datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            logger.debug(f"提取的时间戳: {timestamp}")
+            
+            # 提取用户ID (如果需要)
+            user_id_pattern = r'对方\(ID:(.*?)\)'
+            user_id_match = re.search(user_id_pattern, memory_key)
+            user_id = user_id_match.group(1) if user_id_match else ""
+            logger.debug(f"提取的用户ID: {user_id}")
+            
+            # 提取用户实际输入内容的多种模式尝试
+            user_content = ""
+            
+            # 模式1: "ta 私聊对你说：" 格式
+            pattern1 = r'ta 私聊对你说：\s*(.*?)(?:\n\n请注意：|$)'
+            match1 = re.search(pattern1, memory_key, re.DOTALL)
+            
+            # 模式2: "对方(ID:xxx): " 后的内容
+            pattern2 = r'对方\(ID:[^)]*\):\s*(.*?)(?:\n\n请注意：|$)'
+            match2 = re.search(pattern2, memory_key, re.DOTALL)
+            
+            # 模式3: 直接从冒号后提取
+            pattern3 = r':\s*(.*?)(?:\n\n请注意：|$)'
+            match3 = re.search(pattern3, memory_key, re.DOTALL)
+            
+            # 尝试按顺序匹配
+            if match1:
+                user_content = match1.group(1).strip()
+                logger.debug(f"使用模式1提取用户内容: {user_content[:50]}...")
+            elif match2:
+                user_content = match2.group(1).strip()
+                logger.debug(f"使用模式2提取用户内容: {user_content[:50]}...")
+            elif match3:
+                user_content = match3.group(1).strip()
+                logger.debug(f"使用模式3提取用户内容: {user_content[:50]}...")
+            else:
+                # 回退：清理特定模式并保留其余内容
+                user_content = re.sub(r'\[.*?\]', '', memory_key)  # 移除时间戳
+                user_content = re.sub(r'对方\(ID:[^)]*\):', '', user_content)  # 移除ID标记
+                user_content = re.sub(r'\n\n请注意：.*$', '', user_content, flags=re.DOTALL)  # 移除提示词
+                user_content = user_content.strip()
+                logger.debug(f"回退方法提取用户内容: {user_content[:50]}...")
+            
+            # 提取AI回复内容
+            ai_content = ""
+            
+            # AI回复模式1: "你: " 后的内容
+            ai_pattern1 = r'你:\s*(.*?)(?:\n\n以上是用户的沟通内容|$)'
+            ai_match1 = re.search(ai_pattern1, memory_value, re.DOTALL)
+            
+            # AI回复模式2: 移除记忆检索部分并从"你: "后提取
+            if ai_match1:
+                ai_content = ai_match1.group(1).strip()
+                logger.debug(f"使用模式1提取AI内容: {ai_content[:50]}...")
+            else:
+                # 回退：清理特定模式并保留其余内容
+                ai_content = re.sub(r'\[.*?\]', '', memory_value)  # 移除时间戳
+                ai_content = re.sub(r'你:', '', ai_content)  # 移除"你:"标记
+                ai_content = re.sub(r'\n\n以上是用户的沟通内容.*$', '', ai_content, flags=re.DOTALL)  # 移除记忆检索部分
+                ai_content = ai_content.strip()
+                logger.debug(f"回退方法提取AI内容: {ai_content[:50]}...")
+            
+            # 再次检查AI内容是否存在错误信息（可能在提取过程中丢失了一些标记）
+            if any(keyword in ai_content for keyword in api_error_keywords):
+                logger.warning(f"在清理后的AI内容中检测到API错误信息: {ai_content[:100]}")
+                return None, None
+                
+            # 检查AI内容长度是否过短
+            if len(ai_content.strip()) < 10:
+                logger.warning(f"AI内容过短，可能是错误信息: {ai_content}")
+                return None, None
+            
+            # 构造最终的干净记忆格式（格式严格统一）
+            clean_key = f"[{timestamp}] 对方: {user_content}"
+            clean_value = f"[{timestamp}] 你: {ai_content}"
+            
+            logger.info(f"清理后的用户输入: {clean_key[:100]}")
+            logger.info(f"清理后的AI回复: {clean_value[:100]}")
+            
+            return clean_key, clean_value
+        except Exception as e:
+            logger.error(f"清理记忆内容失败: {str(e)}")
+            import traceback
+            logger.error(f"错误堆栈: {traceback.format_exc()}")
             return None, None
-        
-        # 构造最终的干净记忆格式（格式严格统一）
-        clean_key = f"[{timestamp}] 对方: {user_content}"
-        clean_value = f"[{timestamp}] 你: {ai_content}"
-        
-        logger.info(f"清理后的用户输入: {clean_key[:100]}")
-        logger.info(f"清理后的AI回复: {clean_value[:100]}")
-        
-        return clean_key, clean_value
 
     @memory_cache
     def add_short_term_memory(self, user_id, memory_key, memory_value):
@@ -476,8 +511,10 @@ class MemoryHandler:
                     logger.error(f"无法找到有效的短期记忆存储方法，用户ID: {user_id}")
                     return False
             
-            # 正常情况：使用ShortTermMemory的add_memory方法添加记忆
-            result = self.short_term_memory.add_memory(memory_key, memory_value)
+            # 根据ShortTermMemory.add_memory方法的签名正确调用
+            # 参数顺序是 (memory_key, memory_value, user_id=None)
+            result = self.short_term_memory.add_memory(memory_key, memory_value, user_id)
+            
             if result:
                 logger.info(f"添加短期记忆成功，用户ID: {user_id}, 记忆键: {memory_key[:50]}...")
             else:
@@ -509,6 +546,11 @@ class MemoryHandler:
                 bool: 是否成功添加到短期记忆
             """
             try:
+                # 首先检查short_term_memory对象是否可用
+                if isinstance(self.short_term_memory, dict):
+                    logger.warning(f"短期记忆对象是字典类型，无法添加记忆 - 用户ID: {user_id}")
+                    return False
+                
                 # 添加当前时间戳
                 timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 logger.debug(f"开始处理短期记忆添加 - 用户ID: {user_id}")
@@ -564,17 +606,37 @@ class MemoryHandler:
                 logger.info(f"清理后长度: {cleaned_length} 字符")
                 logger.info(f"压缩率: {compression_ratio:.2f}%")
                 
-                # 添加到短期记忆
-                logger.debug(f"尝试添加到短期记忆 - 用户ID: {user_id}")
-                result = self.add_short_term_memory(user_id, cleaned_key, cleaned_value)
-                if result:
-                    logger.info(f"成功添加短期记忆 - 用户ID: {user_id}")
-                else:
-                    logger.warning(f"添加短期记忆失败 - 用户ID: {user_id}")
+                # 检查短期记忆对象类型
+                if not hasattr(self.short_term_memory, 'add_memory') and not hasattr(self.short_term_memory, 'add'):
+                    logger.warning(f"短期记忆对象缺少add_memory和add方法 - 用户ID: {user_id}")
+                    
+                    # 尝试使用字典方式添加
+                    if hasattr(self.short_term_memory, 'memory') and hasattr(self.short_term_memory.memory, '__setitem__'):
+                        self.short_term_memory.memory[cleaned_key] = cleaned_value
+                        logger.info(f"使用字典属性添加记忆 - 用户ID: {user_id}")
+                        return True
+                    else:
+                        # 实在没有可用方法，回退使用对象自身的add_short_term_memory方法
+                        logger.warning(f"尝试使用add_short_term_memory方法 - 用户ID: {user_id}")
+                        return self.add_short_term_memory(user_id, cleaned_key, cleaned_value)
                 
-                return result
+                # 使用add_memory方法(ShortTermMemory类方法)
+                if hasattr(self.short_term_memory, 'add_memory'):
+                    logger.info(f"使用add_memory方法添加记忆 - 用户ID: {user_id}")
+                    return self.short_term_memory.add_memory(cleaned_key, cleaned_value, user_id)
+                    
+                # 使用add方法(可能是另一种实现)
+                elif hasattr(self.short_term_memory, 'add'):
+                    logger.info(f"使用add方法添加记忆 - 用户ID: {user_id}")
+                    return self.short_term_memory.add(cleaned_key, cleaned_value)
+                    
+                # 这一行应该不会执行到，但添加作为安全措施
+                return False
+                
             except Exception as e:
-                logger.exception(f"添加短期记忆时发生错误: {str(e)}")
+                import traceback
+                logger.exception(f"异步添加记忆失败: {str(e)}")
+                logger.error(f"错误堆栈: {traceback.format_exc()}")
                 return False
                 
         # 记录添加钩子
@@ -887,13 +949,32 @@ class MemoryHandler:
             self.logger.debug(f"原始内容长度: key={len(memory_key)}, value={len(memory_value)}")
             self.logger.debug(f"清理后内容长度: key={len(cleaned_key)}, value={len(cleaned_value)}")
             
-            # 添加到短期记忆
-            self.short_term_memory.add_memory(
-                user_id=user_id,
-                memory_key=cleaned_key,
-                memory_value=cleaned_value
-            )
-            return True
+            # 检查短期记忆对象的类型
+            if isinstance(self.short_term_memory, dict):
+                self.logger.error("短期记忆对象是字典类型，无法添加记忆")
+                return False
+                
+            # 检查短期记忆对象有哪些可用方法
+            available_methods = [method for method in dir(self.short_term_memory) if not method.startswith('_')]
+            self.logger.debug(f"短期记忆对象可用方法: {available_methods}")
+            
+            # 添加到短期记忆 - 使用正确的方法名
+            if hasattr(self.short_term_memory, 'add_memory'):
+                self.logger.info("使用short_term_memory.add_memory方法添加记忆")
+                return self.short_term_memory.add_memory(cleaned_key, cleaned_value)
+            elif hasattr(self.short_term_memory, 'add'):
+                self.logger.info("使用short_term_memory.add方法添加记忆")
+                return self.short_term_memory.add(cleaned_key, cleaned_value)
+            elif hasattr(self.short_term_memory, 'memory') and hasattr(self.short_term_memory.memory, '__setitem__'):
+                self.logger.info("使用字典赋值方式添加记忆")
+                self.short_term_memory.memory[cleaned_key] = cleaned_value
+                return True
+            else:
+                # 直接使用内部方法添加用户记忆
+                self.logger.info("尝试使用add_short_term_memory方法添加记忆")
+                return self.add_short_term_memory(user_id, cleaned_key, cleaned_value)
         except Exception as e:
             self.logger.error(f"保存对话记忆失败: {str(e)}")
+            import traceback
+            self.logger.error(f"详细错误堆栈: {traceback.format_exc()}")
             return False

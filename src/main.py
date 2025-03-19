@@ -944,6 +944,41 @@ def main(debug_mode=False):
         tts_api_url=config.media.text_to_speech.tts_api_url
     )
     with open(prompt_path, "r", encoding="utf-8") as f:
+        # 添加更多API配置日志
+        logger.info("============ LLM服务初始化 ============")
+        logger.info(f"模型名称: {config.llm.model}")
+        logger.info(f"API基础URL: {config.llm.base_url}")
+        logger.info(f"API密钥前4位: {config.llm.api_key[:4] if config.llm.api_key else 'None'}")
+        logger.info(f"温度参数: {config.llm.temperature}")
+        logger.info(f"最大Token数: {config.llm.max_tokens}")
+        logger.info("正在测试API连接...")
+        
+        # 尝试测试连接
+        try:
+            import httpx
+            with httpx.Client(timeout=5.0) as client:
+                try:
+                    test_url = config.llm.base_url
+                    if test_url.endswith('/'):
+                        test_url = test_url.rstrip('/')
+                    logger.info(f"测试连接到: {test_url}")
+                    response = client.get(
+                        f"{test_url}/models",
+                        headers={"Authorization": f"Bearer {config.llm.api_key}"}
+                    )
+                    logger.info(f"API连接测试响应码: {response.status_code}")
+                    if response.status_code == 200:
+                        logger.info("API连接测试成功!")
+                    else:
+                        logger.warning(f"API连接测试返回非200状态码: {response.status_code}")
+                except Exception as e:
+                    logger.error(f"API连接测试失败: {str(e)}")
+        except ImportError:
+            logger.warning("无法导入httpx库，跳过API连接测试")
+        except Exception as e:
+            logger.error(f"测试API连接时出错: {str(e)}")
+        logger.info("====================================")
+        
         deepseek = LLMService(
             sys_prompt=f.read(),
             api_key=config.llm.api_key,
@@ -1088,7 +1123,7 @@ def main(debug_mode=False):
             # 主循环
             # 在主循环中的重连逻辑
         while True:
-            time.sleep(5)
+            time.sleep(20)
             if listener_thread is None or not listener_thread.is_alive():
                 print_status("监听线程已断开，尝试重新连接..", "warning", "SYNC")
                 try:

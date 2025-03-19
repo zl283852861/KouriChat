@@ -87,11 +87,31 @@ def start_memory():
         def hook(key, value):
             """记忆文档增加时的钩子函数，对RAG内部文档进行增量维护"""
             try:
-                # 使用正确的元组格式添加文档
-                rag.add_documents([(key, value)])
-                logger.info(f"已通过钩子添加记忆到RAG系统: {key[:30]}...")
+                # 检查格式并记录详细信息
+                logger.debug(f"钩子函数触发 - 键: {key[:50]}..., 值: {value[:50]}...")
+                
+                # 使用正确的格式添加文档
+                if isinstance(key, str) and isinstance(value, str):
+                    document = f"{key}: {value}"
+                    rag.add_documents([document])
+                    logger.info(f"已通过钩子添加合并格式记忆到RAG系统: {document[:50]}...")
+                else:
+                    # 尝试不同的格式添加
+                    try:
+                        rag.add_documents([f"{key}: {value}"])
+                        logger.info(f"已通过钩子添加记忆到RAG系统(格式1): {key[:30]}...")
+                    except Exception:
+                        try:
+                            rag.add_documents([key, value])
+                            logger.info(f"已通过钩子添加记忆到RAG系统(格式2): {key[:30]}...")
+                        except Exception:
+                            # 最后尝试原始形式
+                            rag.add_documents([(key, value)])
+                            logger.info(f"已通过钩子添加记忆到RAG系统(元组格式): {key[:30]}...")
             except Exception as e:
                 logger.error(f"钩子添加记忆到RAG失败: {str(e)}")
+                import traceback
+                logger.error(f"详细错误堆栈: {traceback.format_exc()}")
         
         logger.info("记忆系统初始化完成")
         
