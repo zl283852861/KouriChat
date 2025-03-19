@@ -1,5 +1,15 @@
 from src.memories.memory import *
 from src.memories.memory.core.rag import ReRanker, EmbeddingModel
+from src.memories import setup_memory, setup_rag, get_memory, get_rag, start_memory
+import os
+import logging
+import traceback
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Dict, Any, Optional, Callable, Union
+
+# 添加对clean_dialog_memory的导入
+from src.memories.memory_utils import clean_memory_content, clean_dialog_memory
 
 class ShortTermMemory:
     _instance = None
@@ -30,6 +40,7 @@ class ShortTermMemory:
         import logging
         self.logger = logging.getLogger('main')
         
+        # 初始化记忆系统
         setup_memory(memory_path)
         setup_rag(embedding_model, reranker)
         self.memory = get_memory()
@@ -88,12 +99,18 @@ class ShortTermMemory:
             self.logger.debug(f"异步添加记忆 - 键长度: {len(memory_key)}, 值长度: {len(memory_value)}")
             
             # 增强重复检查
-            if memory_key in self.memory.settings:
+            if hasattr(self.memory, 'settings') and memory_key in self.memory.settings:
+                self.logger.warning(f"跳过重复记忆键: {memory_key[:30]}...")
+                return
+            elif hasattr(self.memory, 'memory_data') and memory_key in self.memory.memory_data:
                 self.logger.warning(f"跳过重复记忆键: {memory_key[:30]}...")
                 return
             
             # 检查值是否已存在
-            if memory_value in self.memory.settings.values():
+            if hasattr(self.memory, 'settings') and memory_value in self.memory.settings.values():
+                self.logger.warning(f"跳过重复记忆值: {memory_value[:30]}...")
+                return
+            elif hasattr(self.memory, 'memory_data') and memory_value in self.memory.memory_data.values():
                 self.logger.warning(f"跳过重复记忆值: {memory_value[:30]}...")
                 return
             
@@ -104,21 +121,175 @@ class ShortTermMemory:
                     return
             
             # 添加到记忆系统
-            self.memory.add(memory_key, memory_value)
+            if hasattr(self.memory, 'add'):
+                self.memory.add(memory_key, memory_value)
+            elif hasattr(self.memory, 'add_memory'):
+                self.memory.add_memory(memory_key, memory_value)
             
             # 更新RAG系统
             if self.rag:
-                # 添加记忆到RAG系统，包含用户ID信息
-                document_info = f"USER:{user_id} - " if user_id else ""
-                self.rag.add([
-                    f"{document_info}{memory_key}",
-                    f"{document_info}{memory_value}"
-                ])
+                # 添加记忆到RAG系统，使用新格式
+                rag_result = self._add_memory_to_rag_new_format(memory_key, memory_value, user_id)
                 
-            self.logger.info(f"成功异步添加记忆 - 键: {memory_key[:30]}...")
+                # 添加文档后保存记忆
+                self.save_memory()
+                
+                if rag_result:
+                    self.logger.info(f"成功异步添加记忆到RAG系统 - 键: {memory_key[:30]}...")
+                else:
+                    self.logger.warning(f"异步添加记忆到RAG系统失败 - 键: {memory_key[:30]}...")
+                    return False
+            else:
+                self.logger.info(f"成功异步添加记忆 - 键: {memory_key[:30]}...")
             return True
         except Exception as e:
             self.logger.error(f"异步添加记忆失败: {str(e)}")
+            return False
+
+    def _add_memory_to_rag_new_format(self, memory_key, memory_value, user_id=None):
+        """
+        使用新格式将记忆添加到RAG系统
+        
+        Args:
+            memory_key: 记忆键（用户输入）
+            memory_value: 记忆值（AI回复）
+            user_id: 用户ID（可选）
+        """
+        try:
+            import os
+            import json
+            from datetime import datetime
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
+                  
+            # 从config或环境变量获取当前角色名
+            avatar_name = "AI助手"
+            try:
+                from src.config import config
+                avatar_dir = config.behavior.context.avatar_dir
+                # 提取最后一个目录作为角色名
+                avatar_name = os.path.basename(avatar_dir)
+            except Exception as e:
+                self.logger.warning(f"获取角色名失败: {str(e)}")
+                  
+            # 确定是否为主动消息 (简单判断：如果消息中包含"主人"或类似词，可能是主动消息)
+            is_initiative = "主人" in memory_key or "您好" in memory_key
+                  
+            # 尝试分析情感
+            emotion = "None"
+            try:
+                # 导入情感分析模块
+                from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer
+                # 创建分析器
+                resource_loader = SentimentResourceLoader()
+                analyzer = SentimentAnalyzer(resource_loader)
+                # 分析情感
+                sentiment_result = analyzer.analyze(memory_value)
+                emotion = sentiment_result.get('sentiment_type', 'None').lower()
+            except Exception as e:
+                self.logger.warning(f"情感分析失败: {str(e)}")
+            
+            # 清理对话文本，过滤格式
+            cleaned_memory_key, cleaned_memory_value = clean_dialog_memory(memory_key, memory_value)
+            
+            # 旧格式标准文本（用于RAG内部存储）
+            user_doc = f"[{current_time}]对方(ID:{user_id or '未知用户'}): {memory_key}"
+            ai_doc = f"[{current_time}] 你: {memory_value}"
+            
+            # 添加到RAG系统 - 旧格式（确保内部索引兼容性）
+            if hasattr(self.rag, 'add'):
+                self.rag.add([user_doc, ai_doc])
+            elif hasattr(self.rag, 'add_documents'):
+                self.rag.add_documents(texts=[user_doc, ai_doc])
+            
+            # 准备新格式的记忆数据
+            memory_entry = {
+                "bot_time": current_time,
+                "sender_id": user_id or "未知用户",
+                "sender_text": cleaned_memory_key,  # 使用清理后的文本
+                "receiver_id": avatar_name,
+                "receiver_text": cleaned_memory_value,  # 使用清理后的文本
+                "emotion": emotion,
+                "is_initiative": is_initiative
+            }
+            
+            # 加载现有的记忆文件
+            json_path = os.path.join(os.getcwd(), "data", "memory", "rag-memory.json")
+            conversations = {}
+            
+            # 确保目录存在
+            os.makedirs(os.path.dirname(json_path), exist_ok=True)
+            
+            # 尝试加载现有记忆并检查字段名称
+            if os.path.exists(json_path):
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        conversations = json.load(f)
+                    self.logger.info(f"成功加载现有记忆文件，包含 {len(conversations)} 条对话")
+                    
+                    # 检查并修复现有记忆中的字段名称问题
+                    modified = False
+                    for conv_key, conv_data in conversations.items():
+                        for entry in conv_data:
+                            if "is_ initiative" in entry:
+                                self.logger.warning(f"检测到字段命名问题，修复'is_ initiative'为'is_initiative'")
+                                entry["is_initiative"] = entry.pop("is_ initiative")
+                                modified = True
+                    
+                    # 如果修复了字段，保存回文件
+                    if modified:
+                        self.logger.info("修复了字段命名问题，保存更新后的记忆文件")
+                        with open(json_path, 'w', encoding='utf-8') as f:
+                            json.dump(conversations, f, ensure_ascii=False, indent=2)
+                    
+                except Exception as e:
+                    self.logger.warning(f"加载记忆JSON失败，将创建新文件: {str(e)}")
+            
+            # 生成新的对话索引
+            next_index = 0
+            for key in conversations.keys():
+                if key.startswith("conversation"):
+                    try:
+                        index = int(key.replace("conversation", ""))
+                        next_index = max(next_index, index + 1)
+                    except:
+                        pass
+            
+            # 添加新记忆
+            conversation_key = f"conversation{next_index}"
+            conversations[conversation_key] = [memory_entry]  # 使用列表包装单个条目，与现有格式一致
+            
+            # 保存更新后的记忆
+            try:
+                with open(json_path, 'w', encoding='utf-8') as f:
+                    json.dump(conversations, f, ensure_ascii=False, indent=2)
+                
+                self.logger.info(f"已将记忆添加到JSON格式文件，索引: {next_index}")
+                self.logger.info(f"成功将对话保存到RAG系统: user_id={user_id}, emotion={emotion}")
+                
+                # 显式保存RAG实例数据
+                if self.rag and hasattr(self.rag, 'save'):
+                    try:
+                        self.logger.info("手动触发RAG实例保存...")
+                        self.rag.save()
+                        self.logger.info("RAG实例数据已成功保存")
+                        
+                        # 验证文件是否存在
+                        if os.path.exists(json_path):
+                            self.logger.info(f"验证: RAG记忆JSON文件存在，大小: {os.path.getsize(json_path)} 字节")
+                        else:
+                            self.logger.warning(f"验证: RAG记忆JSON文件不存在: {json_path}")
+                    except Exception as save_err:
+                        self.logger.error(f"保存RAG实例数据失败: {str(save_err)}")
+                
+                return True
+            except Exception as file_err:
+                self.logger.error(f"保存JSON文件失败: {str(file_err)}")
+                return False
+            
+        except Exception as e:
+            self.logger.error(f"使用新格式添加记忆失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
 
     def add_memory(self, memory_key, memory_value, user_id=None):
@@ -173,7 +344,6 @@ class ShortTermMemory:
             return True
         except Exception as e:
             self.logger.error(f"提交记忆到线程池失败: {str(e)}")
-            self.logger.error(traceback.format_exc())
             return False
             
     def __del__(self):
@@ -189,11 +359,21 @@ class ShortTermMemory:
     def command_download_model(self):
         """Web控制台命令：下载本地备用嵌入模型"""
         try:
-            if hasattr(self.memory.rag, 'embedding_model') and self.memory.rag.embedding_model:
-                if hasattr(self.memory.rag.embedding_model, 'download_model_web_cmd'):
-                    return self.memory.rag.embedding_model.download_model_web_cmd()
-                elif hasattr(self.memory.rag.embedding_model, '_download_local_model'):
-                    self.memory.rag.embedding_model._download_local_model()
+            # 尝试多种可能的属性路径
+            embedding_model = None
+            
+            # 检查memory.rag.embedding_model
+            if hasattr(self.memory, 'rag') and hasattr(self.memory.rag, 'embedding_model'):
+                embedding_model = self.memory.rag.embedding_model
+            # 直接检查rag
+            elif self.rag and hasattr(self.rag, 'embedding_model'):
+                embedding_model = self.rag.embedding_model
+            
+            if embedding_model:
+                if hasattr(embedding_model, 'download_model_web_cmd'):
+                    return embedding_model.download_model_web_cmd()
+                elif hasattr(embedding_model, '_download_local_model'):
+                    embedding_model._download_local_model()
                     return "本地备用嵌入模型下载完成"
                 else:
                     return "当前嵌入模型不支持下载"

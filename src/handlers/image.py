@@ -14,7 +14,16 @@ from datetime import datetime
 from typing import Optional, List, Tuple
 import re
 import time
-from src.services.ai.llm_service import LLMService
+import enum
+# 移除直接导入，通过延迟导入方式在需要时导入
+# from src.services.ai.llm_service import LLMService
+
+# 添加缺失的ImageType枚举
+class ImageType(enum.Enum):
+    RANDOM = "random"
+    GENERATED = "generated"
+    USER_UPLOADED = "user_uploaded"
+    ERROR = "error"
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
@@ -28,6 +37,8 @@ class ImageHandler:
         self.temp_dir = os.path.join(root_dir, "data", "images", "temp")
         
         # 复用消息模块的AI实例(使用正确的模型名称)
+        # 延迟导入LLMService以避免循环导入
+        from src.services.ai.llm_service import LLMService
         self.text_ai = LLMService(
             api_key=api_key,
             base_url=base_url,

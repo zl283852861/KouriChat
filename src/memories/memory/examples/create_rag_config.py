@@ -31,8 +31,19 @@ def extract_rag_settings(config):
     
     # 提取值，确保每个配置项都有合理的默认值
     api_key = rag_settings.get('api_key', {}).get('value', '')
-    base_url = rag_settings.get('base_url', {}).get('value', 'https://api.siliconflow.cn/v1/embeddings')
-    embedding_model = rag_settings.get('embedding_model', {}).get('value', 'BAAI/bge-m3')
+    
+    # 处理base_url字段（支持错误拼写的bbase_url）
+    base_url = rag_settings.get('base_url', {}).get('value', '')
+    if not base_url:
+        # 尝试从错误拼写的字段获取
+        base_url = rag_settings.get('bbase_url', {}).get('value', 'https://api.siliconflow.cn/v1/embeddings')
+    
+    # 处理embedding_model字段（支持错误拼写的eembedding_model）
+    embedding_model = rag_settings.get('embedding_model', {}).get('value', '')
+    if not embedding_model:
+        # 尝试从错误拼写的字段获取
+        embedding_model = rag_settings.get('eembedding_model', {}).get('value', 'BAAI/bge-m3')
+    
     reranker_model = rag_settings.get('reranker_model', {}).get('value', '')
     local_model_path = rag_settings.get('local_embedding_model_path', {}).get('value', 'paraphrase-multilingual-MiniLM-L12-v2')
     top_k = rag_settings.get('top_k', {}).get('value', 5)

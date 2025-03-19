@@ -1,3 +1,6 @@
+"""
+记忆存储器模块 - 提供各种记忆存储器的实现
+"""
 import abc
 import os
 import sqlite3

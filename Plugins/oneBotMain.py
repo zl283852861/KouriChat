@@ -28,6 +28,8 @@ from src.utils.logger import LoggerConfig
 from src.utils.console import print_status
 from colorama import init, Style
 from src.AutoTasker.autoTasker import AutoTasker
+from src.utils.api_wrapper import APIWrapper
+from src.handlers.memory import init_memory
 
 from src.utils.console import print_status
 # 获取项目根目录
@@ -76,16 +78,14 @@ with open(prompt_path, "r", encoding="utf-8") as f:
         max_groups=config.behavior.context.max_groups,
     )
 
-memory_handler = MemoryHandler(
-    root_dir=root_dir,
+# 创建API包装器
+api_wrapper = APIWrapper(
     api_key=DEEPSEEK_API_KEY,
-    base_url=DEEPSEEK_BASE_URL,
-    model=MODEL,
-    max_token=MAX_TOKEN,
-    temperature=TEMPERATURE,
-    max_groups=MAX_GROUPS,
-    llm=deepseek  # 传递LLMService实例
+    base_url=DEEPSEEK_BASE_URL
 )
+
+# 初始化记忆系统
+memory_handler = init_memory(root_dir, api_wrapper)
 
 moonshot_ai = ImageRecognitionService(
     api_key=config.media.image_recognition.api_key,
