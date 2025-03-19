@@ -1,0 +1,26 @@
+{
+    "real_server_base_url": "https://api.siliconflow.cn/",
+    "api_key": "",
+    "model": "deepseek-ai/DeepSeek-V3",
+    "messages": [],
+    "image_config": {
+        "generate_size": "512x512"
+    },
+    "theme": "light",
+    "recognition_api": {
+        "url": "https://api.siliconflow.cn/",
+        "api_key": "sk-xsedszuxawpovowpvorwspquqsbfuhlutqvtesakiuadlpsz",
+        "model": "Qwen/Qwen2-VL-72B-Instruct"
+    },
+    "character_api": {
+        "url": "https://api.kourichat.com",
+        "api_key": "sk-f32XeKYYBP8vx9mHQ6LAMqToVcHsui69OWaxzLB9YrUeB9W1",
+        "model": "kourichat-v3"
+    },
+    "generation_api": {
+        "url": "https://api.siliconflow.cn/",
+        "api_key": "sk-xsedszuxawpovowpvorwspquqsbfuhlutqvtesakiuadlpsz",
+        "model": "Kwai-Kolors/Kolors",
+        "size": "512x512"
+    }
+}
