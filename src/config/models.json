@@ -156,6 +156,22 @@
                 "type": "chat",
                 "context_length": 8192
             }
+        ],
+        "ollama": [
+            {
+                "id": "llama3",
+                "name": "Llama 3",
+                "status": "active",
+                "type": "chat",
+                "context_length": 8192
+            },
+            {
+                "id": "gemma",
+                "name": "Gemma",
+                "status": "active", 
+                "type": "chat",
+                "context_length": 8192
+            }
         ]
     }
 }

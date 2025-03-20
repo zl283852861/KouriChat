@@ -24,6 +24,13 @@ from src.memories.memory.core.rag import (
     load_from_config, create_default_config
 )
 
+# 从memory/__init__.py导入start_memory函数
+from src.memories.memory import start_memory
+
+# 从tools模块导入记忆迁移和修复功能
+from src.tools.memory_migration import migrate_memory_format
+from src.tools.memory_fix import fix_memory_format
+
 # 设置日志
 logger = logging.getLogger('main')
 
@@ -32,6 +39,10 @@ _memory_handler = None  # 记忆处理器实例
 _rag_instance = None    # RAG实例
 _embedding_model = None # 嵌入模型实例
 _reranker = None        # 重排序器实例
+
+# 为兼容性添加
+_memory_instance = None # 记忆实例
+_memory_setting = None  # 记忆配置
 
 def setup_memory(root_dir: str, api_wrapper: APIWrapper = None, embedding_model = None) -> MemoryHandler:
     """
@@ -91,6 +102,29 @@ def get_memory_handler() -> Optional[MemoryHandler]:
     """
     global _memory_handler
     return _memory_handler
+
+# 兼容函数：从memory/__init__.py导出
+def get_memory():
+    """
+    获取记忆实例，兼容旧版API
+    
+    Returns:
+        记忆实例，如果未初始化则尝试使用memory_handler
+    """
+    global _memory_instance, _memory_setting, _memory_handler
+    
+    # 优先使用memory模块的实例
+    if _memory_instance is not None:
+        return _memory_instance
+        
+    # 如果没有memory实例但有memory_handler，返回memory_handler
+    if _memory_handler is not None:
+        logger.info("使用memory_handler作为fallback替代memory实例")
+        return _memory_handler
+        
+    # 都没有则返回None
+    logger.warning("未初始化memory实例和memory_handler")
+    return None
 
 def get_rag() -> Optional[RAG]:
     """
@@ -163,7 +197,7 @@ async def remember(user_message: str, assistant_response: str, user_id: str = No
     """
     handler = get_memory_handler()
     if not handler:
-        logger.warning("记忆系统未初始化，无法记住对话")
+        logger.debug("记忆系统未初始化，无法记住对话")
         return False
     
     # 如果handler有add_memory方法，优先使用（可以传递user_id）
@@ -178,11 +212,11 @@ async def remember(user_message: str, assistant_response: str, user_id: str = No
                 handler._add_to_rag_directly(user_message, assistant_response, user_id)
             return True
         except Exception as e:
-            logger.error(f"记住对话失败: {str(e)}")
+            logger.debug(f"记住对话失败: {str(e)}")
             return False
     else:
         # 兼容旧版本接口，但不能传递user_id
-        logger.warning("使用兼容模式记忆，无法保存用户ID")
+        logger.debug("使用兼容模式记忆，无法保存用户ID")
         return await handler.remember(user_message, assistant_response)
 
 async def retrieve(query: str, top_k: int = 5) -> str:
@@ -363,73 +397,21 @@ def get_memory_by_conversation(conversation_id: str) -> List[Dict]:
 def fix_memory_file_format():
     """
     检查并修复记忆文件中的字段名称问题
+    调用工具模块中的修复函数
+    
+    Returns:
+        bool: 修复成功返回True，否则返回False
     """
+    logger.info("开始修复记忆文件格式...")
+    
+    # 调用工具模块中的记忆修复函数
     try:
-        import os
-        import json
-        import logging
-        import re
-        
-        logger = logging.getLogger('main')
-        json_path = os.path.join(os.getcwd(), "data", "memory", "rag-memory.json")
-        
-        if not os.path.exists(json_path):
-            logger.warning(f"记忆文件不存在，无需修复: {json_path}")
-            return False
-            
-        # 加载JSON数据
-        with open(json_path, 'r', encoding='utf-8') as f:
-            conversations = json.load(f)
-        
-        # 导入清理函数
-        try:
-            from src.memories.memory_utils import clean_dialog_memory
-        except ImportError:
-            # 定义一个简单的备用清理函数
-            def clean_dialog_memory(sender_text, receiver_text):
-                """简易版清理函数"""
-                if sender_text:
-                    sender_text = re.sub(r'\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]', '', sender_text)
-                    sender_text = re.sub(r'ta 私聊对你说：', '', sender_text)
-                    sender_text = re.sub(r'\n+', ' ', sender_text)
-                    sender_text = re.sub(r'请注意：你的回复应当.*$', '', sender_text, flags=re.DOTALL)
-                    sender_text = sender_text.strip()
-                
-                if receiver_text:
-                    receiver_text = receiver_text.replace('\\', ' ')
-                    receiver_text = ' '.join(receiver_text.split())
-                
-                return sender_text, receiver_text
-        
-        # 检查并修复字段名问题
-        modified = False
-        for conv_key, conv_data in conversations.items():
-            for entry in conv_data:
-                if "is_ initiative" in entry:
-                    entry["is_initiative"] = entry.pop("is_ initiative")
-                    modified = True
-                
-                # 清理对话文本
-                if "sender_text" in entry and "receiver_text" in entry:
-                    clean_sender, clean_receiver = clean_dialog_memory(entry["sender_text"], entry["receiver_text"])
-                    if clean_sender != entry["sender_text"] or clean_receiver != entry["receiver_text"]:
-                        entry["sender_text"] = clean_sender
-                        entry["receiver_text"] = clean_receiver
-                        modified = True
-                        logger.info(f"清理了对话文本格式: {conv_key}")
-        
-        # 如果修改了，保存回文件
-        if modified:
-            logger.info(f"修复了字段命名问题和文本格式，保存更新")
-            with open(json_path, 'w', encoding='utf-8') as f:
-                json.dump(conversations, f, ensure_ascii=False, indent=2)
-            return True
-        else:
-            logger.info("记忆文件格式正确，无需修复")
-            return False
-            
+        result = fix_memory_format()
+        return result
     except Exception as e:
-        logger.error(f"修复记忆文件格式失败: {str(e)}")
+        logger.error(f"修复记忆文件时出错: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return False
 
 # 确保所有函数都被导出
@@ -448,5 +430,31 @@ __all__ = [
     'RAG', 'EmbeddingModel', 'ReRanker',
     'LocalEmbeddingModel', 'OnlineEmbeddingModel', 'SiliconFlowEmbeddingModel', 'HybridEmbeddingModel',
     'CrossEncoderReRanker', 'OnlineCrossEncoderReRanker', 'SiliconFlowReRanker', 'SiliconFlowNativeReRanker',
-    'load_from_config', 'create_default_config'
+    'load_from_config', 'create_default_config',
+    
+    # 新增的配置变量
+    "config",
+    "llm",
+    "rag",
+    "behavior",
+    "user",
+    "media",
+    "EMBEDDING_MODEL",
+    "EMBEDDING_FALLBACK_MODEL",
+    "OPENAI_API_KEY",
+    "OPENAI_API_BASE",
+    "RAG_TOP_K",
+    "RAG_IS_RERANK",
+    "RAG_RERANKER_MODEL",
+    "LOCAL_MODEL_ENABLED",
+    "LOCAL_EMBEDDING_MODEL_PATH",
+    "AUTO_ADAPT_SILICONFLOW",
+    "DEEPSEEK_API_KEY",
+    "DEEPSEEK_BASE_URL",
+    "MODEL",
+    "MAX_TOKEN",
+    "TEMPERATURE",
+    "MAX_GROUPS",
+    "get_memory",
+    "start_memory"
 ] 

@@ -2,13 +2,20 @@ import os
 import json
 from flask import Blueprint, request, jsonify, render_template
 from src.config.rag_config import config
+from pathlib import Path
 
 avatar_manager = Blueprint('avatar_manager', __name__)
+
+# 添加标准化的路径定义
+AVATARS_DIR = Path('data') / 'avatars'
 
 @avatar_manager.route('/load_avatar', methods=['GET'])
 def load_avatar():
     """加载 avatar.md 内容"""
-    avatar_path = os.path.join(config.behavior.context.avatar_dir, 'avatar.md')
+    # 修正路径获取方式
+    avatar_name = os.path.basename(config.behavior.context.avatar_dir)
+    avatar_path = AVATARS_DIR / avatar_name / 'avatar.md'
+    
     if not os.path.exists(avatar_path):
         return jsonify({'status': 'error', 'message': '文件不存在'})
 
@@ -64,13 +71,13 @@ def save_avatar():
     data = request.json
     print('接收到的数据:', data)  # 调试信息
 
-    defalut_avatar_name = config.behavior.context.avatar_dir.split('/')[-1]  # 默认人设名称
-    avatar_name = data.get('avatar', defalut_avatar_name)  # 获取人设名称
-    avatar_path = os.path.join(
-        os.path.dirname(config.behavior.context.avatar_dir),
-        avatar_name, 
-        'avatar.md'
-    )
+    # 修正路径获取方式
+    default_avatar_name = os.path.basename(config.behavior.context.avatar_dir)
+    avatar_name = data.get('avatar', default_avatar_name)  # 获取人设名称
+    avatar_path = AVATARS_DIR / avatar_name / 'avatar.md'
+
+    # 确保目录存在
+    os.makedirs(os.path.dirname(avatar_path), exist_ok=True)
 
     if not os.path.exists(avatar_path):
         return jsonify({'status': 'error', 'message': '文件不存在'})

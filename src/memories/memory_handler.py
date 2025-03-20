@@ -6,10 +6,11 @@ import logging
 import json
 import time
 import asyncio
+import re
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 
 # 引入内部模块
-from src.memories.memory_utils import memory_cache, clean_memory_content, get_importance_keywords, get_memory_path
+from src.memories.memory_utils import memory_cache, clean_memory_content, get_importance_keywords, get_memory_path, clean_dialog_memory
 from src.api_client.wrapper import APIWrapper
 from src.utils.logger import get_logger
 from src.config import config
@@ -154,12 +155,12 @@ class MemoryHandler:
                 if stm:
                     # 通过ShortTermMemory添加记忆（会处理新格式）
                     stm._add_memory_to_rag_new_format(clean_key, clean_value)
-                    logger.info("通过ShortTermMemory更新了RAG记忆")
+                    logger.debug("通过ShortTermMemory更新了RAG记忆")
                 else:
                     # 没有ShortTermMemory实例，直接添加标准格式记忆
                     self._add_to_rag_directly(clean_key, clean_value)
             except Exception as e:
-                logger.warning(f"尝试更新RAG记忆失败，将直接添加: {str(e)}")
+                logger.debug(f"尝试更新RAG记忆失败，将直接添加: {str(e)}")
                 self._add_to_rag_directly(clean_key, clean_value)
             
             # 调用钩子
@@ -188,10 +189,11 @@ class MemoryHandler:
             import json
             from datetime import datetime
             from src.memories import get_rag
+            from src.memories.memory_utils import clean_dialog_memory
             
             rag_instance = get_rag()
             if not rag_instance:
-                logger.warning("RAG实例不可用，跳过添加")
+                logger.debug("RAG实例不可用，跳过添加")
                 return
                 
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -204,26 +206,73 @@ class MemoryHandler:
                 # 提取最后一个目录作为角色名
                 avatar_name = os.path.basename(avatar_dir)
             except Exception as e:
-                logger.warning(f"获取角色名失败: {str(e)}")
+                logger.debug(f"获取角色名失败: {str(e)}")
                 
-            # 确定是否为主动消息 (简单判断：如果消息中包含"主人"或类似词，可能是主动消息)
-            is_initiative = "主人" in clean_key or "您好" in clean_key
+            # 使用memory_utils中的清理函数进一步清理对话内容
+            sender_text, _ = clean_dialog_memory(clean_key, "")
+            _, receiver_text = clean_dialog_memory("", clean_value)
             
-            # 旧格式标准文本（用于RAG内部存储）
-            user_doc = f"[{current_time}]对方(ID:{user_id or '未知用户'}): {clean_key}"
-            ai_doc = f"[{current_time}] 你: {clean_value}"
+            # 确定是否为主动消息 (当消息由AI主动发起或由定时任务触发时，标记为主动消息)
+            # 改进主动消息识别逻辑
+            is_initiative = False
             
-            # 添加到RAG系统 - 旧格式（确保内部索引兼容性）
+            # 1. 检查特征词，判断是否为AI主动发起的消息
+            initiative_keywords = [
+                "主人", "您好", "早上好", "晚上好", "下午好", 
+                "好久不见", "想你了", "有空吗", "在吗",
+                "最近怎么样", "最近好吗", "有什么新鲜事", 
+                "今天天气", "睡得好吗", "吃饭了吗"
+            ]
+            
+            # 2. 检查是否包含系统标记的主动消息特征
+            system_initiative_signals = [
+                "[系统指令]", "系统设置的角色", "在微信上找对方聊天", 
+                "(此时时间为", "定时消息", "自动消息"
+            ]
+            
+            # 3. 检查典型的问候模式，通常是主动消息的特征
+            greeting_patterns = [
+                r"^(?:早上|晚上|中午|下午)好",
+                r"^你好[啊呀哇吖呢]*[，。!！~]*$",
+                r"^(?:在吗|在不在|忙吗|有空吗)[?？]*$",
+                r"^(?:最近|近来)(?:怎么样|如何|好吗)[?？]*$"
+            ]
+            
+            # 检查是否匹配任何主动消息特征
+            # 检查特征词
+            if any(keyword in sender_text or keyword in receiver_text for keyword in initiative_keywords):
+                is_initiative = True
+                logger.debug(f"通过特征词检测到主动消息")
+            
+            # 检查系统标记
+            elif any(signal in sender_text for signal in system_initiative_signals):
+                is_initiative = True
+                logger.debug(f"通过系统标记检测到主动消息")
+            
+            # 检查问候模式
+            else:
+                for pattern in greeting_patterns:
+                    if re.search(pattern, sender_text, re.IGNORECASE) or re.search(pattern, receiver_text, re.IGNORECASE):
+                        is_initiative = True
+                        logger.debug(f"通过问候模式检测到主动消息")
+                        break
+            
+            # 准备RAG索引用的文本 - 使用清理后的文本
+            user_doc = f"[{current_time}]对方(ID:{user_id or '未知用户'}): {sender_text}"
+            ai_doc = f"[{current_time}] 你: {receiver_text}"
+            
+            # 添加到RAG系统 - 更干净的格式
             if hasattr(rag_instance, 'add_documents'):
                 rag_instance.add_documents(texts=[user_doc, ai_doc])
+                logger.debug(f"已将清理后的记忆文本添加到RAG索引")
                 
-            # 准备新格式的记忆数据
+            # 准备新格式的记忆数据 - 使用清理后的内容
             memory_entry = {
                 "bot_time": current_time,
                 "sender_id": user_id or "未知用户",
-                "sender_text": clean_key,
+                "sender_text": sender_text,
                 "receiver_id": avatar_name,
-                "receiver_text": clean_value,
+                "receiver_text": receiver_text,
                 "emotion": "None",  # 简化版本不进行情感分析
                 "is_initiative": is_initiative
             }
@@ -240,8 +289,69 @@ class MemoryHandler:
                 try:
                     with open(json_path, 'r', encoding='utf-8') as f:
                         conversations = json.load(f)
+                        
+                    # 清理现有的memories键，将其转移到conversation格式
+                    if "memories" in conversations and conversations["memories"]:
+                        logger.debug("检测到旧格式memories键，将转换为conversation格式")
+                        old_memories = conversations["memories"]
+                        next_conv_index = 0
+                        
+                        # 确定下一个可用的conversation索引
+                        for key in conversations.keys():
+                            if key.startswith("conversation"):
+                                try:
+                                    index = int(key.replace("conversation", ""))
+                                    next_conv_index = max(next_conv_index, index + 1)
+                                except:
+                                    pass
+                                    
+                        # 将旧memories转换为新格式
+                        for old_key, old_value in old_memories.items():
+                            # 清理旧格式内容
+                            clean_sender, clean_receiver = clean_dialog_memory(old_key, old_value)
+                            old_entry = {
+                                "bot_time": current_time,  # 使用当前时间
+                                "sender_id": "migrated_user",
+                                "sender_text": clean_sender,
+                                "receiver_id": avatar_name,
+                                "receiver_text": clean_receiver,
+                                "emotion": "None",
+                                "is_initiative": False
+                            }
+                            # 添加到conversations
+                            conversations[f"conversation{next_conv_index}"] = [old_entry]
+                            next_conv_index += 1
+                            
+                        # 清理旧的memories键
+                        conversations.pop("memories", None)
+                        logger.debug(f"成功迁移 {len(old_memories)} 条旧格式记忆")
+                        
+                    # 合并现有对话 - 如果有相同用户ID的对话，则追加而不是创建新对话
+                    if user_id:
+                        # 查找该用户的最新对话
+                        user_conversations = []
+                        for key, value in conversations.items():
+                            if key.startswith("conversation") and value and isinstance(value, list) and len(value) > 0:
+                                if value[0].get("sender_id") == user_id:
+                                    user_conversations.append((key, value))
+                        
+                        # 如果找到该用户的对话，追加到最后一个
+                        if user_conversations:
+                            # 按对话序号排序
+                            user_conversations.sort(key=lambda x: int(x[0].replace("conversation", "")))
+                            last_conv_key, last_conv_value = user_conversations[-1]
+                            
+                            # 如果最后一个对话不超过10条，则追加
+                            if len(last_conv_value) < 10:
+                                conversations[last_conv_key].append(memory_entry)
+                                logger.debug(f"将新记忆添加到现有对话 {last_conv_key}")
+                                # 保存更新后的记忆
+                                with open(json_path, 'w', encoding='utf-8') as f:
+                                    json.dump(conversations, f, ensure_ascii=False, indent=2)
+                                logger.debug(f"记忆已添加到现有对话并保存")
+                                return
                 except Exception as e:
-                    logger.warning(f"加载记忆JSON失败，将创建新文件: {str(e)}")
+                    logger.debug(f"加载或处理记忆JSON失败: {str(e)}")
             
             # 生成新的对话索引
             next_index = 0
@@ -253,7 +363,7 @@ class MemoryHandler:
                     except:
                         pass
             
-            # 添加新记忆
+            # 添加新记忆作为新对话
             conversation_key = f"conversation{next_index}"
             conversations[conversation_key] = [memory_entry]
             
@@ -261,10 +371,10 @@ class MemoryHandler:
             with open(json_path, 'w', encoding='utf-8') as f:
                 json.dump(conversations, f, ensure_ascii=False, indent=2)
                 
-            logger.info(f"已将记忆直接添加到JSON格式文件，索引: {next_index}")
+            logger.debug(f"已将干净的记忆添加到JSON文件，索引: {next_index}")
             
         except Exception as e:
-            logger.error(f"直接添加记忆到RAG失败: {str(e)}")
+            logger.debug(f"直接添加记忆到RAG失败: {str(e)}")
         
     @memory_cache
     async def retrieve(self, query: str, top_k: int = 5) -> str:

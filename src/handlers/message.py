@@ -280,12 +280,12 @@ class MessageHandler:
                 
                 # 修改等待时间计算逻辑，更加智能地根据打字速度和消息长度调整
                 # 基础等待时间 + 根据打字速度和消息长度计算的额外等待时间
-                base_wait_time = 5.0  # 基础等待时间5秒
+                base_wait_time = 3.0  # 基础等待时间3秒
                 
                 # 根据消息数量调整等待时间
                 if msg_count == 1:
                     # 第一条消息，给予一定的等待时间
-                    wait_time = base_wait_time + 5.0  # 总共5秒
+                    wait_time = base_wait_time + 5.0  # 总共8秒
                     logger.info(f"首条消息，设置较长等待时间: {wait_time:.1f}秒")
                 else:
                     # 后续消息，根据打字速度和消息长度动态调整
@@ -411,6 +411,8 @@ class MessageHandler:
             # 统计用户消息的总字数和句数
             total_chars = 0
             total_sentences = 0
+            raw_total_chars = 0  # 用户原始消息的总字数
+            raw_total_sentences = 0  # 用户原始消息的总句数
             sentence_endings = {'。', '！', '？', '!', '?', '.'}
             
             # 提取时间戳和前缀的正则表达式
@@ -431,6 +433,9 @@ class MessageHandler:
                 # 单独的前缀 - 确保同时匹配有无空格和冒号的情况
                 r'ta(?:\s*)私聊(?:\s*)对(?:\s*)你(?:\s*)说(?:：|:)?\s*',
                 r'ta(?:\s*)私聊(?:\s*)对(?:\s*)你(?:\s*)说\s*',
+                # 群聊前缀
+                r'ta(?:\s*)在群聊里(?:\s*)对(?:\s*)你(?:\s*)说(?:：|:)?\s*',
+                r'ta(?:\s*)在群聊里(?:\s*)对(?:\s*)你(?:\s*)说\s*',
                 # 单独的时间格式1（圆括号）
                 r'\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s*',
                 # 单独的时间格式2（方括号）
@@ -451,6 +456,7 @@ class MessageHandler:
                 timestamp_match1 = re.search(r'^\((\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)', original_content)
                 timestamp_match2 = re.search(r'^\[(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\]', original_content)
                 timestamp_match3 = re.search(r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta私聊对你说\s*', original_content)
+                timestamp_match4 = re.search(r'^\(此时时间为(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2})\)\s+ta在群聊里对你说\s*', original_content)
                 
                 timestamp = None
                 if timestamp_match1:
@@ -459,6 +465,8 @@ class MessageHandler:
                     timestamp = timestamp_match2.group(1)
                 elif timestamp_match3:
                     timestamp = timestamp_match3.group(1)
+                elif timestamp_match4:
+                    timestamp = timestamp_match4.group(1)
                 else:
                     # 如果没有找到时间戳，使用当前时间
                     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -502,13 +510,17 @@ class MessageHandler:
                 
                 raw_contents.append(content)
                 
-                # 计算字符数和句子数
+                # 计算实际原始消息的字符数和句子数 (清除掉系统提示词后的实际用户内容)
+                raw_total_chars += len(content)
+                raw_total_sentences += sum(1 for char in content if char in sentence_endings) + (1 if content and content[-1] not in sentence_endings else 0)
+                
+                # 同时保留原来的总计数器用于兼容性
                 total_chars += len(content)
                 total_sentences += sum(1 for char in content if char in sentence_endings) + (1 if content and content[-1] not in sentence_endings else 0)
             
-            # 记录统计信息
-            logger.info(f"实际内容长度: {total_chars}")
-            logger.info(f"句子数量: {total_sentences}")
+            # 记录统计信息 - 使用新的原始内容统计
+            logger.info(f"实际内容长度: {raw_total_chars}")
+            logger.info(f"句子数量: {raw_total_sentences}")
             logger.info(f"过滤后的实际消息内容: {', '.join(f'[{i+1}] {content}' for i, content in enumerate(raw_contents))}")
             
             # 最终清理合并内容
@@ -536,7 +548,7 @@ class MessageHandler:
             cleaned_messages = raw_contents
             
             # 确保句子数至少为1
-            total_sentences = max(1, total_sentences)
+            raw_total_sentences = max(1, raw_total_sentences)
             
             # 只输出清理后的合并消息，不再输出原始内容
             logger.info(f"合并消息: {merged_content}")
@@ -545,9 +557,9 @@ class MessageHandler:
             last_message = messages[-1]
             
             # 计算回复长度比例
-            response_ratio = self._calculate_response_length_ratio(total_chars)
-            target_chars = int(total_chars * response_ratio)
-            target_sentences = int(total_sentences * response_ratio)
+            response_ratio = self._calculate_response_length_ratio(raw_total_chars)
+            target_chars = int(raw_total_chars * response_ratio)
+            target_sentences = int(raw_total_sentences * response_ratio)
             
             # 确保目标句子数至少为1
             target_sentences = max(1, target_sentences)
@@ -560,7 +572,15 @@ class MessageHandler:
                 final_content = merged_content
             
             # 在合并内容中添加字数和句数控制提示
-            final_content += f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_chars}个字符和{target_sentences}个句子左右。"
+            if target_chars > 0 and target_sentences > 0:
+                # 使用轻微的提示，避免过于严格的字数限制
+                if raw_total_chars < 20:  # 对于非常短的消息
+                    final_content += f"\n\n请简短回复，控制在一两句话内。"
+                else:
+                    final_content += f"\n\n请注意保持自然的回复长度，与用户消息风格协调。"
+            else:
+                # 兜底处理，避免无效数值
+                final_content += f"\n\n请保持简洁明了的回复。"
             
             # 为处理日志添加更有用的信息
             logger.info(f"处理合并消息 - 用户: {username}, 内容长度: {len(final_content)}")
@@ -629,7 +649,13 @@ class MessageHandler:
         reminder_pattern = r'\((?:上次的对话内容|以上是历史对话内容)[^)]*\)'
         context_pattern = r'对话\d+:\n用户:.+\nAI:.+'
         system_patterns = [
+            # 旧的精确字数限制提示
             r'\n\n请注意：你的回复应当与用户消息的长度相当，控制在约\d+个字符和\d+个句子左右。',
+            # 新的提示词变体
+            r'\n\n请简短回复，控制在一两句话内。',
+            r'\n\n请注意保持自然的回复长度，与用户消息风格协调。',
+            r'\n\n请保持简洁明了的回复。',
+            # 其他系统提示词
             r'\(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容\)',
             r'请你回应用户的结束语'
         ]
@@ -687,22 +713,23 @@ class MessageHandler:
 
     def _calculate_response_length_ratio(self, user_message_length: int) -> float:
         """计算回复长度与用户消息的比例"""
-        # 基础比例从1.0开始，确保回复不会太短
+        # 基础比例从1.0开始，表示回复长度与用户消息长度相同
         base_ratio = 1.0
         
-        # 根据用户消息长度动态调整比例
+        # 根据用户消息长度动态调整比例，但保持在接近1.0的范围内
         if user_message_length < 10:  # 非常短的消息
-            ratio = base_ratio * 3.0  # 回复可以长一些
+            ratio = base_ratio * 1.5  # 短消息略微长一点
         elif user_message_length < 30:  # 较短的消息
-            ratio = base_ratio * 2.5
+            ratio = base_ratio * 1.3
         elif user_message_length < 50:  # 中等长度
-            ratio = base_ratio * 2.0
+            ratio = base_ratio * 1.2
         elif user_message_length < 100:  # 较长消息
-            ratio = base_ratio * 1.8
+            ratio = base_ratio * 1.1
         else:  # 很长的消息
-            ratio = base_ratio * 1.5
+            ratio = base_ratio * 1.0  # 对于长消息保持1:1比例
         
-        return ratio
+        # 限制最大比例，确保不会过长
+        return min(ratio, 1.5)
 
     def _handle_voice_request(self, content, chat_id, sender_name, username, is_group):
         """处理语音请求"""
@@ -1074,7 +1101,7 @@ class MessageHandler:
                         
                         # 检查remember方法是否是异步方法
                         if asyncio.iscoroutinefunction(self.memory_handler.remember):
-                            logger.info(f"检测到remember是异步方法，使用_run_async调用")
+                            logger.debug(f"检测到remember是异步方法，使用_run_async调用")
                             # 从全局函数导入remember，确保正确处理user_id参数
                             from src.memories import remember as global_remember
                             save_result = _run_async(global_remember(raw_content, reply, username))

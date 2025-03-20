@@ -10,6 +10,7 @@ import queue
 import traceback
 import wxauto
 import pythoncom  # 添加pythoncom导入
+import random
 from typing import Dict, List, Any, Optional, Tuple, Union
 
 logger = logging.getLogger('main')
@@ -18,13 +19,14 @@ class WeChat:
     """微信接口类，提供与微信交互的方法"""
     
     def __init__(self):
+        """初始化WeChat类"""
         try:
-            # 初始化COM环境
-            pythoncom.CoInitialize()
-            logger.info("WeChat类COM环境初始化成功")
-            
-            # 使用wxauto初始化真实的微信接口
+            pythoncom.CoInitialize()  # 初始化COM环境
             self.wx = wxauto.WeChat()
+            logger.info("微信接口初始化完成")
+            
+            # 检查API兼容性
+            self._check_api_compatibility()
             
             # 设置图标信息
             self.A_MyIcon = self.IconInfo()
@@ -60,6 +62,25 @@ class WeChat:
                 pythoncom.CoUninitialize()
             except:
                 pass
+    
+    def _check_api_compatibility(self):
+        """检查wxauto API兼容性，记录可用的方法"""
+        required_methods = [
+            "GetMsgs", "GetAllMessage", "GetLastMessage",
+            "SendFiles", "ChatWith", "SendMsg"
+        ]
+        
+        compatibility_report = []
+        for method in required_methods:
+            if hasattr(self.wx, method):
+                compatibility_report.append(f"{method}: 可用")
+            else:
+                compatibility_report.append(f"{method}: 不可用")
+        
+        # 记录兼容性报告
+        logger.info("WeChat API兼容性检查结果:")
+        for report in compatibility_report:
+            logger.info(f"  - {report}")
     
     class IconInfo:
         """图标信息类，提供名称等属性"""
@@ -327,43 +348,52 @@ class WeChat:
             logger.error(f"获取会话列表失败: {str(e)}")
             return []
     
-    def GetListenMessage(self) -> List[Any]:
+    def GetListenMessageQuiet(self) -> Dict:
         """
-        获取监听到的消息
+        静默获取监听消息，出错时不打印错误信息或使用更低级别日志
         
         Returns:
-            List[Any]: 消息列表
+            Dict: 消息字典
+        """
+        try:
+            # 使用GetAllMessage方法（已确认可用）
+            if hasattr(self.wx, "GetAllMessage"):
+                msgs = self.wx.GetAllMessage()
+                if msgs:
+                    logger.debug(f"静默模式(GetAllMessage)获取到 {len(msgs)} 条消息")
+                    return msgs
+            
+            # 不再尝试使用GetMsgs和GetLastMessage，因为它们不可用
+            return {}
+        except Exception as e:
+            logger.debug(f"静默获取消息失败: {str(e)}")
+            return {}
+
+    def GetListenMessage(self) -> Dict:
+        """
+        获取监听消息
+        
+        Returns:
+            Dict: 消息字典
         """
         try:
             if not self.wx:
                 logger.error("微信接口未初始化")
-                return []
+                return {}
             
-            # 首先尝试静默获取消息
-            msgs = self.GetListenMessageQuiet()
-            if msgs:
-                return msgs
+            # 只使用GetAllMessage方法（已确认可用）
+            if hasattr(self.wx, "GetAllMessage"):
+                msgs = self.wx.GetAllMessage()
+                if msgs:
+                    logger.debug(f"获取到 {len(msgs)} 条消息")
+                    return msgs
             
-            # 如果静默获取失败，尝试常规方法
-            msgs = self.wx.GetAllMessage()
-            if msgs:
-                return msgs
-            
-            # 如果还是失败，尝试其他方法
-            msgs = self.wx.GetMsgs()
-            if msgs:
-                return msgs
-            
-            # 最后尝试获取最后一条消息
-            msg = self.wx.GetLastMessage()
-            if msg:
-                return [msg]
-            
-            return []
-            
+            # 如果GetAllMessage失败，返回空字典
+            logger.debug("GetAllMessage方法未返回消息")
+            return {}
         except Exception as e:
-            logger.error(f"获取监听消息失败: {str(e)}")
-            return []
+            logger.error(f"获取消息失败: {str(e)}")
+            return {}
     
     def _compare_messages(self, msg1, msg2) -> bool:
         """
@@ -684,38 +714,6 @@ class WeChat:
         except Exception as e:
             logger.error(f"检查连接状态时出错: {str(e)}")
             return True
-
-    def GetListenMessageQuiet(self) -> List[Any]:
-        """
-        静默获取监听消息，尽量避免切换窗口
-        
-        Returns:
-            List[Any]: 消息列表，如果获取失败则返回空列表
-        """
-        try:
-            # 尝试直接获取所有消息
-            msgs = self.wx.GetAllMessage()
-            if msgs:
-                logger.info(f"静默模式成功获取到 {len(msgs)} 条消息")
-                return msgs
-            
-            # 如果GetAllMessage失败，尝试GetMsgs
-            msgs = self.wx.GetMsgs()
-            if msgs:
-                logger.info(f"静默模式(GetMsgs)获取到 {len(msgs)} 条消息")
-                return msgs
-            
-            # 如果GetMsgs也失败，尝试GetLastMessage
-            msg = self.wx.GetLastMessage()
-            if msg:
-                logger.info("静默模式获取到最后一条消息")
-                return [msg]
-            
-            return []
-            
-        except Exception as e:
-            logger.warning(f"静默获取消息失败: {str(e)}")
-            return []
 
     def InitAllListenings(self, chat_list):
         """

@@ -313,7 +313,7 @@ class ChatBot:
                 try:
                     # 检查remember方法是否是异步方法
                     if asyncio.iscoroutinefunction(self.memory_handler.remember):
-                        logger.info(f"检测到remember是异步方法，使用_run_async调用")
+                        logger.debug(f"检测到remember是异步方法，使用_run_async调用")
                         # 从全局函数导入remember，确保正确处理user_id参数
                         from src.memories import remember as global_remember
                         save_result = _run_async(global_remember(content, response, username))
@@ -512,7 +512,7 @@ class ChatBot:
 
 
 # 读取提示文件
-avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+avatar_dir = os.path.join(root_dir, "data", "avatars", config.behavior.context.avatar_dir)
 prompt_path = os.path.join(avatar_dir, "avatar.md")
 with open(prompt_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
@@ -963,8 +963,26 @@ def main(debug_mode=False):
     listener_thread = None
     wx = None  # 初始化wx为None
     
-    avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+    # 修正路径格式，保持与第514行一致
+    avatar_dir = os.path.join(root_dir, "data", "avatars", config.behavior.context.avatar_dir)
     prompt_path = os.path.join(avatar_dir, "avatar.md")
+
+    # 确保avatar目录存在
+    if not os.path.exists(avatar_dir):
+        try:
+            os.makedirs(avatar_dir, exist_ok=True)
+            logger.info(f"创建角色目录: {avatar_dir}")
+        except Exception as e:
+            logger.error(f"创建角色目录失败: {str(e)}")
+    
+    # 确保avatar.md文件存在
+    if not os.path.exists(prompt_path):
+        try:
+            with open(prompt_path, "w", encoding="utf-8") as f:
+                f.write("# 核心人格\n这是一个默认的人设文件，请修改为你想要的角色设定。")
+            logger.info(f"创建默认人设文件: {prompt_path}")
+        except Exception as e:
+            logger.error(f"创建人设文件失败: {str(e)}")
 
     if debug_mode: ROBOT_WX_NAME = "Debuger"
 

@@ -189,21 +189,59 @@ def clean_dialog_memory(sender_text: str, receiver_text: str) -> Tuple[str, str]
     # 清理发送者文本
     if sender_text:
         # 去除时间戳 [xxxx-xx-xx xx:xx]
-        sender_text = re.sub(r'\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]', '', sender_text)
+        sender_text = re.sub(r'\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}(?::\d{2})?\]', '', sender_text)
         # 去除"ta 私聊对你说："等固定模式
         sender_text = re.sub(r'ta 私聊对你说：', '', sender_text)
-        # 去除换行符
+        # 去除"你好对你说："等变种模式
+        sender_text = re.sub(r'[\w\s]+对你说：', '', sender_text)
+        # 去除角色名称前缀，如"主人："
+        sender_text = re.sub(r'^(主人|用户|您|我)：\s*', '', sender_text)
+        # 去除所有换行符，包括\n\n
         sender_text = re.sub(r'\n+', ' ', sender_text)
-        # 去除"请注意：你的回复应当..."等提示信息
-        sender_text = re.sub(r'请注意：你的回复应当.*$', '', sender_text, flags=re.DOTALL)
+        # 去除"请注意：你的回复应当..."等提示信息（更精确的模式）
+        sender_text = re.sub(r'请注意：你的回复应当与用户消息的长度相当，控制在约\d+个字符和\d+个句子左右。', '', sender_text)
+        # 去除新的提示语变体
+        sender_text = re.sub(r'请简短回复，控制在一两句话内。', '', sender_text)
+        sender_text = re.sub(r'请注意保持自然的回复长度，与用户消息风格协调。', '', sender_text)
+        sender_text = re.sub(r'请保持简洁明了的回复。', '', sender_text)
+        # 去除各种系统提示和指令
+        sender_text = re.sub(r'(?:请|)(?:注意|记住|考虑|保持)[:：]?\s*.*?(?:回复|角色|表现|风格|语气|姿态|限制).*?。', '', sender_text)
+        sender_text = re.sub(r'(?:记得|别忘了|注意|请)(?:保持|扮演).*?(?:角色|人设|立场).*?。', '', sender_text)
+        sender_text = re.sub(r'(?:以下|接下来|现在)(?:是|为).*?(?:内容|消息|对话|聊天记录).*?[:：]', '', sender_text)
+        # 去除其他常见噪音
+        sender_text = re.sub(r'\[MASK\]|\[CLS\]|\[SEP\]|\[PAD\]|\[UNK\]', '', sender_text)
+        sender_text = re.sub(r'<(?:s|p|div|span|img|br|hr).*?>', '', sender_text)
+        sender_text = re.sub(r'<\/(?:s|p|div|span)>', '', sender_text)
+        # 去除对方ID标记
+        sender_text = re.sub(r'\(ID[:：]\w+\)', '', sender_text)
+        # 去除方括号内容
+        sender_text = re.sub(r'\[.*?\]', '', sender_text)
         # 清理多余空白
         sender_text = sender_text.strip()
     
     # 清理接收者文本
     if receiver_text:
-        # 替换反斜杠为空格
-        receiver_text = receiver_text.replace('\\', ' ')
+        # 替换反斜杠和换行符为空格
+        receiver_text = receiver_text.replace('\\', ' ').replace('\n', ' ')
+        # 去除角色名称前缀，如"人工智能："
+        receiver_text = re.sub(r'^(人工智能|AI|助手|我)[:：]\s*', '', receiver_text)
+        # 去除"你："等变种模式
+        receiver_text = re.sub(r'^你[:：]\s*', '', receiver_text)
+        # 替换连续的空格为单个空格
+        receiver_text = re.sub(r'\s+', ' ', receiver_text)
+        # 去除各种标点符号过多的情况
+        receiver_text = re.sub(r'([.。!！?？~～…,，;；])(\1{2,})', r'\1', receiver_text)
+        # 去除方括号内的表情或动作描述
+        receiver_text = re.sub(r'\[(?:笑|笑脸|微笑|开心|哭|伤心|思考|疑惑|困惑|惊讶|害羞|点头|摇头).*?\]', '', receiver_text)
+        # 去除markdown格式
+        receiver_text = re.sub(r'\*\*(.*?)\*\*', r'\1', receiver_text)  # 去除加粗
+        receiver_text = re.sub(r'\*(.*?)\*', r'\1', receiver_text)  # 去除斜体
+        receiver_text = re.sub(r'```.*?```', '', receiver_text, flags=re.DOTALL)  # 去除代码块
+        # 去除其他常见噪音
+        receiver_text = re.sub(r'\[MASK\]|\[CLS\]|\[SEP\]|\[PAD\]|\[UNK\]', '', receiver_text)
+        receiver_text = re.sub(r'<(?:s|p|div|span|img|br|hr).*?>', '', receiver_text)
+        receiver_text = re.sub(r'<\/(?:s|p|div|span)>', '', receiver_text)
         # 清理多余空白
-        receiver_text = ' '.join(receiver_text.split())
+        receiver_text = receiver_text.strip()
     
     return sender_text, receiver_text 

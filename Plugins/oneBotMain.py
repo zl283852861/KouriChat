@@ -38,8 +38,8 @@ root_dir = os.path.dirname(os.path.abspath(__file__))
 
 
 # 检查并初始化配置文件
-config_path = os.path.join(root_dir, 'src', 'config', 'config.json')
-config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
+config_path = os.path.join(root_dir, 'src', 'config', 'config.yaml')
+config_template_path = os.path.join(root_dir, 'src', 'config', 'config.yaml.template')
 
 if not os.path.exists(config_path) and os.path.exists(config_template_path):
     logger = logging.getLogger('main')
@@ -48,7 +48,8 @@ if not os.path.exists(config_path) and os.path.exists(config_template_path):
     logger.info(f"已从模板创建配置文件: {config_path}")
 
 # 读取提示文件
-avatar_dir = os.path.join(root_dir, config.behavior.context.avatar_dir)
+avatar_name = config.behavior.context.avatar_dir
+avatar_dir = os.path.join(root_dir, 'data', 'avatars', avatar_name)
 prompt_path = os.path.join(avatar_dir, "avatar.md")
 with open(prompt_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
@@ -215,8 +216,8 @@ if __name__ == '__main__':
     # 获取项目根目录
 
     # 检查并初始化配置文件
-    config_path = os.path.join(root_dir, 'src', 'config', 'config.json')
-    config_template_path = os.path.join(root_dir, 'src', 'config', 'config.json.template')
+    config_path = os.path.join(root_dir, 'src', 'config', 'config.yaml')
+    config_template_path = os.path.join(root_dir, 'src', 'config', 'config.yaml.template')
 
     if not os.path.exists(config_path) and os.path.exists(config_template_path):
         logger = logging.getLogger('main')
