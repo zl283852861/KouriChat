@@ -5,6 +5,14 @@ setlocal enabledelayedexpansion
 chcp 936 >nul
 title My Dream Moments 启动器
 
+:: 设置镜像源列表
+set "MIRRORS[1]=阿里云源|https://mirrors.aliyun.com/pypi/simple/"
+set "MIRRORS[2]=清华源|https://pypi.tuna.tsinghua.edu.cn/simple"
+set "MIRRORS[3]=腾讯源|https://mirrors.cloud.tencent.com/pypi/simple"
+set "MIRRORS[4]=中科大源|https://pypi.mirrors.ustc.edu.cn/simple/"
+set "MIRRORS[5]=豆瓣源|http://pypi.douban.com/simple/"
+set "MIRRORS[6]=网易源|https://mirrors.163.com/pypi/simple/"
+
 cls
 echo ====================================
 echo        My Dream Moments Dreamer
@@ -45,6 +53,10 @@ if !MINOR_VERSION! GEQ 13 (
 
 :: 设置虚拟环境目录
 set VENV_DIR=.venv
+
+:: 设置PIP编码
+set PYTHONIOENCODING=utf-8
+set PIP_NO_CACHE_DIR=off
 
 :: 如果虚拟环境不存在或激活脚本不存在，则重新创建
 if not exist %VENV_DIR% (
@@ -107,20 +119,46 @@ if errorlevel 1 (
     goto :skip_venv
 )
 echo [成功] 虚拟环境已激活喵...
+
+:: 升级pip
+echo [尝试] 正在升级pip喵...
+
+set PIP_UPGRADED=0
+for /L %%i in (1,1,6) do (
+    if !PIP_UPGRADED! EQU 0 (
+        for /f "tokens=1,2 delims=|" %%a in ("!MIRRORS[%%i]!") do (
+            echo [尝试] 使用%%a升级pip...
+            python -m pip install --upgrade pip -i %%b
+            if !errorlevel! EQU 0 (
+                echo [成功] 使用%%a升级pip成功！
+                set PIP_UPGRADED=1
+                goto :pip_upgrade_done
+            ) else (
+                echo [失败] 使用%%a升级pip失败，尝试下一个源
+            )
+        )
+    )
+)
+
+:pip_upgrade_done
+if !PIP_UPGRADED! EQU 0 (
+    echo [警告] 所有镜像源升级pip失败，尝试直接升级...
+    python -m pip install --upgrade pip
+    if !errorlevel! NEQ 0 (
+        echo [警告] 升级pip失败，继续使用当前版本...
+    ) else (
+        echo [成功] 直接升级pip成功！
+    )
+) else (
+    echo [成功] pip升级完成喵...
+)
+
 goto :install_deps
 
 :skip_venv
 echo [尝试] 将使用系统 Python 继续运行喵...
 
 :install_deps
-:: 设置镜像源列表
-set "MIRRORS[1]=阿里云源|https://mirrors.aliyun.com/pypi/simple/"
-set "MIRRORS[2]=清华源|https://pypi.tuna.tsinghua.edu.cn/simple"
-set "MIRRORS[3]=腾讯源|https://mirrors.cloud.tencent.com/pypi/simple"
-set "MIRRORS[4]=中科大源|https://pypi.mirrors.ustc.edu.cn/simple/"
-set "MIRRORS[5]=豆瓣源|http://pypi.douban.com/simple/"
-set "MIRRORS[6]=网易源|https://mirrors.163.com/pypi/simple/"
-
 :: 检查requirements.txt是否存在
 if not exist requirements.txt (
     echo [警告] requirements.txt 文件不存在，跳过依赖安装喵...
@@ -128,12 +166,21 @@ if not exist requirements.txt (
     :: 安装依赖
     echo [尝试] 开始安装依赖喵...
     
+    :: 创建UTF-8格式的临时requirements文件
+    echo [尝试] 正在创建UTF-8格式的requirements文件喵...
+    powershell -Command "Get-Content -Path requirements.txt -Encoding Default | Set-Content -Path requirements_utf8.txt -Encoding UTF8"
+    if !errorlevel! NEQ 0 (
+        echo [警告] 转换requirements.txt编码失败，尝试直接安装喵...
+        copy /Y requirements.txt requirements_utf8.txt >nul
+    )
+    
     set SUCCESS=0
     for /L %%i in (1,1,6) do (
         if !SUCCESS! EQU 0 (
             for /f "tokens=1,2 delims=|" %%a in ("!MIRRORS[%%i]!") do (
                 echo [尝试] 使用%%a安装依赖...
-                pip install -r requirements.txt -i %%b
+                set "PIP_CONFIG_FILE="
+                pip --no-cache-dir install -r requirements_utf8.txt -i %%b
                 if !errorlevel! EQU 0 (
                     echo [成功] 使用%%a安装依赖成功！
                     set SUCCESS=1
@@ -145,15 +192,25 @@ if not exist requirements.txt (
         )
     )
     
+    :: 清理临时文件
+    if exist requirements_utf8.txt del /f /q requirements_utf8.txt
+    
     if !SUCCESS! EQU 0 (
         echo [错误] 所有镜像源安装失败，请检查：
         echo       1. 网络连接问题
         echo       2. 手动安装：pip install -r requirements.txt
         echo       3. 临时关闭防火墙/安全软件
         echo.
-        echo 按任意键退出...
-        pause >nul
-        exit /b 1
+        echo [尝试] 尝试使用UTF-8编码直接安装...
+        python -X utf8 -m pip install -r requirements.txt
+        if !errorlevel! EQU 0 (
+            echo [成功] UTF-8模式安装成功！
+            set SUCCESS=1
+        ) else (
+            echo 按任意键退出...
+            pause >nul
+            exit /b 1
+        )
     )
 )
 
@@ -168,7 +225,7 @@ if not exist run_config_web.py (
 
 :: 运行程序
 echo [尝试] 正在启动应用程序喵...
-python run_config_web.py
+python -X utf8 run_config_web.py
 set PROGRAM_EXIT_CODE=%errorlevel%
 
 :: 异常退出处理
