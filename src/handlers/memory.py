@@ -10,7 +10,7 @@ from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 from datetime import datetime
 
 # 导入新的记忆模块
-from src.memories import (
+from src.handlers.handler_init import (
     setup_memory, remember, retrieve, is_important, 
     get_memory_handler, get_memory_stats, 
     clear_memories, save_memories, init_rag_from_config,
@@ -24,6 +24,62 @@ logger = logging.getLogger('main')
 # 全局变量
 _initialized = False
 _memory_handler = None
+
+# 在文件开头添加这三个类的定义，以确保它们在被引用前已定义
+# SimpleEmbeddingModel类定义
+class SimpleEmbeddingModel:
+    """简单的嵌入模型模拟类，提供get_cache_stats方法"""
+    def __init__(self):
+        self._cache_hits = 0
+        self._cache_misses = 0
+        logging.getLogger('main').info("创建简单嵌入模型模拟类")
+    
+    def get_cache_stats(self):
+        """获取缓存统计信息"""
+        total = self._cache_hits + self._cache_misses
+        hit_rate = (self._cache_hits / total) * 100 if total > 0 else 0
+        return {
+            'cache_size': 0,
+            'hit_rate_percent': hit_rate
+        }
+
+# SimpleRag类定义
+class SimpleRag:
+    """简单的RAG模拟类，提供基本的embedding_model属性"""
+    def __init__(self):
+        # 创建一个简单的模拟嵌入模型
+        self.embedding_model = SimpleEmbeddingModel()
+        logging.getLogger('main').info("创建简单RAG模拟类")
+
+# FakeShortTermMemory类定义
+class FakeShortTermMemory:
+    """
+    提供与short_term_memory兼容的接口的假类
+    """
+    def __init__(self, memory_handler):
+        self.memory_handler = memory_handler
+        self.rag = SimpleRag()  # 一个简单的RAG模拟
+        logging.getLogger('main').info("创建假短期记忆类以兼容旧接口")
+    
+    def add_memory(self, user_id=None, memory_key=None, memory_value=None):
+        """
+        添加记忆
+        
+        Args:
+            user_id: 用户ID
+            memory_key: 记忆键
+            memory_value: 记忆值
+            
+        Returns:
+            bool: 是否成功添加
+        """
+        try:
+            # 使用memory_handler的remember方法添加记忆
+            logging.getLogger('main').info(f"通过假短期记忆类添加记忆 - 用户: {user_id}, 记忆键长度: {len(memory_key) if memory_key else 0}")
+            return self.memory_handler.remember(memory_key, memory_value)
+        except Exception as e:
+            logging.getLogger('main').error(f"通过假短期记忆类添加记忆失败: {str(e)}")
+            return False
 
 def _run_async(coro):
     """
@@ -70,7 +126,7 @@ def init_memory(root_dir, api_wrapper=None):
     try:
         # 确保导入所需模块
         from src.handlers.memory import MemoryHandler
-        from src.memories import setup_memory, init_rag_from_config
+        from src.handlers.handler_init import setup_memory, init_rag_from_config
         
         # 从配置获取RAG设置
         from src.config import config
@@ -96,7 +152,7 @@ def init_memory(root_dir, api_wrapper=None):
             
             # 尝试创建配置文件
             try:
-                from src.memories.memory.core.rag import create_default_config
+                from src.handlers.memories.core.rag import create_default_config
                 # 确保目录存在
                 os.makedirs(os.path.dirname(rag_config_path), exist_ok=True)
                 create_default_config(rag_config_path)
@@ -148,14 +204,6 @@ def init_memory(root_dir, api_wrapper=None):
         # 初始化记忆系统
         _memory_handler = setup_memory(root_dir, api_wrapper)
         _initialized = True
-        
-        # 创建伪实例属性，确保get_relevant_memories等方法总是可用
-        if not hasattr(_memory_handler, 'get_relevant_memories'):
-            logger.warning("记忆处理器没有get_relevant_memories方法，将创建伪方法")
-            
-            # 使用MemoryHandler的get_relevant_memories方法绑定到当前实例
-            memory_handler_instance = MemoryHandler(root_dir)
-            _memory_handler.get_relevant_memories = memory_handler_instance.get_relevant_memories
         
         # 返回记忆处理器
         return _memory_handler
@@ -254,23 +302,15 @@ class MemoryHandler:
                 self._initialize()
             
             # 检查RAG系统并直接添加到RAG（避免重复添加）
-            from src.memories import get_rag
+            from src.handlers.handler_init import get_rag
             rag_instance = get_rag()
             
-            # 如果有ShortTermMemory实例，优先使用
-            try:
-                from src.memories.short_term_memory import ShortTermMemory
-                stm = ShortTermMemory.get_instance(force_new=False)
-                if stm:
-                    # 直接调用ShortTermMemory添加记忆
-                    return stm.add_memory(user_message, assistant_response, user_id)
-            except Exception as e:
-                logger.warning(f"通过ShortTermMemory添加记忆失败: {str(e)}")
-                
-            # 如果没有ShortTermMemory或调用失败，继续执行
+            # 移除对已不存在的ShortTermMemory的引用
+            # 不再使用旧的ShortTermMemory
+            
             # 运行异步函数
             # 从全局函数导入remember，确保正确处理user_id参数
-            from src.memories import remember as global_remember
+            from src.handlers.handler_init import remember as global_remember
             return _run_async(global_remember(user_message, assistant_response, user_id))
         except Exception as e:
             logger.error(f"记住对话失败: {str(e)}")
@@ -430,122 +470,40 @@ class MemoryHandler:
     
     # 兼容函数 - 检查重要记忆
     def check_important_memory(self, text):
-        """
-        检查是否是重要记忆（兼容旧接口）
-        
-        Args:
-            text: 文本内容
-            
-        Returns:
-            bool: 是否是重要记忆
-        """
-        return self.is_important(text)
+        """检查记忆是否重要 - 兼容方法"""
+        try:
+            from src.handlers.handler_init import is_important
+            return is_important(text)
+        except Exception as e:
+            logger.error(f"检查记忆重要性失败: {str(e)}")
+            return False
     
     # 兼容函数 - 生成记忆摘要
     def summarize_memories(self, limit=20):
-        """
-        生成记忆摘要（兼容旧接口）
-        
-        Args:
-            limit: 要包含的记忆条数
-            
-        Returns:
-            str: 记忆摘要
-        """
-        # 获取处理器
-        handler = get_memory_handler()
-        if handler:
-            # 运行异步函数
-            return _run_async(handler.generate_summary(limit))
-        return "无法生成记忆摘要"
+        """总结记忆 - 模拟方法"""
+        logger.warning("summarize_memories方法已弃用，返回空结果")
+        return []
     
     # 兼容函数 - 清理记忆内容
     def clean_memory_content(self, memory_key, memory_value):
-        """
-        清理记忆内容（兼容旧接口）
-        
-        Args:
-            memory_key: 记忆键
-            memory_value: 记忆值
-            
-        Returns:
-            tuple: (清理后的记忆键, 清理后的记忆值)
-        """
+        """清理记忆内容 - 兼容方法"""
         try:
-            # 尝试导入清理函数
-            try:
-                from src.memories.memory_utils import clean_memory_content
-                return clean_memory_content(memory_key, memory_value)
-            except ImportError:
-                # 如果导入失败，使用简单的清理逻辑
-                def simple_clean(text):
-                    if not text:
-                        return ""
-                    # 移除多余空白字符
-                    text = " ".join(text.split())
-                    # 截断长内容
-                    if len(text) > 1000:
-                        return text[:1000] + "..."
-                    return text
-                
-                return simple_clean(memory_key), simple_clean(memory_value)
+            # 导入原始函数
+            from src.handlers.memories.core.memory_utils import clean_memory_content
+            
+            # 调用函数
+            return clean_memory_content(memory_key, memory_value)
         except Exception as e:
             logger.error(f"清理记忆内容失败: {str(e)}")
-            return memory_key, memory_value
             
-    # 为兼容添加FakeShortTermMemory和相关类
-    class SimpleEmbeddingModel:
-        """简单的嵌入模型模拟类，提供get_cache_stats方法"""
-        def __init__(self):
-            self._cache_hits = 0
-            self._cache_misses = 0
-            logger.info("创建简单嵌入模型模拟类")
-        
-        def get_cache_stats(self):
-            """获取缓存统计信息"""
-            total = self._cache_hits + self._cache_misses
-            hit_rate = (self._cache_hits / total) * 100 if total > 0 else 0
-            return {
-                'cache_size': 0,
-                'hit_rate_percent': hit_rate
-            }
-
-    class SimpleRag:
-        """简单的RAG模拟类，提供基本的embedding_model属性"""
-        def __init__(self):
-            # 创建一个简单的模拟嵌入模型
-            self.embedding_model = SimpleEmbeddingModel()
-            logger.info("创建简单RAG模拟类")
-
-    class FakeShortTermMemory:
-        """
-        提供与short_term_memory兼容的接口的假类
-        """
-        def __init__(self, memory_handler):
-            self.memory_handler = memory_handler
-            self.rag = SimpleRag()  # 一个简单的RAG模拟
-            logger.info("创建假短期记忆类以兼容旧接口")
-        
-        def add_memory(self, user_id=None, memory_key=None, memory_value=None):
-            """
-            添加记忆
-            
-            Args:
-                user_id: 用户ID
-                memory_key: 记忆键
-                memory_value: 记忆值
+            # 如果导入失败，提供一个简单的实现
+            def simple_clean(text):
+                if not text:
+                    return ""
+                return text.strip()
                 
-            Returns:
-                bool: 是否成功添加
-            """
-            try:
-                # 使用memory_handler的remember方法添加记忆
-                logger.info(f"通过假短期记忆类添加记忆 - 用户: {user_id}, 记忆键长度: {len(memory_key) if memory_key else 0}")
-                return self.memory_handler.remember(memory_key, memory_value)
-            except Exception as e:
-                logger.error(f"通过假短期记忆类添加记忆失败: {str(e)}")
-                return False
-
+            return simple_clean(memory_key), simple_clean(memory_value)
+            
     # 修改short_term_memory属性
     @property
     def short_term_memory(self):
@@ -575,38 +533,27 @@ class MemoryHandler:
         添加记忆（兼容short_term_memory.add_memory）
         
         Args:
-            key: 记忆键，可以是消息内容
-            value: 记忆值，可以是回复内容
-            user_id: 用户ID（可选）
+            key: 用户消息
+            value: 助手回复
+            user_id: 用户ID（必需）
             
         Returns:
             bool: 是否成功添加
         """
         try:
-            # 打印调试信息
-            logger.info(f"添加记忆 - 键长度: {len(key)}, 值长度: {len(value)}, 用户ID: {user_id}")
+            if not user_id:
+                logger.error("添加记忆失败：未提供用户ID")
+                return False
             
-            # 初始化字典来保存记忆（如果不存在）
-            if not hasattr(self, '_memory_dict'):
-                self._memory_dict = {}
+            logger.info(f"添加记忆 - 用户消息长度: {len(key)}, 回复长度: {len(value)}, 用户ID: {user_id}")
             
-            # 记录内存到内部字典
-            if user_id:
-                if user_id not in self._memory_dict:
-                    self._memory_dict[user_id] = []
-                
-                memory_entry = {
-                    'memory_key': key,
-                    'memory_value': value,
-                    'timestamp': datetime.now().isoformat()
-                }
-                
-                # 添加到用户的记忆列表
-                self._memory_dict[user_id].append(memory_entry)
-                logger.info(f"已添加记忆到用户 {user_id} 的内部存储，当前记忆数: {len(self._memory_dict[user_id])}")
+            # 使用记忆处理器添加记忆
+            success = self._memory_processor.add_memory(user_id, key, value)
             
-            # 使用remember方法添加记忆
-            return self.remember(key, value)
+            if success:
+                logger.info(f"已成功添加记忆到用户 {user_id} 的存储")
+            
+            return success
         except Exception as e:
             logger.error(f"添加记忆失败: {str(e)}", exc_info=True)
             return False

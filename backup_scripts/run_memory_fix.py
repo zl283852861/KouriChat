@@ -28,7 +28,7 @@ def main():
     
     # 导入修复函数
     try:
-        from src.memories import fix_memory_file_format
+        from src.handlers.handler_init import fix_memory_file_format
         
         # 运行修复函数
         result = fix_memory_file_format()

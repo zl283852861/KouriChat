@@ -52,6 +52,7 @@ import yaml
 import httpx
 from openai import OpenAI
 import src.services.ai.llms.llm  # 添加LLM模块导入
+from src.handlers.memories.core.rag import LocalEmbeddingModel
 
 # 在文件开头添加全局变量声明
 bot_process = None

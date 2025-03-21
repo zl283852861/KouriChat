@@ -108,9 +108,11 @@ class WeChat:
             # 更新检查时间
             self._last_window_check = current_time
             
-            # 切换到指定聊天
-            if not self.ChatWith(who):
-                return None
+            # 如果当前聊天已经是目标聊天，直接获取窗口而不进行切换
+            if self._current_chat != who:
+                # 切换到指定聊天
+                if not self.ChatWith(who):
+                    return None
             
             # 获取当前活动的聊天窗口
             windows = wxauto.GetWindowsWithTitle(who)
@@ -143,9 +145,21 @@ class WeChat:
             if self._current_chat == who:
                 return True
                 
-            window = self._get_chat_window(who)
-            if not window:
+            # 直接使用ChatWith切换到目标聊天，而不是先调用_get_chat_window
+            if not self.ChatWith(who):
+                logger.error(f"无法切换到聊天 {who}")
                 return False
+            
+            # 获取当前活动的聊天窗口
+            windows = wxauto.GetWindowsWithTitle(who)
+            if not windows:
+                logger.error(f"找不到聊天窗口: {who}")
+                return False
+            
+            # 缓存并使用窗口对象
+            window = windows[0]
+            self._listen_windows[who] = window
+            self._window_handles[who] = window.handle
             
             # 如果窗口未激活，则激活它
             if not window.isActive:
