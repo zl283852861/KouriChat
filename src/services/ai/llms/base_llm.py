@@ -36,6 +36,13 @@ class BaseLLM(online_llm):
             system_prompt: 系统提示词
             singleton: 是否为单例模式
         """
+        # 检查max_context_messages类型
+        if not isinstance(max_context_messages, int):
+            try:
+                max_context_messages = int(max_context_messages)
+            except ValueError:
+                logger.error("max_context_messages必须是整数类型，当前值无法转换为整数。")
+                raise        
         # 预处理URL，移除末尾的斜杠
         if url and url.endswith('/'):
             url = url.rstrip('/')
