@@ -1,43 +1,38 @@
-    # Web框架和HTTP
-    Flask
-    Werkzeug
-    requests
-    httpx
-    urllib3==1.26.3
+Flask
+Werkzeug
+requests
+httpx
+urllib3==1.26.3
+wheel
 
-    # 数据处理和存储
-    pandas
-    SQLAlchemy
-    mysql-connector-python
-    python-docx
-    numpy==1.26.4
-    ruamel.yaml
-    pyyaml
+pandas
+SQLAlchemy
+mysql-connector-python
+python-docx
+numpy==1.26.4
+ruamel.yaml
+pyyaml
 
-    # AI和机器学习
-    openai>=1.0.0
-    huggingface-hub==0.10.0
-    sentence-transformers==2.2.2
-    tiktoken
-    faiss-cpu==1.7.4
-    jieba
+openai>=1.0.0
+huggingface-hub==0.10.0
+sentence-transformers==2.2.2
+tiktoken
+faiss-cpu==1.7.4
+jieba
 
-    # 自动化和系统
-    pyautogui
-    psutil
-    wxauto
-    apscheduler
-    schedule
+pyautogui
+psutil
+wxauto
+apscheduler
+schedule
 
-    # Windows依赖
-    pywin32
-    pypiwin32
+pywin32
+pypiwin32
 
-    # 开发工具
-    python-dotenv
-    tenacity
-    colorama
-    tqdm>=4.65.0
+dotenv
+tenacity
+colorama
+tqdm>=4.65.0
+tiktoken
 
-    # 图像处理
-    pillow>=9.4.0
+pillow>=9.4.0

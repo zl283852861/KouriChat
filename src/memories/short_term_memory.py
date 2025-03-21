@@ -191,16 +191,6 @@ class ShortTermMemory:
             # 清理对话文本，过滤格式
             cleaned_memory_key, cleaned_memory_value = clean_dialog_memory(memory_key, memory_value)
             
-            # 旧格式标准文本（用于RAG内部存储）
-            user_doc = f"[{current_time}]对方(ID:{user_id or '未知用户'}): {memory_key}"
-            ai_doc = f"[{current_time}] 你: {memory_value}"
-            
-            # 添加到RAG系统 - 旧格式（确保内部索引兼容性）
-            if hasattr(self.rag, 'add'):
-                self.rag.add([user_doc, ai_doc])
-            elif hasattr(self.rag, 'add_documents'):
-                self.rag.add_documents(texts=[user_doc, ai_doc])
-            
             # 准备新格式的记忆数据
             memory_entry = {
                 "bot_time": current_time,
@@ -214,35 +204,31 @@ class ShortTermMemory:
             
             # 加载现有的记忆文件
             json_path = os.path.join(os.getcwd(), "data", "memory", "rag-memory.json")
-            conversations = {}
+            memory_data = {}
             
             # 确保目录存在
             os.makedirs(os.path.dirname(json_path), exist_ok=True)
             
-            # 尝试加载现有记忆并检查字段名称
+            # 尝试加载现有记忆
             if os.path.exists(json_path):
                 try:
                     with open(json_path, 'r', encoding='utf-8') as f:
-                        conversations = json.load(f)
-                    self.logger.info(f"成功加载现有记忆文件，包含 {len(conversations)} 条对话")
+                        memory_data = json.load(f)
+                    self.logger.info(f"成功加载现有记忆文件")
                     
-                    # 检查并修复现有记忆中的字段名称问题
-                    modified = False
-                    for conv_key, conv_data in conversations.items():
-                        for entry in conv_data:
-                            if "is_ initiative" in entry:
-                                self.logger.warning(f"检测到字段命名问题，修复'is_ initiative'为'is_initiative'")
-                                entry["is_initiative"] = entry.pop("is_ initiative")
-                                modified = True
+                    # 检查是否包含会话数据和向量数据
+                    conversations_count = len([k for k in memory_data.keys() if k.startswith("conversation")])
+                    has_embeddings = "embeddings" in memory_data
                     
-                    # 如果修复了字段，保存回文件
-                    if modified:
-                        self.logger.info("修复了字段命名问题，保存更新后的记忆文件")
-                        with open(json_path, 'w', encoding='utf-8') as f:
-                            json.dump(conversations, f, ensure_ascii=False, indent=2)
+                    self.logger.info(f"记忆文件包含 {conversations_count} 个会话" + 
+                                   (", 包含向量嵌入数据" if has_embeddings else ", 不包含向量嵌入数据"))
                     
                 except Exception as e:
                     self.logger.warning(f"加载记忆JSON失败，将创建新文件: {str(e)}")
+                    memory_data = {}
+            
+            # 提取现有的会话数据
+            conversations = {k: v for k, v in memory_data.items() if k.startswith("conversation")}
             
             # 生成新的对话索引
             next_index = 0
@@ -258,28 +244,19 @@ class ShortTermMemory:
             conversation_key = f"conversation{next_index}"
             conversations[conversation_key] = [memory_entry]  # 使用列表包装单个条目，与现有格式一致
             
+            # 构建新的记忆数据，保留非会话数据（如embeddings）
+            new_memory_data = {k: v for k, v in memory_data.items() if not k.startswith("conversation")}
+            # 添加会话数据
+            for k, v in conversations.items():
+                new_memory_data[k] = v
+            
             # 保存更新后的记忆
             try:
                 with open(json_path, 'w', encoding='utf-8') as f:
-                    json.dump(conversations, f, ensure_ascii=False, indent=2)
+                    json.dump(new_memory_data, f, ensure_ascii=False, indent=2)
                 
                 self.logger.info(f"已将记忆添加到JSON格式文件，索引: {next_index}")
                 self.logger.info(f"成功将对话保存到RAG系统: user_id={user_id}, emotion={emotion}")
-                
-                # 显式保存RAG实例数据
-                if self.rag and hasattr(self.rag, 'save'):
-                    try:
-                        self.logger.info("手动触发RAG实例保存...")
-                        self.rag.save()
-                        self.logger.info("RAG实例数据已成功保存")
-                        
-                        # 验证文件是否存在
-                        if os.path.exists(json_path):
-                            self.logger.info(f"验证: RAG记忆JSON文件存在，大小: {os.path.getsize(json_path)} 字节")
-                        else:
-                            self.logger.warning(f"验证: RAG记忆JSON文件不存在: {json_path}")
-                    except Exception as save_err:
-                        self.logger.error(f"保存RAG实例数据失败: {str(save_err)}")
                 
                 return True
             except Exception as file_err:

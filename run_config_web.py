@@ -49,6 +49,9 @@ import win32process
 from src.Wechat_Login_Clicker.Wechat_Login_Clicker import click_wechat_buttons
 from dotenv import load_dotenv
 import yaml
+import httpx
+from openai import OpenAI
+import src.services.ai.llms.llm  # 添加LLM模块导入
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -277,9 +280,9 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
         # 直接从配置文件读取定时任务数据
         tasks = []
         try:
-            config_path = os.path.join(ROOT_DIR, 'src/config/config.json')
+            config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
             with open(config_path, 'r', encoding='utf-8') as f:
-                config_data = json.load(f)
+                config_data = yaml.safe_load(f)
                 if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
                     if 'settings' in config_data['categories']['schedule_settings'] and 'tasks' in \
                             config_data['categories']['schedule_settings']['settings']:
@@ -316,14 +319,34 @@ def save_config():
     """保存配置"""
     try:
         import yaml
-        data = request.get_json()
-        logger.debug(f"接收到的配置数据: {data}")
+        import importlib
+        import sys
+        # 修改为接收表单数据而不是JSON
+        form_data = request.form.to_dict()
+        logger.debug(f"接收到的配置数据: {form_data}")
 
         # 记录安静时间设置
-        if 'QUIET_TIME_START' in data:
-            logger.info(f"接收到安静时间开始设置: {data['QUIET_TIME_START']}")
-        if 'QUIET_TIME_END' in data:
-            logger.info(f"接收到安静时间结束设置: {data['QUIET_TIME_END']}")
+        if 'QUIET_TIME_START' in form_data:
+            logger.info(f"接收到安静时间开始设置: {form_data['QUIET_TIME_START']}")
+        if 'QUIET_TIME_END' in form_data:
+            logger.info(f"接收到安静时间结束设置: {form_data['QUIET_TIME_END']}")
+        
+        # 特殊处理LISTEN_LIST字段
+        if 'LISTEN_LIST' in form_data:
+            # 确保将逗号分隔的字符串转为列表
+            listen_list_str = form_data['LISTEN_LIST']
+            form_data['LISTEN_LIST'] = [user.strip() for user in listen_list_str.split(',') if user.strip()]
+            logger.debug(f"处理LISTEN_LIST为列表: {form_data['LISTEN_LIST']}")
+            
+        # 特殊处理RAG_IS_RERANK，确保它是布尔值
+        if 'RAG_IS_RERANK' in form_data:
+            if isinstance(form_data['RAG_IS_RERANK'], str):
+                form_data['RAG_IS_RERANK'] = form_data['RAG_IS_RERANK'].lower() == 'true'
+            try:
+                form_data['RAG_IS_RERANK'] = bool(form_data['RAG_IS_RERANK'])
+                logger.debug(f"处理RAG_IS_RERANK为布尔值: {form_data['RAG_IS_RERANK']}")
+            except Exception as e:
+                logger.error(f"转换RAG_IS_RERANK为布尔值失败: {str(e)}")
 
         # 读取当前配置
         config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
@@ -361,7 +384,7 @@ def save_config():
             }
 
         # 更新配置
-        for key, value in data.items():
+        for key, value in form_data.items():
             # 特殊处理定时任务配置
             if key == 'TASKS':
                 try:
@@ -387,6 +410,27 @@ def save_config():
         # 立即重新加载配置
         g.config_data = current_config
         
+        # 重新加载配置模块，确保更改立即生效
+        try:
+            # 重新加载配置模块
+            importlib.reload(sys.modules['src.config'])
+            # 使用 reload_from_file 方法重新加载配置
+            from src.config import config as settings
+            if hasattr(settings, 'reload_from_file'):
+                settings.reload_from_file()
+                logger.info("成功重新加载配置模块")
+            else:
+                logger.warning("配置模块没有 reload_from_file 方法")
+        except Exception as e:
+            logger.error(f"重新加载配置模块失败: {str(e)}")
+        
+        # 检查并记录RAG_IS_RERANK设置
+        try:
+            is_rerank = current_config['categories']['rag_settings']['settings']['is_rerank']['value']
+            logger.info(f"保存后的RAG_IS_RERANK值: {is_rerank}, 类型: {type(is_rerank)}")
+        except Exception as e:
+            logger.error(f"获取保存后的RAG_IS_RERANK值失败: {str(e)}")
+            
         # 记录安静时间设置
         try:
             quiet_time_start = current_config['categories']['behavior_settings']['settings']['quiet_time']['start']['value']
@@ -405,41 +449,19 @@ def save_config():
                 if tasks:
                     logger.info(f"成功重新初始化定时任务，共 {len(tasks)} 个任务")
                 else:
-                    logger.info("成功重新初始化定时任务，暂无定时任务")
-            else:
-                logger.info("成功重新初始化定时任务，暂无定时任务")
+                    logger.info("成功重新初始化定时任务，但没有任务")
         except Exception as e:
             logger.error(f"重新初始化定时任务失败: {str(e)}")
 
-        # 重新加载配置到内存
-        try:
-            from src.config import reload_config
-            reload_config()
-            logger.info("成功重新加载配置到内存")
-            
-            # 导入并重新加载main模块中的配置
-            try:
-                import importlib
-                import src.main
-                importlib.reload(src.main)
-                logger.info("成功重新加载main模块")
-            except Exception as e:
-                logger.error(f"重新加载main模块失败: {str(e)}")
-        except Exception as e:
-            logger.error(f"重新加载配置到内存失败: {str(e)}")
-
         return jsonify({
-            "status": "success",
-            "message": "✨ 配置已成功保存并生效",
-            "title": "保存成功"
+            'status': 'success',
+            'message': '配置已成功保存'
         })
-
     except Exception as e:
         logger.error(f"保存配置失败: {str(e)}")
         return jsonify({
-            "status": "error",
-            "message": f"保存失败: {str(e)}",
-            "title": "错误"
+            'status': 'error',
+            'message': f'保存配置失败: {str(e)}'
         })
 
 
@@ -530,6 +552,27 @@ def update_config_value(config_data, key, value):
                 
                 # 设置最终值
                 current[path[-1]] = value
+            # 特殊处理布尔值
+            elif key in ['RAG_IS_RERANK', 'AUTO_ADAPT_SILICONFLOW', 'LOCAL_MODEL_ENABLED']:
+                # 确保布尔值正确处理
+                if isinstance(value, str):
+                    if value.lower() == 'true':
+                        value = True
+                    elif value.lower() == 'false':
+                        value = False
+                    # 如果是其他字符串，尝试转换
+                    else:
+                        try:
+                            value = bool(value)
+                        except:
+                            # 默认值
+                            value = False
+                
+                # 记录日志
+                logger.info(f"设置{key}布尔值: {value}, 类型: {type(value)}")
+                
+                # 设置最终值
+                current[path[-1]] = value
             else:
                 # 设置普通值
                 current[path[-1]] = value
@@ -600,16 +643,23 @@ def get_background():
 
 @app.before_request
 def load_config():
-    """在每次请求之前加载配置"""
+    """每次请求前加载配置"""
     try:
-        import yaml
         config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            g.config_data = yaml.safe_load(f)  # 使用 g 来存储配置数据
+            g.config_data = yaml.safe_load(f)
+            
+        # 尝试重新加载内存中的配置，确保使用最新配置
+        try:
+            from src.config import config as settings
+            if hasattr(settings, 'reload_from_file'):
+                settings.reload_from_file()
+        except Exception as e:
+            logger.warning(f"重新加载内存中配置失败: {str(e)}")
+            
     except Exception as e:
-        # 添加异常处理，确保 g.config_data 始终存在
-        logger.error(f"加载配置文件失败: {str(e)}")
-        g.config_data = {}  # 设置空字典作为默认值
+        logger.error(f"加载配置失败: {str(e)}")
+        g.config_data = {}
 
 
 @app.route('/dashboard')
@@ -2011,7 +2061,13 @@ def init_password():
         if config.update_password(hashed_password):
             # 重新加载配置
             importlib.reload(sys.modules['src.config'])
-            from src.config import config
+            # 使用 reload_from_file 方法重新加载配置
+            from src.config import config as settings
+            if hasattr(settings, 'reload_from_file'):
+                settings.reload_from_file()
+                logger.info("成功重新加载配置模块")
+            else:
+                logger.warning("配置模块没有 reload_from_file 方法")
 
             # 验证密码是否正确保存
             if not config.auth.admin_password:
@@ -2538,6 +2594,22 @@ def get_all_configs():
         with open(config_path, 'r', encoding='utf-8') as f:
             config_data = yaml.safe_load(f)
 
+        # 特别处理RAG_IS_RERANK，直接从YAML中读取
+        rerank_enabled = False
+        try:
+            if ('categories' in config_data and 'rag_settings' in config_data['categories'] and
+                'settings' in config_data['categories']['rag_settings'] and
+                'is_rerank' in config_data['categories']['rag_settings']['settings']):
+                rerank_value = config_data['categories']['rag_settings']['settings']['is_rerank'].get('value', False)
+                # 确保是布尔值
+                if isinstance(rerank_value, str):
+                    rerank_enabled = rerank_value.lower() == 'true'
+                else:
+                    rerank_enabled = bool(rerank_value)
+                logger.info(f"从YAML直接读取RAG_IS_RERANK值: {rerank_value}, 转换后: {rerank_enabled}, 类型: {type(rerank_enabled)}")
+        except Exception as e:
+            logger.error(f"读取RAG_IS_RERANK失败: {str(e)}")
+
         # 解析配置数据为前端需要的格式
         configs = {}
         tasks = []
@@ -2552,7 +2624,7 @@ def get_all_configs():
                     configs['基础配置']['LISTEN_LIST'] = {
                         'value': config_data['categories']['user_settings']['settings']['listen_list'].get('value', [])
                     }
-
+            
             # LLM设置
             if 'llm_settings' in config_data['categories'] and 'settings' in config_data['categories']['llm_settings']:
                 llm_settings = config_data['categories']['llm_settings']['settings']
@@ -2646,46 +2718,48 @@ def get_all_configs():
                 'schedule_settings']:
                 if 'tasks' in config_data['categories']['schedule_settings']['settings']:
                     tasks = config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
-
-            # 添加RAG记忆配置
-            if 'rag_settings' in config_data['categories'] and 'settings' in config_data['categories']['rag_settings']:
-                rag_settings = config_data['categories']['rag_settings']['settings']
+        
+        # 处理RAG设置
+        if 'categories' in config_data and 'rag_settings' in config_data['categories'] and 'settings' in config_data['categories']['rag_settings']:
+            rag_settings = config_data['categories']['rag_settings']['settings']
+            configs['RAG设置'] = {}
+            
+            # API配置
+            if 'api_key' in rag_settings:
+                configs['RAG设置']['RAG_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
+            if 'base_url' in rag_settings:
+                configs['RAG设置']['RAG_BASE_URL'] = {'value': rag_settings['base_url'].get('value', '')}
                 
-                # 检查是否使用SiliconFlow API
-                base_url = rag_settings.get('base_url', {}).get('value', '')
-                is_siliconflow = "siliconflow" in base_url.lower() if base_url else False
+            # 模型配置    
+            if 'embedding_model' in rag_settings:
+                configs['RAG设置']['RAG_EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
+            if 'reranker_model' in rag_settings:
+                configs['RAG设置']['RAG_RERANKER_MODEL'] = {'value': rag_settings['reranker_model'].get('value', '')}
+            if 'local_embedding_model_path' in rag_settings:
+                configs['RAG设置']['LOCAL_EMBEDDING_MODEL_PATH'] = {'value': rag_settings['local_embedding_model_path'].get('value', 'paraphrase-multilingual-MiniLM-L12-v2')}
+            
+            # 查询配置
+            if 'top_k' in rag_settings:
+                configs['RAG设置']['RAG_TOP_K'] = {'value': int(rag_settings['top_k'].get('value', 5))}
                 
-                # 如果不是SiliconFlow，才添加RAG记忆配置到前端
-                if not is_siliconflow:
-                    configs['RAG记忆配置'] = {}
+            # 特别处理is_rerank - 使用我们从YAML中直接读取的值
+            configs['RAG设置']['RAG_IS_RERANK'] = {'value': rerank_enabled}
+            logger.info(f"传递给前端的RAG_IS_RERANK值: {rerank_enabled}, 类型: {type(rerank_enabled)}")
+            
+            # 自动化配置    
+            if 'auto_download_local_model' in rag_settings:
+                auto_download = rag_settings['auto_download_local_model'].get('value')
+                if auto_download is not None:
+                    # 特殊处理字符串格式的布尔值
+                    if isinstance(auto_download, str):
+                        auto_download = auto_download.lower() == 'true'
+                    configs['RAG设置']['AUTO_DOWNLOAD_LOCAL_MODEL'] = {'value': auto_download}
                     
-                    # API配置
-                    if 'api_key' in rag_settings:
-                        configs['RAG记忆配置']['RAG_API_KEY'] = {'value': rag_settings['api_key'].get('value', '')}
-                    if 'base_url' in rag_settings:
-                        configs['RAG记忆配置']['RAG_BASE_URL'] = {'value': rag_settings['base_url'].get('value', '')}
-                        
-                    # 模型配置    
-                    if 'embedding_model' in rag_settings:
-                        configs['RAG记忆配置']['RAG_EMBEDDING_MODEL'] = {'value': rag_settings['embedding_model'].get('value', 'text-embedding-3-large')}
-                    if 'reranker_model' in rag_settings:
-                        configs['RAG记忆配置']['RAG_RERANKER_MODEL'] = {'value': rag_settings['reranker_model'].get('value', '')}
-                    if 'local_embedding_model_path' in rag_settings:
-                        configs['RAG记忆配置']['LOCAL_EMBEDDING_MODEL_PATH'] = {'value': rag_settings['local_embedding_model_path'].get('value', 'paraphrase-multilingual-MiniLM-L12-v2')}
-                    
-                    # 查询配置
-                    if 'top_k' in rag_settings:
-                        configs['RAG记忆配置']['RAG_TOP_K'] = {'value': int(rag_settings['top_k'].get('value', 5))}
-                    if 'is_rerank' in rag_settings:
-                        configs['RAG记忆配置']['RAG_IS_RERANK'] = {'value': rag_settings['is_rerank'].get('value', True)}
-                    
-                    # 自动化配置    
-                    if 'auto_download_local_model' in rag_settings:
-                        auto_download = rag_settings['auto_download_local_model'].get('value')
-                        if auto_download is not None:
-                            configs['RAG记忆配置']['AUTO_DOWNLOAD_LOCAL_MODEL'] = {'value': auto_download}
-                    if 'auto_adapt_siliconflow' in rag_settings:
-                        configs['RAG记忆配置']['AUTO_ADAPT_SILICONFLOW'] = {'value': rag_settings['auto_adapt_siliconflow'].get('value', True)}
+            if 'auto_adapt_siliconflow' in rag_settings:
+                auto_adapt = rag_settings['auto_adapt_siliconflow'].get('value', True)
+                if isinstance(auto_adapt, str):
+                    auto_adapt = auto_adapt.lower() == 'true'
+                configs['RAG设置']['AUTO_ADAPT_SILICONFLOW'] = {'value': bool(auto_adapt)}
 
         logger.debug(f"获取到的所有配置数据: {configs}")
         logger.debug(f"获取到的任务数据: {tasks}")
@@ -2718,6 +2792,58 @@ def handle_wechat_login():
         return jsonify({
             'status': 'error',
             'message': f'操作失败: {str(e)}'
+        })
+
+
+@app.route('/get_config')
+def get_config():
+    """获取配置数据，特别处理LISTEN_LIST字段"""
+    try:
+        import yaml
+        # 直接从配置文件读取配置数据
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_data = yaml.safe_load(f)
+        
+        # 提取所需的配置值
+        config_data_response = {}
+        
+        # 特别处理LISTEN_LIST
+        if ('categories' in config_data and 'user_settings' in config_data['categories'] and
+            'settings' in config_data['categories']['user_settings'] and
+            'listen_list' in config_data['categories']['user_settings']['settings']):
+            listen_list = config_data['categories']['user_settings']['settings']['listen_list'].get('value', [])
+            # 确保listen_list是一个数组
+            if not isinstance(listen_list, list):
+                listen_list = []
+            config_data_response['LISTEN_LIST'] = listen_list
+            logger.debug(f"获取到的监听用户列表: {listen_list}")
+        else:
+            config_data_response['LISTEN_LIST'] = []
+            logger.warning("在配置中找不到监听用户列表")
+        
+        # 处理RAG_IS_RERANK
+        if ('categories' in config_data and 'rag_settings' in config_data['categories'] and
+            'settings' in config_data['categories']['rag_settings'] and
+            'is_rerank' in config_data['categories']['rag_settings']['settings']):
+            rerank_value = config_data['categories']['rag_settings']['settings']['is_rerank'].get('value', False)
+            # 确保是布尔值
+            if isinstance(rerank_value, str):
+                config_data_response['RAG_IS_RERANK'] = rerank_value.lower() == 'true'
+            else:
+                config_data_response['RAG_IS_RERANK'] = bool(rerank_value)
+        
+        # 其他配置按需添加...
+        
+        return jsonify({
+            'status': 'success',
+            'config': config_data_response
+        })
+    except Exception as e:
+        logger.error(f"获取配置数据失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
         })
 
 

@@ -521,8 +521,62 @@ class SettingReader:
         return self.settings[key]
 
     def __setitem__(self, key, value):
-        """通过字典方式设置配置项"""
-        self.settings[key] = value
+        """通过字典项设置配置项"""
+        if key.startswith('_'):
+            object.__setattr__(self, key, value)
+        else:
+            settings = object.__getattribute__(self, 'settings')
+            settings[key] = value
+    
+    def reload_from_file(self):
+        """从配置文件重新加载配置"""
+        try:
+            # 重新读取配置文件
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                config_data = yaml.safe_load(f) or {}
+            
+            # 更新内存中的配置
+            object.__setattr__(self, 'settings', config_data)
+            
+            # 重新解析配置
+            self._parse_config_data(config_data)
+            
+            # 重要：更新全局变量
+            global LISTEN_LIST, ROBOT_WX_NAME, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE
+            global MOONSHOT_API_KEY, MOONSHOT_BASE_URL, MOONSHOT_TEMPERATURE, IMAGE_MODEL, TEMP_IMAGE_DIR
+            global MAX_GROUPS, TTS_API_URL, VOICE_DIR, AUTO_MESSAGE, MIN_COUNTDOWN_HOURS, MAX_COUNTDOWN_HOURS
+            global QUIET_TIME_START, QUIET_TIME_END
+            
+            # 更新用户设置
+            LISTEN_LIST = self.user.listen_list
+            
+            # 更新其他全局变量
+            ROBOT_WX_NAME = self.robot_wx_name
+            DEEPSEEK_API_KEY = self.llm.api_key
+            DEEPSEEK_BASE_URL = self.llm.base_url
+            MODEL = self.llm.model
+            MAX_TOKEN = self.llm.max_tokens
+            TEMPERATURE = self.llm.temperature
+            MOONSHOT_API_KEY = self.media.image_recognition.api_key
+            MOONSHOT_BASE_URL = self.media.image_recognition.base_url
+            MOONSHOT_TEMPERATURE = self.media.image_recognition.temperature
+            IMAGE_MODEL = self.media.image_generation.model
+            TEMP_IMAGE_DIR = self.media.image_generation.temp_dir
+            MAX_GROUPS = self.behavior.context.max_groups
+            TTS_API_URL = self.media.text_to_speech.tts_api_url
+            VOICE_DIR = self.media.text_to_speech.voice_dir
+            AUTO_MESSAGE = self.behavior.auto_message.content
+            MIN_COUNTDOWN_HOURS = self.behavior.auto_message.min_hours
+            MAX_COUNTDOWN_HOURS = self.behavior.auto_message.max_hours
+            QUIET_TIME_START = self.behavior.quiet_time.start
+            QUIET_TIME_END = self.behavior.quiet_time.end
+            
+            logger.info(f"成功从文件重新加载配置: {self.config_path}")
+            logger.info(f"已更新监听用户列表: {LISTEN_LIST}")
+            return True
+        except Exception as e:
+            logger.error(f"从文件重新加载配置失败: {str(e)}")
+            return False
 
 
 def reload_config():

@@ -784,7 +784,7 @@ class HybridEmbeddingModel(EmbeddingModel):
             self.local_model_failed = True
             
         print("\n" + "="*80)
-        print(f"嵌入模型初始化完成: {'API + 本地备用' if self.use_local_model else 'API' }")
+        print(f"嵌入模型初始化完成: {'API + 本地备用' if self.local_model_enabled else 'API' }")
         print("="*80 + "\n")
     
     def _initialize_local_model(self):

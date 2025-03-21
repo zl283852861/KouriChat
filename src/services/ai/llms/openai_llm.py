@@ -30,7 +30,7 @@ class OpenAILLM(BaseLLM):
             
         # 打印初始化参数（不包含完整API密钥）
         logger.info(f"初始化OpenAI LLM - URL: {url}, Model: {model_name}")
-        logger.info(f"API密钥前4位: {api_key[:4] if len(api_key) >= 4 else 'Invalid'}")
+        logger.info(f"API密钥后4位: {api_key[-4:] if len(api_key) >= 4 else 'Invalid'}")
             
         # 调用父类初始化
         super().__init__(
@@ -52,7 +52,7 @@ class OpenAILLM(BaseLLM):
             # 添加超时配置和更多初始化参数
             timeout = httpx.Timeout(30.0, connect=10.0)  # 总超时30秒，连接超时10秒
             
-            # 初始化客户端
+            # 无论是否已初始化，都重新设置客户端以使用最新的配置
             self.client = OpenAI(
                 api_key=self.api_key,
                 base_url=self.url,
@@ -83,14 +83,15 @@ class OpenAILLM(BaseLLM):
             import httpx
             
             # 只测试连接，不执行实际请求
-            with httpx.Client(timeout=5.0) as client:
+            with httpx.Client(timeout=5.0, follow_redirects=True) as client:
                 try:
                     response = client.get(
                         f"{self.url}/models",
                         headers={"Authorization": f"Bearer {self.api_key}"}
                     )
                     self.logger.info(f"API连接测试响应码: {response.status_code}")
-                    return response.status_code == 200
+                    # 接受200和307状态码都视为连接成功
+                    return response.status_code in (200, 307)
                 except httpx.ConnectError as e:
                     self.logger.error(f"API连接测试无法连接到服务器: {str(e)}")
                     return False
@@ -122,7 +123,7 @@ class OpenAILLM(BaseLLM):
             self.logger.info("========= API请求信息 =========")
             self.logger.info(f"模型名称: {self.model_name}")
             self.logger.info(f"API URL: {self.url}")
-            self.logger.info(f"API密钥前4位: {self.api_key[:4] if len(self.api_key) > 4 else '无效'}")
+            self.logger.info(f"API密钥后4位: {self.api_key[-4:] if len(self.api_key) > 4 else '无效'}")
             self.logger.info(f"消息数量: {len(messages)}")
             self.logger.info(f"温度参数: {self.temperature}")
             self.logger.info("===========================")
@@ -189,7 +190,7 @@ class OpenAILLM(BaseLLM):
             
             # 增强错误日志和处理
             if "Connection" in error_message or "connect" in error_message.lower():
-                self.logger.error(f"连接错误详情 - URL: {self.url}, API密钥前4位: {self.api_key[:4] if len(self.api_key) > 4 else '无效'}")
+                self.logger.error(f"连接错误详情 - URL: {self.url}, API密钥后4位: {self.api_key[-4:] if len(self.api_key) > 4 else '无效'}")
                 self.logger.error(f"请检查网络连接和API配置。确保API URL和API密钥在config.yaml中正确设置。")
                 
                 # 尝试使用httpx直接测试连接
