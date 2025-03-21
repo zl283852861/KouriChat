@@ -684,7 +684,7 @@ def message_listener():
     check_interval = 600  # 10分钟检查一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
-    reconnect_delay = 10  # 重连等待时间（秒）
+    reconnect_delay = 20  # 重连等待时间（秒）
     last_reconnect_time = 0
 
     while not stop_event.is_set():
@@ -910,7 +910,7 @@ def initialize_auto_tasks(message_handler):
         return AutoTasker(message_handler)
 
 
-def main(debug_mode=False):
+def main(debug_mode=True):
     global files_handler, emoji_handler, image_handler, \
         voice_handler, memory_handler, moonshot_ai, \
         message_handler, listener_thread, chat_bot, wx, ROBOT_WX_NAME
@@ -1029,9 +1029,25 @@ def main(debug_mode=False):
         base_url=config.llm.base_url
     )
     
-    # 设置memory_handler为None
-    memory_handler = None
-    logger.info("记忆系统已禁用")
+    # 初始化新的记忆系统
+    try:
+        from src.handlers.memory import init_memory
+        logger.info("正在初始化新的三层记忆系统...")
+        memory_handler = init_memory(root_dir, api_wrapper)
+        if memory_handler:
+            logger.info("记忆系统初始化成功")
+            # 获取记忆系统统计信息
+            try:
+                stats = memory_handler.get_memory_stats()
+                logger.info(f"记忆系统统计: 记忆条数={stats.get('memory_count', 0)}, 嵌入数={stats.get('embedding_count', 0)}")
+            except Exception as stats_err:
+                logger.warning(f"获取记忆统计信息失败: {str(stats_err)}")
+        else:
+            logger.warning("记忆系统初始化返回空处理器")
+    except Exception as e:
+        logger.error(f"初始化记忆系统失败: {str(e)}")
+        memory_handler = None
+        logger.warning("记忆系统已禁用")
     
     moonshot_ai = ImageRecognitionService(
         api_key=config.media.image_recognition.api_key,

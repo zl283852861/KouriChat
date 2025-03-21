@@ -5,6 +5,7 @@ import os
 import logging
 import json
 import openai
+import asyncio
 from typing import Any, Dict, List, Optional, Union
 
 # 设置日志
@@ -75,6 +76,66 @@ class APIWrapper:
                 return {"error": str(error)}
         except:
             return {"error": str(error)}
+            
+    async def async_embedding(self, text: str, model_name: str = "text-embedding-3-large") -> List[float]:
+        """
+        异步获取嵌入向量
+        
+        Args:
+            text: 输入文本
+            model_name: 模型名称
+            
+        Returns:
+            List[float]: 嵌入向量
+        """
+        try:
+            # 调用嵌入API
+            response = await self.embeddings.create(model=model_name, input=text)
+            
+            # 解析结果
+            if hasattr(response, 'data') and len(response.data) > 0:
+                return response.data[0].embedding
+            elif isinstance(response, dict) and 'data' in response:
+                return response['data'][0]['embedding']
+            else:
+                logger.error(f"无法解析嵌入向量响应: {response}")
+                return None
+        except Exception as e:
+            logger.error(f"获取嵌入向量失败: {str(e)}")
+            return None
+            
+    def embedding(self, text: str, model_name: str = "text-embedding-3-large") -> List[float]:
+        """
+        同步获取嵌入向量
+        
+        Args:
+            text: 输入文本
+            model_name: 模型名称
+            
+        Returns:
+            List[float]: 嵌入向量
+        """
+        try:
+            # 获取或创建事件循环
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+            # 在事件循环中运行异步方法
+            if loop.is_running():
+                # 如果循环正在运行，使用run_coroutine_threadsafe
+                future = asyncio.run_coroutine_threadsafe(
+                    self.async_embedding(text, model_name), loop)
+                return future.result()
+            else:
+                # 否则直接运行直到完成
+                return loop.run_until_complete(
+                    self.async_embedding(text, model_name))
+        except Exception as e:
+            logger.error(f"同步获取嵌入向量失败: {str(e)}")
+            return None
 
 class APIEmbeddings:
     """嵌入API接口"""

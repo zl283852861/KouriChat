@@ -34,7 +34,7 @@ class LoggerConfig:
         # 创建或获取日志记录器
         logger = logging.getLogger(name)
         logger.setLevel(level)
-        logger.propagate = True  # 确保日志能正确传播
+        logger.propagate = False  # 修改为False，防止日志消息向上传播导致重复记录
         
         # 移除所有已有的handler，防止重复
         for handler in logger.handlers[:]:
@@ -43,8 +43,10 @@ class LoggerConfig:
         # 创建控制台处理器
         console_handler = logging.StreamHandler()
         console_handler.setLevel(level)
+        # 修改日志格式：行号[日期时间] - 级别 - 消息
         console_formatter = logging.Formatter(
-            '%(asctime)s - %(levelname)s - %(message)s'
+            '%(lineno)d[%(asctime)s] - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         console_handler.setFormatter(console_formatter)
         logger.addHandler(console_handler)
@@ -57,12 +59,22 @@ class LoggerConfig:
             encoding='utf-8'
         )
         file_handler.setLevel(level)
+        # 修改文件日志格式：行号[日期时间] - 名称 - 级别 - 消息
         file_formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(lineno)d[%(asctime)s] - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
         file_handler.setFormatter(file_formatter)
         logger.addHandler(file_handler)
 
+        # 设置特定模块的日志级别，减少冗余日志
+        logging.getLogger('openai').setLevel(logging.WARNING)  # 减少openai库的日志输出
+        logging.getLogger('httpx').setLevel(logging.WARNING)  # 减少http请求的日志输出
+        
+        # 设置API请求相关日志级别
+        if name == 'api_client':
+            logging.getLogger('api_client').setLevel(logging.WARNING)
+        
         return logger
 
     def cleanup_old_logs(self, days: int = 7):
@@ -107,7 +119,11 @@ def get_logger(name: Optional[str] = None, level: int = logging.INFO):
     if not logger.handlers:
         console_handler = logging.StreamHandler()
         console_handler.setLevel(level)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        # 修改为新的日志格式
+        formatter = logging.Formatter(
+            '%(lineno)d[%(asctime)s] - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
     

@@ -33,7 +33,7 @@ class EmojiHandler:
         self.wx = wx_instance  # 使用传入的 WeChat 实例
         self.sentiment_analyzer = sentiment_analyzer  # 情感分析器实例
         avatar_name = config.behavior.context.avatar_dir
-        self.emoji_dir = os.path.join(root_dir,AVATARS_DIR, avatar_name,"emojis")
+        self.emoji_dir = os.path.join(AVATARS_DIR, avatar_name,"emojis")
         self.screenshot_dir = os.path.join(root_dir, 'screenshot')
         
         # 情感目录映射（实在没办法了，要适配之前的文件结构）

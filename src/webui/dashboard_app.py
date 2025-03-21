@@ -1,6 +1,6 @@
 # 添加命令处理部分，包含download_model命令
 from src.config.rag_config import config
-from src.memories.memory.core.rag import HybridEmbeddingModel, OnlineEmbeddingModel, LocalEmbeddingModel
+from src.handlers.memories.core.rag import HybridEmbeddingModel, OnlineEmbeddingModel, LocalEmbeddingModel
 
 @bot.command("initialize_local_model", "初始化本地嵌入模型")
 def download_model_cmd():
