@@ -188,9 +188,14 @@ class ShortTermMemory:
             except Exception as e:
                 self.logger.warning(f"情感分析失败: {str(e)}")
             
-            # 清理对话文本，过滤格式
+            # 清理对话文本，过滤格式（预处理）
             cleaned_memory_key, cleaned_memory_value = clean_dialog_memory(memory_key, memory_value)
             
+            # 如果过滤后的内容为空，则跳过添加
+            if not cleaned_memory_key.strip() or not cleaned_memory_value.strip():
+                self.logger.warning("过滤后的记忆内容为空，跳过添加")
+                return False
+                
             # 准备新格式的记忆数据
             memory_entry = {
                 "bot_time": current_time,

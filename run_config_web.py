@@ -478,18 +478,15 @@ def update_config_value(config_data, key, value):
             'TEMPERATURE': ['categories', 'llm_settings', 'settings', 'temperature', 'value'],
             'MOONSHOT_API_KEY': ['categories', 'media_settings', 'settings', 'image_recognition', 'api_key', 'value'],
             'MOONSHOT_BASE_URL': ['categories', 'media_settings', 'settings', 'image_recognition', 'base_url', 'value'],
-            'MOONSHOT_TEMPERATURE': ['categories', 'media_settings', 'settings', 'image_recognition', 'temperature',
-                                     'value'],
+            'MOONSHOT_TEMPERATURE': ['categories', 'media_settings', 'settings', 'image_recognition', 'temperature', 'value'],
             'MOONSHOT_MODEL': ['categories', 'media_settings', 'settings', 'image_recognition', 'model', 'value'],
             'IMAGE_MODEL': ['categories', 'media_settings', 'settings', 'image_generation', 'model', 'value'],
             'TEMP_IMAGE_DIR': ['categories', 'media_settings', 'settings', 'image_generation', 'temp_dir', 'value'],
             'TTS_API_URL': ['categories', 'media_settings', 'settings', 'text_to_speech', 'tts_api_url', 'value'],
             'VOICE_DIR': ['categories', 'media_settings', 'settings', 'text_to_speech', 'voice_dir', 'value'],
             'AUTO_MESSAGE': ['categories', 'behavior_settings', 'settings', 'auto_message', 'content', 'value'],
-            'MIN_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown',
-                                    'min_hours', 'value'],
-            'MAX_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown',
-                                    'max_hours', 'value'],
+            'MIN_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown', 'min_hours', 'value'],
+            'MAX_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown', 'max_hours', 'value'],
             'QUIET_TIME_START': ['categories', 'behavior_settings', 'settings', 'quiet_time', 'start', 'value'],
             'QUIET_TIME_END': ['categories', 'behavior_settings', 'settings', 'quiet_time', 'end', 'value'],
             'MAX_GROUPS': ['categories', 'behavior_settings', 'settings', 'context', 'max_groups', 'value'],
@@ -501,87 +498,43 @@ def update_config_value(config_data, key, value):
             'RAG_RERANKER_MODEL': ['categories', 'rag_settings', 'settings', 'reranker_model', 'value'],
             'RAG_TOP_K': ['categories', 'rag_settings', 'settings', 'top_k', 'value'],
             'AUTO_DOWNLOAD_LOCAL_MODEL': ['categories', 'rag_settings', 'settings', 'auto_download_local_model', 'value'],
-            'AUTO_ADAPT_SILICONFLOW': ['categories', 'rag_settings', 'settings', 'auto_adapt_siliconflow', 'value'],
+            'AUTO_ADAPT_SILICONFLOW': ['categories', 'rag_settings', 'settings', 'auto_adapt_siliconflow', 'value']
         }
-
+        
+        # 数值类型配置项
+        numeric_keys = {
+            'MAX_TOKEN': int,
+            'TEMPERATURE': float,
+            'MOONSHOT_TEMPERATURE': float,
+            'MIN_COUNTDOWN_HOURS': float,
+            'MAX_COUNTDOWN_HOURS': float,
+            'MAX_GROUPS': int,
+            'RAG_TOP_K': int
+        }
+        
         if key in mapping:
             path = mapping[key]
-            current = config_data
-
-            # 遍历路径直到倒数第二个元素
+            target = config_data
+            
+            # 遍历路径到倒数第二个元素
             for part in path[:-1]:
-                if part not in current:
-                    current[part] = {}
-                current = current[part]
-
-            # 特殊处理时间格式
-            if key in ['QUIET_TIME_START', 'QUIET_TIME_END']:
-                # 确保时间格式为 HH:MM
-                if isinstance(value, str):
-                    # 移除所有空格
-                    value = value.strip()
-                    # 如果没有冒号，尝试格式化
-                    if ':' not in value:
-                        # 尝试将纯数字格式转换为时间格式
-                        if value.isdigit():
-                            if len(value) == 4:
-                                # 如 "2200" -> "22:00"
-                                value = f"{value[:2]}:{value[2:]}"
-                            elif len(value) == 3:
-                                # 如 "900" -> "09:00"
-                                value = f"0{value[0]}:{value[1:]}"
-                            elif len(value) == 2:
-                                # 如 "23" -> "23:00"
-                                value = f"{value}:00"
-                            elif len(value) == 1:
-                                # 如 "9" -> "09:00"
-                                value = f"0{value}:00"
-                elif isinstance(value, int):
-                    # 整数转换为字符串时间
-                    value_str = str(value)
-                    if len(value_str) == 4:
-                        value = f"{value_str[:2]}:{value_str[2:]}"
-                    elif len(value_str) == 3:
-                        value = f"0{value_str[0]}:{value_str[1:]}"
-                    elif len(value_str) == 2:
-                        value = f"{value_str}:00"
-                    elif len(value_str) == 1:
-                        value = f"0{value_str}:00"
-                
-                logger.info(f"处理{key}时间格式: 输入={value}")
-                
-                # 设置最终值
-                current[path[-1]] = value
-            # 特殊处理布尔值
-            elif key in ['RAG_IS_RERANK', 'AUTO_ADAPT_SILICONFLOW', 'LOCAL_MODEL_ENABLED']:
-                # 确保布尔值正确处理
-                if isinstance(value, str):
-                    if value.lower() == 'true':
-                        value = True
-                    elif value.lower() == 'false':
-                        value = False
-                    # 如果是其他字符串，尝试转换
-                    else:
-                        try:
-                            value = bool(value)
-                        except:
-                            # 默认值
-                            value = False
-                
-                # 记录日志
-                logger.info(f"设置{key}布尔值: {value}, 类型: {type(value)}")
-                
-                # 设置最终值
-                current[path[-1]] = value
-            else:
-                # 设置普通值
-                current[path[-1]] = value
-            logger.debug(f"已更新配置 {key}: {value}")
-        else:
-            logger.warning(f"未知的配置项: {key}")
-
+                if part not in target:
+                    target[part] = {}
+                target = target[part]
+            
+            # 处理数值类型
+            if key in numeric_keys:
+                try:
+                    value = numeric_keys[key](value)
+                except (ValueError, TypeError):
+                    logger.error(f"无法将{key}的值'{value}'转换为{numeric_keys[key].__name__}类型")
+                    return
+            
+            # 设置最终值
+            target[path[-1]] = value
+            
     except Exception as e:
-        logger.error(f"更新配置值失败 {key}: {str(e)}")
+        logger.error(f"更新配置值时出错: {str(e)}")
 
 
 # 添加上传处理路由

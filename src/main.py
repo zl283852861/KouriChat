@@ -18,7 +18,6 @@ from src.handlers.voice import VoiceHandler
 from src.handlers.file import FileHandler
 from src.services.ai.llm_service import LLMService
 from src.services.ai.image_recognition_service import ImageRecognitionService
-from src.handlers.memory import init_memory
 from src.api_client.wrapper import APIWrapper
 from src.handlers.emotion import SentimentResourceLoader, SentimentAnalyzer  # 导入情感分析模块
 from src.utils.logger import LoggerConfig
@@ -27,7 +26,28 @@ from colorama import init, Style, Fore
 from src.AutoTasker.autoTasker import AutoTasker
 import sys
 import asyncio
-from src.handlers.memory import _run_async
+
+def _run_async(coro):
+    """
+    运行异步函数并返回结果
+    
+    Args:
+        coro: 异步协程对象
+        
+    Returns:
+        协程运行结果
+    """
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+    if loop.is_running():
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+        return future.result()
+    else:
+        return loop.run_until_complete(coro)
 
 # 创建一个事件对象来控制线程的终止
 stop_event = threading.Event()
@@ -75,15 +95,6 @@ chat_contexts = {}  # 存储上下文
 # 初始化colorama
 init()
 
-# 在初始化memory_handler前添加此日志
-logger.info("========= LLM配置信息 =========")
-logger.info(f"模型名称: {config.llm.model}")
-logger.info(f"API基础URL: {config.llm.base_url}")
-logger.info(f"API密钥后4位: {config.llm.api_key[4:] if config.llm.api_key else 'None'}")
-logger.info(f"温度参数: {config.llm.temperature}")
-logger.info(f"最大Token数: {config.llm.max_tokens}")
-logger.info(f"最大对话组数: {config.behavior.context.max_groups}")
-logger.info("================================")
 
 # ... 现有ChatBot类代码...
 
@@ -166,11 +177,7 @@ class DebugBot:
             if response:
                 # 使用彩色日志显示AI回复
                 self.log_colored_message(f"[AI回复] {response}", self.ai_color)
-                self.memory_handler.add_short_memory(
-                    "用户调试输入",
-                    response,
-                    "debug_user"
-                )
+                logger.info(f"调试模式对话记录 - 用户输入: {messages}\nAI回复: {response}")
 
         except Exception as e:
             logger.error(f"调试消息处理失败: {str(e)}")
@@ -305,62 +312,11 @@ class ChatBot:
             )
             logger.info(f"消息已处理- 聊天ID: {chat_id}")
 
-            # 确保记忆保存功能被调用
+            # 记录对话内容
             if response and isinstance(response, str):
-                # 如果 handle_user_message 返回了回复内容，则保存到记忆
-                logger.info(f"在ChatBot中保存对话到记忆 - 用户ID: {username}")
-                
-                try:
-                    # 检查remember方法是否是异步方法
-                    if asyncio.iscoroutinefunction(self.memory_handler.remember):
-                        logger.debug(f"检测到remember是异步方法，使用_run_async调用")
-                        # 从全局函数导入remember，确保正确处理user_id参数
-                        from src.memories import remember as global_remember
-                        save_result = _run_async(global_remember(content, response, username))
-                    else:
-                        # 如果是同步方法，传递三个参数
-                        save_result = self.memory_handler.remember(content, response, username)
-                    
-                    if save_result:
-                        logger.info(f"ChatBot成功保存对话到RAG系统 - 用户: {username}")
-                    else:
-                        logger.warning(f"ChatBot调用remember方法保存对话失败 - 用户: {username}, 尝试使用add_short_memory方法")
-                        # 尝试使用 add_short_memory 方法
-                        alt_result = self.memory_handler.add_short_memory(content, response, username)
-                        if alt_result:
-                            logger.info(f"ChatBot通过add_short_memory成功保存对话 - 用户: {username}")
-                        else:
-                            logger.warning(f"ChatBot所有保存记忆方法均失败 - 用户: {username}")
-                except Exception as mem_err:
-                    logger.error(f"ChatBot保存对话记忆失败: {str(mem_err)}")
-                    
-                # 强制保存记忆
-                try:
-                    from src.memories import save_memories
-                    logger.info(f"强制触发所有记忆保存 - 用户: {username}")
-                    save_memories()
-                    logger.info(f"强制保存记忆完成")
-                    
-                    # 检查RAG实例是否已保存
-                    try:
-                        from src.memories import get_rag
-                        rag = get_rag()
-                        if rag:
-                            logger.info("强制触发RAG实例保存...")
-                            if hasattr(rag, 'save'):
-                                rag.save()
-                                logger.info("RAG实例数据已成功保存")
-                            # 确保JSON文件导出
-                            if hasattr(rag, 'export_to_json'):
-                                logger.info("强制导出RAG记忆到JSON...")
-                                rag.export_to_json()
-                                logger.info("RAG记忆成功导出到JSON")
-                    except Exception as re:
-                        logger.error(f"强制RAG实例保存失败: {str(re)}")
-                except Exception as se:
-                    logger.error(f"强制保存记忆失败: {str(se)}")
+                logger.info(f"对话记录 - 用户: {username}\n用户: {content}\nAI: {response}")
             else:
-                logger.warning(f"无有效响应内容，跳过记忆保存 - 用户ID: {username}")
+                logger.warning(f"无有效响应内容 - 用户ID: {username}")
 
             # 记录 AI 最后回复的时间
             self.ai_last_reply_time[username] = time.time()
@@ -512,7 +468,7 @@ class ChatBot:
 
 
 # 读取提示文件
-avatar_dir = os.path.join(root_dir, "data", "avatars", config.behavior.context.avatar_dir)
+avatar_dir = os.path.join(root_dir, 'data', 'avatars', config.behavior.context.avatar_dir)
 prompt_path = os.path.join(avatar_dir, "avatar.md")
 with open(prompt_path, "r", encoding="utf-8") as file:
     prompt_content = file.read()
@@ -963,7 +919,7 @@ def main(debug_mode=False):
     listener_thread = None
     wx = None  # 初始化wx为None
     
-    # 修正路径格式，保持与第514行一致
+    # 修正路径格式，使用正确的路径拼接
     avatar_dir = os.path.join(root_dir, "data", "avatars", config.behavior.context.avatar_dir)
     prompt_path = os.path.join(avatar_dir, "avatar.md")
 
@@ -986,18 +942,6 @@ def main(debug_mode=False):
 
     if debug_mode: ROBOT_WX_NAME = "Debuger"
 
-    # 修复记忆格式 - 确保对话文本被正确清理
-    try:
-        from src.memories import fix_memory_file_format
-        logger.info("开始修复记忆文件格式...")
-        fix_result = fix_memory_file_format()
-        if fix_result:
-            logger.info("成功修复了记忆文件格式")
-        else:
-            logger.info("记忆文件无需修复或不存在")
-    except Exception as e:
-        logger.warning(f"修复记忆文件格式时出错: {str(e)}")
-        
     logger.info("开始预热情感分析模块..")
     sentiment_resource_loader = SentimentResourceLoader()
     sentiment_analyzer = SentimentAnalyzer(sentiment_resource_loader)
@@ -1033,7 +977,7 @@ def main(debug_mode=False):
         logger.info("============ LLM服务初始化 ============")
         logger.info(f"模型名称: {config.llm.model}")
         logger.info(f"API基础URL: {config.llm.base_url}")
-        logger.info(f"API密钥前4位: {config.llm.api_key[:4] if config.llm.api_key else 'None'}")
+        logger.info(f"API密钥后4位: {config.llm.api_key[-4:] if config.llm.api_key else 'None'}")
         logger.info(f"温度参数: {config.llm.temperature}")
         logger.info(f"最大Token数: {config.llm.max_tokens}")
         logger.info("正在测试API连接...")
@@ -1069,9 +1013,9 @@ def main(debug_mode=False):
             api_key=config.llm.api_key,
             base_url=config.llm.base_url,
             model=config.llm.model,
-            max_token=config.llm.max_tokens,
-            temperature=config.llm.temperature,
-            max_groups=config.behavior.context.max_groups,
+            max_token=int(config.llm.max_tokens),  # 确保转换为整数
+            temperature=float(config.llm.temperature),  # 同时也确保temperature是浮点数
+            max_groups=int(config.behavior.context.max_groups),  # 确保max_groups也是整数
             )
     
     # 在初始化memory_handler前添加此日志
@@ -1085,61 +1029,9 @@ def main(debug_mode=False):
         base_url=config.llm.base_url
     )
     
-    # 创建默认的RAG配置文件
-    logger.info("检查RAG配置文件...")
-    rag_config_path = os.path.join(root_dir, "src", "config", "config.yaml")
-    if not os.path.exists(rag_config_path):
-        try:
-            from src.memories.memory.core.rag import create_default_config
-            logger.info(f"创建默认RAG配置文件: {rag_config_path}")
-            create_default_config(rag_config_path)
-            
-            # 尝试修改默认配置使用当前API密钥
-            import yaml
-            with open(rag_config_path, 'r', encoding='utf-8') as f:
-                config_data = yaml.safe_load(f)
-            
-            # 更新API配置
-            config_data['api_key'] = config.llm.api_key
-            config_data['base_url'] = config.llm.base_url
-            
-            # 更新嵌入模型配置为硅基流动兼容
-            if 'siliconflow' in config.llm.base_url.lower():
-                config_data['embedding_model']['type'] = 'silicon_flow'
-                config_data['embedding_model']['name'] = 'text-embedding-3-large'
-            
-            # 保存修改后的配置
-            with open(rag_config_path, 'w', encoding='utf-8') as f:
-                yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
-            
-            logger.info(f"RAG配置文件已创建并配置")
-        except Exception as e:
-            logger.error(f"创建RAG配置文件失败: {str(e)}")
-    else:
-        logger.info(f"RAG配置文件已存在: {rag_config_path}")
-    
-    # 初始化记忆系统（使用兼容层）
-    logger.info("初始化记忆系统和RAG...")
-    logger.info(f"RAG配置: 嵌入模型={rag_config.EMBEDDING_MODEL}, TopK={rag_config.RAG_TOP_K}, 重排序={rag_config.RAG_IS_RERANK}")
-    if rag_config.LOCAL_MODEL_ENABLED:
-        logger.info(f"使用本地嵌入模型: {rag_config.LOCAL_EMBEDDING_MODEL_PATH}")
-    
-    memory_handler = init_memory(
-        root_dir=root_dir,
-        api_wrapper=api_wrapper
-    )
-    logger.info("记忆系统初始化完成")
-    
-    # 检查并修复记忆文件格式
-    try:
-        from src.memories import fix_memory_file_format
-        fix_result = fix_memory_file_format()
-        if fix_result:
-            logger.info("成功修复记忆文件格式")
-        else:
-            logger.info("记忆文件格式正确，无需修复")
-    except Exception as e:
-        logger.error(f"修复记忆文件格式失败: {str(e)}")
+    # 设置memory_handler为None
+    memory_handler = None
+    logger.info("记忆系统已禁用")
     
     moonshot_ai = ImageRecognitionService(
         api_key=config.media.image_recognition.api_key,
@@ -1203,36 +1095,6 @@ def main(debug_mode=False):
             return
         print_status("微信监听初始化完成", "success", "CHECK")
         print_status("检查短期记忆..", "info", "SEARCH")
-
-        # 移除对 summarize_memories 的调用
-        # memory_handler.summarize_memories()  # 启动时处理残留记忆
-
-        # 移除记忆维护线程
-        """
-        def memory_maintenance():
-            while True:
-                try:
-                    memory_handler.summarize_memories()
-                    time.sleep(3600)  # 每小时检查一次
-                except Exception as e:
-                    logger.error(f"记忆维护失败: {str(e)}")
-
-        print_status("启动记忆维护线程...", "info", "BRAIN")
-        memory_thread = threading.Thread(target=memory_maintenance)
-        memory_thread.daemon = True
-        memory_thread.start()
-        """
-
-        print_status("验证记忆存储路径...", "info", "FILE")
-        memory_dir = os.path.join(root_dir, "data", "memory")
-        if not os.path.exists(memory_dir):
-            os.makedirs(memory_dir)
-            print_status(f"创建记忆目录: {memory_dir}", "success", "CHECK")
-
-        if not os.path.exists(prompt_path):
-            with open(prompt_path, "w", encoding="utf-8") as f:
-                f.write("# 核心人格\n[默认内容]")
-            print_status(f"创建人设提示文件", "warning", "WARNING")
 
         # 启动消息监听线程
         print_status("启动消息监听线程...", "info", "ANTENNA")

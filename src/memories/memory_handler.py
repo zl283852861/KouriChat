@@ -187,6 +187,7 @@ class MemoryHandler:
         try:
             import os
             import json
+            import re
             from datetime import datetime
             from src.memories import get_rag
             from src.memories.memory_utils import clean_dialog_memory
@@ -211,6 +212,11 @@ class MemoryHandler:
             # 使用memory_utils中的清理函数进一步清理对话内容
             sender_text, _ = clean_dialog_memory(clean_key, "")
             _, receiver_text = clean_dialog_memory("", clean_value)
+            
+            # 预处理过滤 - 检查内容质量
+            if not self._is_valid_for_rag(sender_text, receiver_text):
+                logger.debug("预处理过滤：内容质量不符合要求，跳过添加到RAG")
+                return
             
             # 确定是否为主动消息 (当消息由AI主动发起或由定时任务触发时，标记为主动消息)
             # 改进主动消息识别逻辑
@@ -375,6 +381,84 @@ class MemoryHandler:
             
         except Exception as e:
             logger.debug(f"直接添加记忆到RAG失败: {str(e)}")
+        
+    def _is_valid_for_rag(self, sender_text: str, receiver_text: str) -> bool:
+        """
+        检查对话内容是否适合添加到RAG系统
+        
+        Args:
+            sender_text: 发送者文本
+            receiver_text: 接收者文本
+            
+        Returns:
+            bool: 是否适合添加到RAG
+        """
+        # 检查文本长度
+        if not sender_text.strip() or not receiver_text.strip():
+            return False
+            
+        if len(sender_text.strip()) < 3 or len(receiver_text.strip()) < 3:
+            logger.debug("文本长度过短，不适合添加到RAG")
+            return False
+            
+        # 过滤系统指令和控制信息
+        system_patterns = [
+            r"请注意[:：]", 
+            r"当任务完成时", 
+            r"请记住你是", 
+            r"请扮演", 
+            r"你的回复应该",
+            r"你现在是一个",
+            r"你现在应该扮演",
+            r"你是一个AI",
+            r"我是你的主人",
+            r"请你记住",
+            r"请保持简洁",
+            r"请回复得",
+            r"我希望你的回复",
+            r"在此消息之后",
+            r"我想要你",
+            r"API调用",
+            r"更新出错",
+            r"请等待",
+            r"请稍等",
+            r"正在处理",
+            r"出错了"
+        ]
+        
+        for pattern in system_patterns:
+            if re.search(pattern, sender_text, re.IGNORECASE) or re.search(pattern, receiver_text, re.IGNORECASE):
+                logger.debug(f"文本包含系统指令模式，不适合添加到RAG: {pattern}")
+                return False
+                
+        # 检查是否包含特殊格式或指令
+        special_format_patterns = [
+            r"```", r"<", r"<function",
+            r"\[\[", r"\]\]", r"/start", r"/help",
+            r"/command", r"<div>", r"<span>",
+            r"<img", r"<code>"
+        ]
+        
+        for pattern in special_format_patterns:
+            if re.search(pattern, sender_text) or re.search(pattern, receiver_text):
+                logger.debug(f"文本包含特殊格式，不适合添加到RAG: {pattern}")
+                return False
+                
+        # 过滤无意义的短对话
+        meaningless_patterns = [
+            r"^[。.！!？?]+$",  # 只有标点符号
+            r"^(是的?|对的?|嗯+|好的?|行的?|可以的?|没问题|ok|okay)$",  # 简单肯定
+            r"^(不是|不对|不行|不可以|别|算了|算了吧)$",  # 简单否定
+            r"^[啊哦嗯哈呵嘿]+$"  # 只有语气词
+        ]
+        
+        # 检查接收者文本是否为无意义回复
+        for pattern in meaningless_patterns:
+            if re.search(pattern, receiver_text.lower().strip()):
+                logger.debug(f"AI回复过于简单，不适合添加到RAG: {receiver_text}")
+                return False
+                
+        return True
         
     @memory_cache
     async def retrieve(self, query: str, top_k: int = 5) -> str:
