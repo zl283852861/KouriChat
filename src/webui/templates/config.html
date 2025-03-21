@@ -1154,34 +1154,34 @@
             saveButton.addEventListener('click', function() {
                 const mainForm = document.getElementById('configForm');
                 const otherForm = document.getElementById('otherConfigForm');
-                const config = {};
+                const globalConfig = {};
                 
                 // 获取所有表单数据
                 const formData = new FormData(mainForm);
                 
                 // 处理表单数据
                 for (let [key, value] of formData.entries()) {
-                    processFormValue(config, key, value);
+                    processFormValue(globalConfig, key, value);
                 }
                 
                 if (otherForm) {
                     const otherFormData = new FormData(otherForm);
                     for (let [key, value] of otherFormData.entries()) {
-                        processFormValue(config, key, value);
+                        processFormValue(globalConfig, key, value);
                     }
                 }
                 
                 // 处理RAG配置
                 // 确保所有RAG配置项都被包含在保存中
-                config['RAG_API_KEY'] = document.getElementById('RAG_API_KEY').value;
-                config['RAG_BASE_URL'] = document.getElementById('RAG_BASE_URL').value;
-                config['RAG_EMBEDDING_MODEL'] = document.getElementById('RAG_EMBEDDING_MODEL').value;
-                config['RAG_IS_RERANK'] = document.getElementById('RAG_IS_RERANK').checked;
-                config['RAG_RERANKER_MODEL'] = document.getElementById('RAG_RERANKER_MODEL').value;
-                config['RAG_TOP_K'] = parseInt(document.getElementById('RAG_TOP_K').value, 10);
-                config['LOCAL_MODEL_ENABLED'] = document.getElementById('LOCAL_MODEL_ENABLED').checked;
-                config['LOCAL_EMBEDDING_MODEL_PATH'] = document.getElementById('LOCAL_EMBEDDING_MODEL_PATH').value;
-                config['AUTO_ADAPT_SILICONFLOW'] = document.getElementById('AUTO_ADAPT_SILICONFLOW').checked;
+                globalConfig['RAG_API_KEY'] = document.getElementById('RAG_API_KEY').value;
+                globalConfig['RAG_BASE_URL'] = document.getElementById('RAG_BASE_URL').value;
+                globalConfig['RAG_EMBEDDING_MODEL'] = document.getElementById('RAG_EMBEDDING_MODEL').value;
+                globalConfig['RAG_IS_RERANK'] = document.getElementById('RAG_IS_RERANK').checked;
+                globalConfig['RAG_RERANKER_MODEL'] = document.getElementById('RAG_RERANKER_MODEL').value;
+                globalConfig['RAG_TOP_K'] = parseInt(document.getElementById('RAG_TOP_K').value, 10);
+                globalConfig['LOCAL_MODEL_ENABLED'] = document.getElementById('LOCAL_MODEL_ENABLED').checked;
+                globalConfig['LOCAL_EMBEDDING_MODEL_PATH'] = document.getElementById('LOCAL_EMBEDDING_MODEL_PATH').value;
+                globalConfig['AUTO_ADAPT_SILICONFLOW'] = document.getElementById('AUTO_ADAPT_SILICONFLOW').checked;
 
                 // 特别处理任务数据 - 确保直接从隐藏字段获取
                 const tasksInput = document.getElementById('TASKS');
@@ -1190,11 +1190,11 @@
                         const tasksValue = tasksInput.value;
                         if (tasksValue) {
                             // 解析为JSON对象并添加到配置中
-                            config['TASKS'] = JSON.parse(tasksValue);
+                            globalConfig['TASKS'] = JSON.parse(tasksValue);
                         }
                     } catch (e) {
                         // 出错时使用空数组
-                        config['TASKS'] = [];
+                        globalConfig['TASKS'] = [];
                     }
                 }
 
@@ -1204,7 +1204,7 @@
                 if (temperatureSlider && temperatureInput) {
                     const tempValue = parseFloat(temperatureSlider.value);
                     if (!isNaN(tempValue)) {
-                        config['TEMPERATURE'] = tempValue;
+                        globalConfig['TEMPERATURE'] = tempValue;
                     }
                 }
 
@@ -1221,11 +1221,11 @@
                     // 设置确认按钮的事件
                     document.getElementById('confirmSaveBtn').onclick = function() {
                         confirmDialog.hide();
-                        saveConfig(config);
+                        saveConfig(globalConfig);
                     };
                 } else {
                     // 直接保存配置
-                    saveConfig(config);
+                    saveConfig(globalConfig);
                 }
             });
 
@@ -1310,11 +1310,11 @@
             for (const groupKey in configs) {
                 const group = configs[groupKey];
                 for (const configKey in group) {
-                    const config = group[configKey];
+                    const configItem = group[configKey];
                     const element = document.getElementById(configKey);
                     if (element) {
                         // 特殊处理可能是对象的值
-                        let value = config.value;
+                        let value = configItem.value;
                         if (typeof value === 'object' && value !== null && 'value' in value) {
                             value = value.value;
                         }
@@ -1435,7 +1435,18 @@
                 DEEPSEEK_API_KEY: config.DEEPSEEK_API_KEY || '',
                 DEEPSEEK_BASE_URL: config.DEEPSEEK_BASE_URL || '',
                 MODEL: config.MODEL || '',
-                MOONSHOT_API_KEY: config.MOONSHOT_API_KEY || ''
+                MOONSHOT_API_KEY: config.MOONSHOT_API_KEY || '',
+                TEMPERATURE: config.TEMPERATURE || 1.0,
+                MAX_TOKEN: config.MAX_TOKEN || 2000,
+                MOONSHOT_BASE_URL: config.MOONSHOT_BASE_URL || '',
+                MOONSHOT_TEMPERATURE: config.MOONSHOT_TEMPERATURE || 0.7,
+                IMAGE_MODEL: config.IMAGE_MODEL || '',
+                MAX_GROUPS: config.MAX_GROUPS || 30,
+                AVATAR_DIR: config.AVATAR_DIR || '',
+                TTS_API_URL: config.TTS_API_URL || '',
+                AUTO_MESSAGE: config.AUTO_MESSAGE || '',
+                QUIET_TIME_START: config.QUIET_TIME_START || '',
+                QUIET_TIME_END: config.QUIET_TIME_END || ''
             };
             
             // 检查是否有有效数据
@@ -1443,8 +1454,7 @@
                 (keyConfigs.LISTEN_LIST && keyConfigs.LISTEN_LIST.length > 0) || 
                 keyConfigs.DEEPSEEK_API_KEY || 
                 keyConfigs.DEEPSEEK_BASE_URL ||
-                keyConfigs.MODEL || 
-                keyConfigs.MOONSHOT_API_KEY;
+                keyConfigs.MODEL;
             
             if (!hasValidData) {
                 console.log('没有有效数据，不保存到cookie');
@@ -1454,21 +1464,19 @@
             // 获取现有的历史配置
             let historyConfigs = getCookieConfigs();
             
-            // 检查是否已存在相同配置
+            // 检查是否已存在相同配置 - 仅检查关键字段
             const isDuplicate = historyConfigs.some(item => 
                 JSON.stringify([
                     item.LISTEN_LIST, 
                     item.DEEPSEEK_API_KEY, 
                     item.DEEPSEEK_BASE_URL,
-                    item.MODEL, 
-                    item.MOONSHOT_API_KEY
+                    item.MODEL
                 ]) === 
                 JSON.stringify([
                     keyConfigs.LISTEN_LIST, 
                     keyConfigs.DEEPSEEK_API_KEY, 
                     keyConfigs.DEEPSEEK_BASE_URL,
-                    keyConfigs.MODEL, 
-                    keyConfigs.MOONSHOT_API_KEY
+                    keyConfigs.MODEL
                 ])
             );
             
@@ -1488,14 +1496,35 @@
             // 保存到cookie，有效期30天
             const expiryDate = new Date();
             expiryDate.setDate(expiryDate.getDate() + 30);
-            document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+            
+            // 使用localStorage替代cookie以便存储更多数据
+            try {
+                localStorage.setItem('historyConfigs', JSON.stringify(historyConfigs));
+                console.log('历史配置已保存到localStorage');
+            } catch (e) {
+                // 如果localStorage不可用，回退到cookie（可能会受大小限制）
+                console.error('保存到localStorage失败，尝试使用cookie:', e);
+                document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+            }
             
             // 更新历史配置列表显示
             updateHistoryConfigList();
         }
 
-        // 从cookie获取历史配置
+        // 从cookie或localStorage获取历史配置
         function getCookieConfigs() {
+            // 首先尝试从localStorage获取
+            const localStorageData = localStorage.getItem('historyConfigs');
+            if (localStorageData) {
+                try {
+                    return JSON.parse(localStorageData);
+                } catch (e) {
+                    console.error('解析localStorage历史配置失败:', e);
+                    // 如果解析失败，继续尝试cookie
+                }
+            }
+            
+            // 从cookie获取
             const cookieValue = document.cookie
                 .split('; ')
                 .find(row => row.startsWith('historyConfigs='));
@@ -1504,7 +1533,7 @@
                 try {
                     return JSON.parse(cookieValue.split('=')[1]);
                 } catch (e) {
-                    console.error('解析历史配置失败:', e);
+                    console.error('解析cookie历史配置失败:', e);
                     return [];
                 }
             }
@@ -1533,19 +1562,43 @@
                 const date = new Date(config.timestamp);
                 const formattedDate = `${date.getFullYear()}-${(date.getMonth()+1).toString().padStart(2, '0')}-${date.getDate().toString().padStart(2, '0')} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
                 
+                // 格式化监听用户列表，确保它是数组
+                let listenList = config.LISTEN_LIST || [];
+                if (!Array.isArray(listenList)) {
+                    try {
+                        if (typeof listenList === 'string') {
+                            listenList = listenList.split(',').filter(item => item.trim());
+                        } else {
+                            listenList = [];
+                        }
+                    } catch (e) {
+                        console.error('格式化监听用户列表失败:', e);
+                        listenList = [];
+                    }
+                }
+                
                 return `
                     <div class="list-group-item">
                         <div class="d-flex justify-content-between align-items-center">
-                            <div class="me-auto">
+                            <div class="me-auto" style="width: 75%;">
                                 <div class="d-flex align-items-center mb-1">
                                     <span class="badge bg-primary me-2">配置 #${index + 1}</span>
                                     <small class="text-muted">${formattedDate}</small>
                                 </div>
-                                <div class="mb-1">监听用户: ${config.LISTEN_LIST.join(', ') || '无'}</div>
-                                <div class="mb-1">AI模型: ${config.MODEL || '未设置'}</div>
-                                <div class="mb-1">API Base URL: ${config.DEEPSEEK_BASE_URL || '未设置'}</div>
-                                <div class="mb-1">API密钥: ${config.DEEPSEEK_API_KEY ? '已设置' : '未设置'}</div>
-                                <div class="mb-1">Moonshot密钥: ${config.MOONSHOT_API_KEY ? '已设置' : '未设置'}</div>
+                                <div class="row mb-2">
+                                    <div class="col-md-6">
+                                        <div class="mb-1"><strong>监听用户:</strong> ${listenList.join(', ') || '无'}</div>
+                                        <div class="mb-1"><strong>AI模型:</strong> ${config.MODEL || '未设置'}</div>
+                                        <div class="mb-1"><strong>温度:</strong> ${config.TEMPERATURE || '默认'}</div>
+                                        <div class="mb-1"><strong>角色设定:</strong> ${config.AVATAR_DIR || '默认'}</div>
+                                    </div>
+                                    <div class="col-md-6">
+                                        <div class="mb-1"><strong>API URL:</strong> ${config.DEEPSEEK_BASE_URL ? config.DEEPSEEK_BASE_URL.substring(0, 25) + '...' : '未设置'}</div>
+                                        <div class="mb-1"><strong>API密钥:</strong> ${config.DEEPSEEK_API_KEY ? '******' + config.DEEPSEEK_API_KEY.substring(config.DEEPSEEK_API_KEY.length - 4) : '未设置'}</div>
+                                        <div class="mb-1"><strong>Moonshot:</strong> ${config.MOONSHOT_API_KEY ? '已设置' : '未设置'}</div>
+                                        <div class="mb-1"><strong>最大Token:</strong> ${config.MAX_TOKEN || '默认'}</div>
+                                    </div>
+                                </div>
                             </div>
                             <div>
                                 <button class="btn btn-danger btn-sm me-2" onclick="deleteHistoryConfig(${index})">
@@ -1561,77 +1614,118 @@
             }).join('');
         }
 
+        // 删除历史配置的函数也需要更新
+        function deleteHistoryConfig(index) {
+            // 获取历史配置
+            let historyConfigs = getCookieConfigs();
+            
+            // 检查索引是否有效
+            if (index >= 0 && index < historyConfigs.length) {
+                // 删除指定索引的配置
+                historyConfigs.splice(index, 1);
+                
+                // 更新cookie
+                const expiryDate = new Date();
+                expiryDate.setDate(expiryDate.getDate() + 30);
+                
+                // 优先使用localStorage
+                try {
+                    localStorage.setItem('historyConfigs', JSON.stringify(historyConfigs));
+                } catch (e) {
+                    // 如果localStorage不可用，回退到cookie
+                    document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
+                }
+                
+                // 更新界面
+                updateHistoryConfigList();
+                
+                // 显示提示消息
+                showSaveNotification('历史配置已删除', 'success');
+            }
+        }
+
         // 修改应用历史配置函数
         function applyHistoryConfig(index) {
             const historyConfigs = getCookieConfigs();
             if (index >= historyConfigs.length) return;
             
-            const config = historyConfigs[index];
+            const historyConfig = historyConfigs[index];
+            console.log("应用历史配置:", historyConfig);
             
             // 应用监听用户列表
-            if (config.LISTEN_LIST && Array.isArray(config.LISTEN_LIST)) {
-                const userListElement = document.getElementById('selected_users_LISTEN_LIST');
-                const listenListInput = document.getElementById('LISTEN_LIST');
+            if (historyConfig.LISTEN_LIST) {
+                let userList = historyConfig.LISTEN_LIST;
+                // 确保用户列表是数组
+                if (!Array.isArray(userList) && typeof userList === 'string') {
+                    userList = userList.split(',').map(item => item.trim()).filter(item => item);
+                }
                 
-                if (userListElement && listenListInput) {
-                    // 清空现有用户
-                    userListElement.innerHTML = '';
+                if (Array.isArray(userList)) {
+                    const userListElement = document.getElementById('selected_users_LISTEN_LIST');
+                    const listenListInput = document.getElementById('LISTEN_LIST');
                     
-                    // 添加历史用户
-                    config.LISTEN_LIST.forEach(user => {
-                        if (user) {
-                            const userDiv = document.createElement('div');
-                            userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
-                            userDiv.innerHTML = `
-                                ${user}
-                                <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('LISTEN_LIST', '${user}')">
-                                    <i class="bi bi-x-lg"></i>
-                                </button>
-                            `;
-                            userListElement.appendChild(userDiv);
-                        }
-                    });
-                    
-                    // 更新隐藏输入框
-                    listenListInput.value = config.LISTEN_LIST.join(',');
+                    if (userListElement && listenListInput) {
+                        // 清空现有用户
+                        userListElement.innerHTML = '';
+                        
+                        // 添加历史用户
+                        userList.forEach(user => {
+                            if (user) {
+                                const userDiv = document.createElement('div');
+                                userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                                userDiv.innerHTML = `
+                                    ${user}
+                                    <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('LISTEN_LIST', '${user}')">
+                                        <i class="bi bi-x-lg"></i>
+                                    </button>
+                                `;
+                                userListElement.appendChild(userDiv);
+                            }
+                        });
+                        
+                        // 更新隐藏输入框
+                        listenListInput.value = userList.join(',');
+                    }
                 }
             }
             
-            // 应用DeepSeek API密钥
-            if (config.DEEPSEEK_API_KEY) {
+            // 应用API密钥
+            if (historyConfig.DEEPSEEK_API_KEY) {
                 const apiKeyInput = document.getElementById('DEEPSEEK_API_KEY') || 
                                    document.querySelector('input[name="DEEPSEEK_API_KEY"]');
                 if (apiKeyInput) {
-                    apiKeyInput.value = config.DEEPSEEK_API_KEY;
+                    apiKeyInput.value = historyConfig.DEEPSEEK_API_KEY;
                 }
             }
             
-            // 应用DeepSeek Base URL
-            if (config.DEEPSEEK_BASE_URL) {
+            // 应用API Base URL
+            if (historyConfig.DEEPSEEK_BASE_URL) {
                 const baseUrlInput = document.getElementById('DEEPSEEK_BASE_URL');
                 const apiProviderSelect = document.getElementById('api_provider_select');
                 const customApiInput = document.getElementById('customApiInput');
                 
-                if (baseUrlInput && apiProviderSelect) {
-                    baseUrlInput.value = config.DEEPSEEK_BASE_URL;
+                if (baseUrlInput) {
+                    baseUrlInput.value = historyConfig.DEEPSEEK_BASE_URL;
                     
-                    // 检查是否是预定义的URL
-                    const matchingOption = Array.from(apiProviderSelect.options).find(opt => {
-                        return opt.dataset.url === config.DEEPSEEK_BASE_URL;
-                    });
-                    
-                    if (matchingOption) {
-                        apiProviderSelect.value = matchingOption.value;
-                        if (customApiInput) {
-                            customApiInput.style.display = 'none';
-                        }
-                    } else {
-                        apiProviderSelect.value = 'custom';
-                        if (customApiInput) {
-                            customApiInput.style.display = 'block';
-                            const input = customApiInput.querySelector('input');
-                            if (input) {
-                                input.value = config.DEEPSEEK_BASE_URL;
+                    if (apiProviderSelect) {
+                        // 检查是否是预定义的URL
+                        const matchingOption = Array.from(apiProviderSelect.options).find(opt => {
+                            return opt.dataset.url === historyConfig.DEEPSEEK_BASE_URL;
+                        });
+                        
+                        if (matchingOption) {
+                            apiProviderSelect.value = matchingOption.value;
+                            if (customApiInput) {
+                                customApiInput.style.display = 'none';
+                            }
+                        } else {
+                            apiProviderSelect.value = 'custom';
+                            if (customApiInput) {
+                                customApiInput.style.display = 'block';
+                                const input = customApiInput.querySelector('input');
+                                if (input) {
+                                    input.value = historyConfig.DEEPSEEK_BASE_URL;
+                                }
                             }
                         }
                     }
@@ -1639,51 +1733,126 @@
             }
             
             // 应用模型
-            if (config.MODEL) {
+            if (historyConfig.MODEL) {
                 const modelInput = document.getElementById('MODEL');
                 const modelSelect = document.getElementById('model_select');
                 if (modelInput) {
-                    modelInput.value = config.MODEL;
+                    modelInput.value = historyConfig.MODEL;
                     if (modelSelect) {
-                        modelSelect.value = config.MODEL;
-                        if (!Array.from(modelSelect.options).some(opt => opt.value === config.MODEL)) {
+                        // 检查是否是预定义的模型
+                        if (Array.from(modelSelect.options).some(opt => opt.value === historyConfig.MODEL)) {
+                            modelSelect.value = historyConfig.MODEL;
+                            const customModelInput = document.getElementById('customModelInput');
+                            if (customModelInput) {
+                                customModelInput.style.display = 'none';
+                            }
+                        } else {
+                            // 如果是自定义模型
                             modelSelect.value = 'custom';
                             const customModelInput = document.getElementById('customModelInput');
                             if (customModelInput) {
                                 customModelInput.style.display = 'block';
                                 const input = customModelInput.querySelector('input');
-                                if (input) input.value = config.MODEL;
+                                if (input) input.value = historyConfig.MODEL;
                             }
                         }
                     }
                 }
             }
             
-            // 应用Moonshot API密钥
-            if (config.MOONSHOT_API_KEY) {
-                const imgApiKeyInput = document.getElementById('MOONSHOT_API_KEY') || 
-                                      document.querySelector('input[name="MOONSHOT_API_KEY"]');
-                if (imgApiKeyInput) {
-                    imgApiKeyInput.value = config.MOONSHOT_API_KEY;
+            // 应用温度滑块
+            if (historyConfig.TEMPERATURE !== undefined) {
+                const temperatureInput = document.getElementById('TEMPERATURE');
+                const temperatureSlider = document.getElementById('TEMPERATURE_slider');
+                const tempDisplay = document.getElementById('TEMPERATURE_display');
+                
+                if (temperatureInput) temperatureInput.value = historyConfig.TEMPERATURE;
+                if (temperatureSlider) {
+                    temperatureSlider.value = historyConfig.TEMPERATURE;
+                    // 更新显示值
+                    if (tempDisplay) tempDisplay.textContent = parseFloat(historyConfig.TEMPERATURE).toFixed(1);
                 }
+            }
+            
+            // 应用最大Token
+            if (historyConfig.MAX_TOKEN !== undefined) {
+                const maxTokenInput = document.getElementById('MAX_TOKEN');
+                if (maxTokenInput) maxTokenInput.value = historyConfig.MAX_TOKEN;
+            }
+            
+            // 应用Moonshot API配置
+            if (historyConfig.MOONSHOT_API_KEY) {
+                const moonshotApiKeyInput = document.getElementById('MOONSHOT_API_KEY');
+                if (moonshotApiKeyInput) moonshotApiKeyInput.value = historyConfig.MOONSHOT_API_KEY;
+            }
+            
+            if (historyConfig.MOONSHOT_BASE_URL) {
+                const moonshotBaseUrlInput = document.getElementById('MOONSHOT_BASE_URL');
+                if (moonshotBaseUrlInput) moonshotBaseUrlInput.value = historyConfig.MOONSHOT_BASE_URL;
+            }
+            
+            if (historyConfig.MOONSHOT_TEMPERATURE !== undefined) {
+                const moonshotTempInput = document.getElementById('MOONSHOT_TEMPERATURE');
+                if (moonshotTempInput) moonshotTempInput.value = historyConfig.MOONSHOT_TEMPERATURE;
+            }
+            
+            // 应用角色设定
+            if (historyConfig.AVATAR_DIR) {
+                const avatarDirSelect = document.getElementById('AVATAR_DIR');
+                if (avatarDirSelect) avatarDirSelect.value = historyConfig.AVATAR_DIR;
+            }
+            
+            // 应用语音API URL
+            if (historyConfig.TTS_API_URL) {
+                const ttsApiUrlInput = document.getElementById('TTS_API_URL');
+                if (ttsApiUrlInput) ttsApiUrlInput.value = historyConfig.TTS_API_URL;
+            }
+            
+            // 应用自动消息配置
+            if (historyConfig.AUTO_MESSAGE) {
+                const autoMessageInput = document.getElementById('AUTO_MESSAGE');
+                if (autoMessageInput) autoMessageInput.value = historyConfig.AUTO_MESSAGE;
+            }
+            
+            // 应用安静时间配置
+            if (historyConfig.QUIET_TIME_START) {
+                const quietTimeStartInput = document.getElementById('QUIET_TIME_START');
+                if (quietTimeStartInput) quietTimeStartInput.value = historyConfig.QUIET_TIME_START;
+            }
+            
+            if (historyConfig.QUIET_TIME_END) {
+                const quietTimeEndInput = document.getElementById('QUIET_TIME_END');
+                if (quietTimeEndInput) quietTimeEndInput.value = historyConfig.QUIET_TIME_END;
+            }
+            
+            // 应用图像生成模型配置
+            if (historyConfig.IMAGE_MODEL) {
+                const imageModelInput = document.getElementById('IMAGE_MODEL');
+                if (imageModelInput) imageModelInput.value = historyConfig.IMAGE_MODEL;
+            }
+            
+            // 应用MAX_GROUPS配置
+            if (historyConfig.MAX_GROUPS !== undefined) {
+                const maxGroupsInput = document.getElementById('MAX_GROUPS');
+                if (maxGroupsInput) maxGroupsInput.value = historyConfig.MAX_GROUPS;
             }
             
             // 关闭模态框
             const modal = bootstrap.Modal.getInstance(document.getElementById('historyConfigModal'));
             if (modal) modal.hide();
             
-            // 显示提示
-            showSaveNotification('已应用历史配置，请点击保存按钮保存更改');
-            
             // 更新任务对话框中的发送对象选项
             updateTaskChatIdOptions();
+            
+            // 显示提示
+            showSaveNotification('已应用历史配置，请点击保存按钮保存更改', 'success');
         }
 
         // 定义全局变量来保存用户的当前选择状态
         let currentState = null;
 
         // 修改保存配置的函数，添加对不同API URL路径的处理
-        function saveConfig(config) {
+        function saveConfig(globalConfig) {
             // 记录当前选择的配置，用于保存后恢复
             currentState = {
                 ragApiProvider: document.getElementById('rag_api_provider_select').value,
@@ -1701,29 +1870,57 @@
             };
             
             console.log("保存前状态:", currentState);
-            console.log("保存前RAG_IS_RERANK状态:", config['RAG_IS_RERANK']);
+            console.log("保存前RAG_IS_RERANK状态:", globalConfig['RAG_IS_RERANK']);
             
             // 确保角色设定值被正确处理
             const avatarDirSelect = document.getElementById('AVATAR_DIR');
             if (avatarDirSelect && avatarDirSelect.value) {
-                config['AVATAR_DIR'] = avatarDirSelect.value;
-                console.log('保存角色设定:', config['AVATAR_DIR']);
+                globalConfig['AVATAR_DIR'] = avatarDirSelect.value;
+                console.log('保存角色设定:', globalConfig['AVATAR_DIR']);
             }
             
             // 确保隐藏字段的值被包含在配置中
             const embeddingUrl = document.getElementById('RAG_EMBEDDING_URL').value;
             if (embeddingUrl) {
-                config['RAG_EMBEDDING_URL'] = embeddingUrl;
+                globalConfig['RAG_EMBEDDING_URL'] = embeddingUrl;
             }
             
             const rerankUrl = document.getElementById('RAG_RERANK_URL').value;
             if (rerankUrl) {
-                config['RAG_RERANK_URL'] = rerankUrl;
+                globalConfig['RAG_RERANK_URL'] = rerankUrl;
+            }
+            
+            // 特别处理监听用户列表
+            const listenList = document.getElementById('LISTEN_LIST');
+            if (listenList) {
+                // 获取隐藏input中的值
+                const listenListValue = listenList.value;
+                // 如果有值，确保它被包含在配置中
+                if (listenListValue) {
+                    globalConfig['LISTEN_LIST'] = listenListValue;
+                    console.log("保存监听用户列表:", listenListValue);
+                } else {
+                    // 如果隐藏input为空，但页面上有用户，则从页面收集用户列表
+                    const userListElement = document.getElementById('selected_users_LISTEN_LIST');
+                    if (userListElement) {
+                        const users = [];
+                        const userElements = userListElement.querySelectorAll('.list-group-item');
+                        userElements.forEach(element => {
+                            // 去除按钮文本，只获取用户名
+                            const userName = element.textContent.trim();
+                            if (userName) users.push(userName);
+                        });
+                        if (users.length > 0) {
+                            globalConfig['LISTEN_LIST'] = users.join(',');
+                            console.log("从页面元素收集监听用户列表:", globalConfig['LISTEN_LIST']);
+                        }
+                    }
+                }
             }
             
             // 重排序值可能是布尔值或字符串，确保以正确的布尔值发送
-            config['RAG_IS_RERANK'] = document.getElementById('RAG_IS_RERANK').checked;
-            console.log("发送保存请求前的RAG_IS_RERANK值:", config['RAG_IS_RERANK']);
+            globalConfig['RAG_IS_RERANK'] = document.getElementById('RAG_IS_RERANK').checked;
+            console.log("发送保存请求前的RAG_IS_RERANK值:", globalConfig['RAG_IS_RERANK']);
             
             // 保存到localStorage，确保页面刷新后也能正确读取
             try {
@@ -1741,159 +1938,141 @@
                 console.error("保存RAG配置到localStorage失败:", e);
             }
             
+            // 保存配置
+            const formData = new FormData();
+            
+            // 处理表单数据
+            for (let key in globalConfig) {
+                if (key === 'TASKS') {
+                    formData.append(key, JSON.stringify(globalConfig[key]));
+                } else if (key === 'LISTEN_LIST') {
+                    formData.append(key, globalConfig[key]);
+                } else {
+                    formData.append(key, globalConfig[key]);
+                }
+            }
+            
             // 发送保存请求
             fetch('/save', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(config)
+                body: formData
             })
             .then(response => response.json())
             .then(data => {
                 if (data.status === 'success') {
                     // 保存配置到cookie
-                    saveConfigToCookie(config);
+                    saveConfigToCookie(globalConfig);
                     
                     // 显示成功消息
-                    showSaveNotification(data.message);
+                    showSaveNotification(data.message || '配置已成功保存');
                     
-                    // 延迟一段时间后刷新页面
+                    // 延迟一段时间后刷新UI
                     setTimeout(() => {
                         // 直接强制恢复用户设置的重排序开关状态
-                        document.getElementById('RAG_IS_RERANK').checked = currentState.ragIsRerank;
-                        toggleRerankModelSection(currentState.ragIsRerank);
+                        const isRerankCheckbox = document.getElementById('RAG_IS_RERANK');
+                        if (isRerankCheckbox) {
+                            isRerankCheckbox.checked = currentState.ragIsRerank;
+                            toggleRerankModelSection(currentState.ragIsRerank);
+                        }
                         
-                        // 保存成功后获取最新配置并更新UI，避免页面刷新
-                        fetch('/get_all_configs')
-                            .then(response => response.json())
-                            .then(configData => {
-                                if (configData.status === 'success') {
-                                    console.log("保存成功，正在更新UI...");
-                                    
-                                    // 在处理所有配置前，记录新的配置中RAG_IS_RERANK的值
-                                    let newRerankValue = null;
-                                    if (configData.configs && configData.configs['RAG设置'] && 
-                                        configData.configs['RAG设置']['RAG_IS_RERANK']) {
-                                        newRerankValue = configData.configs['RAG设置']['RAG_IS_RERANK'].value;
-                                        if (typeof newRerankValue === 'string') {
-                                            newRerankValue = newRerankValue.toLowerCase() === 'true';
+                        // 保存成功后，直接加载最新配置
+                        try {
+                            fetch('/get_config')
+                                .then(response => response.json())
+                                .then(configData => {
+                                    if (configData.status === 'success') {
+                                        console.log("保存成功，获取到最新配置:", configData.config);
+                                        
+                                        // 使用获取到的配置进行更新，特别关注监听用户列表
+                                        if (configData.config && configData.config.LISTEN_LIST !== undefined) {
+                                            // 更新监听用户列表显示
+                                            updateListenUserList(configData.config.LISTEN_LIST);
                                         }
-                                        newRerankValue = Boolean(newRerankValue);
-                                        console.log(`配置中RAG_IS_RERANK新值: ${newRerankValue}, 当前UI值: ${currentState.ragIsRerank}`);
-                                    }
-                                    
-                                    // 恢复保存前的RAG相关选择
-                                    document.getElementById('RAG_BASE_URL').value = currentState.ragBaseUrl;
-                                    document.getElementById('RAG_EMBEDDING_URL').value = currentState.ragEmbeddingUrl;
-                                    document.getElementById('RAG_RERANK_URL').value = currentState.ragRerankUrl;
-                                    document.getElementById('RAG_EMBEDDING_MODEL').value = currentState.ragEmbeddingModel;
-                                    document.getElementById('RAG_RERANKER_MODEL').value = currentState.ragRerankerModel;
-                                    
-                                    // 特别处理RAG_IS_RERANK值 - 使用来自配置的新值
-                                    if (newRerankValue !== null) {
-                                        document.getElementById('RAG_IS_RERANK').checked = newRerankValue;
-                                        currentState.ragIsRerank = newRerankValue;
-                                        console.log(`更新重排序开关状态为配置中的值: ${newRerankValue}`);
+                                        
+                                        // 更新历史配置列表
+                                        updateHistoryConfigList();
                                     } else {
-                                        // 如果配置中没有值，使用保存前的状态
-                                        document.getElementById('RAG_IS_RERANK').checked = currentState.ragIsRerank;
-                                        console.log(`保持重排序开关状态为: ${currentState.ragIsRerank}`);
+                                        console.error("获取最新配置失败:", configData.message);
                                     }
-                                    // 确保UI显示与开关状态一致
-                                    toggleRerankModelSection(document.getElementById('RAG_IS_RERANK').checked);
-                                    
-                                    document.getElementById('LOCAL_MODEL_ENABLED').checked = currentState.localModelEnabled;
-                                    document.getElementById('LOCAL_EMBEDDING_MODEL_PATH').value = currentState.localModelPath;
-                                    
-                                    // 选择正确的API提供商
-                                    const apiProviderSelect = document.getElementById('rag_api_provider_select');
-                                    apiProviderSelect.value = currentState.ragApiProvider;
-                                    
-                                    // 更新所有配置项
-                                    updateAllConfigs(configData.configs);
-                                    
-                                    // 重新初始化RAG设置，在恢复API提供商后
-                                    initRagSettings();
-                                    
-                                    // 在初始化RAG设置后，强制恢复之前选择的模型值
-                                    setTimeout(() => {
-                                        // 恢复嵌入模型选择框
-                                        const embeddingSelect = document.getElementById('rag_embedding_model_select');
-                                        if (embeddingSelect) {
-                                            // 确保选择框值与保存前一致
-                                            let valueToSet = currentState.ragEmbeddingModelSelect;
-                                            let found = false;
-                                            
-                                            // 检查选项中是否存在要设置的值
-                                            for (let i = 0; i < embeddingSelect.options.length; i++) {
-                                                if (embeddingSelect.options[i].value === valueToSet) {
-                                                    found = true;
-                                                    break;
-                                                }
-                                            }
-                                            
-                                            if (found) {
-                                                embeddingSelect.value = valueToSet;
-                                            } else if (valueToSet === 'custom') {
-                                                embeddingSelect.value = 'custom';
-                                                document.getElementById('rag_customEmbeddingInput').style.display = 'block';
-                                                document.getElementById('rag_custom_embedding').value = currentState.ragEmbeddingModel;
-                                            }
-                                            
-                                            console.log("强制恢复嵌入模型选择为:", embeddingSelect.value, "隐藏值:", document.getElementById('RAG_EMBEDDING_MODEL').value);
-                                        }
-                                        
-                                        // 恢复重排序模型选择框
-                                        const rerankerSelect = document.getElementById('rag_reranker_model_select');
-                                        if (rerankerSelect) {
-                                            // 确保选择框值与保存前一致
-                                            let valueToSet = currentState.ragRerankerModelSelect;
-                                            let found = false;
-                                            
-                                            // 检查选项中是否存在要设置的值
-                                            for (let i = 0; i < rerankerSelect.options.length; i++) {
-                                                if (rerankerSelect.options[i].value === valueToSet) {
-                                                    found = true;
-                                                    break;
-                                                }
-                                            }
-                                            
-                                            if (found) {
-                                                rerankerSelect.value = valueToSet;
-                                            } else if (valueToSet === 'custom') {
-                                                rerankerSelect.value = 'custom';
-                                                document.getElementById('rag_customRerankerInput').style.display = 'block';
-                                                document.getElementById('rag_custom_reranker').value = currentState.ragRerankerModel;
-                                            }
-                                            
-                                            console.log("强制恢复重排序模型选择为:", rerankerSelect.value, "隐藏值:", document.getElementById('RAG_RERANKER_MODEL').value);
-                                        }
-                                        
-                                        // 最后再次检查并强制恢复重排序开关状态
-                                        const finalRerankValue = document.getElementById('RAG_IS_RERANK').checked;
-                                        console.log(`最终检查重排序开关状态: UI显示=${finalRerankValue}, 应为=${newRerankValue !== null ? newRerankValue : currentState.ragIsRerank}`);
-                                        toggleRerankModelSection(finalRerankValue);
-                                    }, 1000);
-                                    
-                                    console.log("保存后UI更新完成，已恢复用户选择");
-                                } else {
-                                    // 如果无法获取新配置，则直接刷新页面
-                                    window.location.reload();
-                                }
-                            })
-                            .catch(error => {
-                                console.error("保存后更新配置失败:", error);
-                                window.location.reload();
-                            });
+                                })
+                                .catch(error => {
+                                    console.error("获取最新配置出错:", error);
+                                });
+                        } catch (e) {
+                            console.error("刷新配置时出错:", e);
+                        }
                     }, 500);
                 } else {
-                    showSaveNotification(data.message, 'error');
+                    // 显示错误消息
+                    showSaveNotification(data.message || '保存配置失败', 'error');
                 }
             })
             .catch(error => {
+                // 显示错误消息
+                console.error("保存配置时出错:", error);
                 showSaveNotification('保存失败：' + error, 'error');
             });
+        }
+        
+        // 添加一个新函数来更新监听用户列表显示
+        function updateListenUserList(userList) {
+            try {
+                // 确保用户列表是数组
+                if (!Array.isArray(userList)) {
+                    if (typeof userList === 'string') {
+                        userList = userList.split(',').map(item => item.trim()).filter(item => item);
+                    } else {
+                        console.error("无效的用户列表格式:", userList);
+                        return;
+                    }
+                }
+                
+                console.log("更新监听用户列表:", userList);
+                
+                // 获取隐藏的input和用户列表显示元素
+                const listenListInput = document.getElementById('LISTEN_LIST');
+                const userListElement = document.getElementById('selected_users_LISTEN_LIST');
+                
+                if (!listenListInput || !userListElement) {
+                    console.error("找不到监听用户列表元素");
+                    return;
+                }
+                
+                // 清空当前显示
+                userListElement.innerHTML = '';
+                
+                // 更新隐藏的input值
+                if (Array.isArray(userList)) {
+                    listenListInput.value = userList.join(',');
+                } else {
+                    listenListInput.value = userList;
+                }
+                
+                // 如果是字符串，转换为数组进行处理
+                const usersArray = Array.isArray(userList) ? userList : userList.split(',').map(item => item.trim()).filter(item => item);
+                
+                // 重新创建用户列表项
+                usersArray.forEach(user => {
+                    if (user) {
+                        const userDiv = document.createElement('div');
+                        userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                        userDiv.innerHTML = `
+                            ${user}
+                            <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('LISTEN_LIST', '${user}')">
+                                <i class="bi bi-x-lg"></i>
+                            </button>
+                        `;
+                        userListElement.appendChild(userDiv);
+                    }
+                });
+                
+                // 更新任务对话框中的发送对象选项
+                updateTaskChatIdOptions();
+                
+                console.log("监听用户列表更新完成");
+            } catch (e) {
+                console.error("更新监听用户列表出错:", e);
+            }
         }
 
         function processFormValue(config, key, value) {
@@ -2236,28 +2415,6 @@
                 updateTaskList();
                 
                 showSaveNotification('任务已删除，请点击底部的"保存所有设置"按钮保存更改');
-            }
-        }
-
-        // 添加删除历史配置的函数
-        function deleteHistoryConfig(index) {
-            // 获取现有的历史配置
-            let historyConfigs = getCookieConfigs();
-            
-            if (index >= 0 && index < historyConfigs.length) {
-                // 删除指定索引的配置
-                historyConfigs.splice(index, 1);
-                
-                // 更新cookie
-                const expiryDate = new Date();
-                expiryDate.setDate(expiryDate.getDate() + 30);
-                document.cookie = `historyConfigs=${JSON.stringify(historyConfigs)};expires=${expiryDate.toUTCString()};path=/`;
-                
-                // 更新显示
-                updateHistoryConfigList();
-                
-                // 显示提示
-                showSaveNotification('历史配置已删除');
             }
         }
 
@@ -3522,8 +3679,21 @@
                     console.log(`DOMContentLoaded: 初始重排序开关状态=${isEnabled}`);
                     toggleRerankModelSection(isEnabled);
                 }
+                
+                // 初始化历史配置列表
+                updateHistoryConfigList();
+                console.log('历史配置列表已初始化');
+                
+                // 添加刷新按钮到监听用户列表
+                setTimeout(function() {
+                    try {
+                        addRefreshButtonToListenList();
+                    } catch (e) {
+                        console.error('添加刷新按钮失败:', e);
+                    }
+                }, 1000);
             } catch (e) {
-                console.error("初始化RAG设置时出错:", e);
+                console.error("初始化配置组件时出错:", e);
             }
             
             // 确保布尔值配置正确初始化 (第一次)
@@ -3584,6 +3754,31 @@
                     console.error("页面加载完成后检查localStorage配置失败:", e);
                 }
             }, 1000);
+            
+            // 添加自动刷新配置数据的功能
+            function refreshConfigData() {
+                // 获取最新配置数据，特别是监听用户列表
+                fetch('/get_config')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.status === 'success' && data.config) {
+                            // 特别更新监听用户列表
+                            if (data.config.LISTEN_LIST) {
+                                console.log("自动刷新: 更新监听用户列表", data.config.LISTEN_LIST);
+                                updateListenUserList(data.config.LISTEN_LIST);
+                            }
+                        }
+                    })
+                    .catch(error => {
+                        console.error("自动刷新配置数据失败:", error);
+                    });
+            }
+            
+            // 页面加载后立即刷新一次
+            refreshConfigData();
+            
+            // 然后每15秒自动刷新一次
+            setInterval(refreshConfigData, 15000);
         };
 
         // 特殊处理重排序开关 - 在初始值设置完成后恢复localStorage中的值
@@ -3595,10 +3790,10 @@
                 // 立即保存到localStorage
                 try {
                     const savedConfig = localStorage.getItem('ragConfig');
-                    let config = savedConfig ? JSON.parse(savedConfig) : {};
-                    config.isRerank = this.checked;
-                    config.savedTime = new Date().getTime();
-                    localStorage.setItem('ragConfig', JSON.stringify(config));
+                    let globalConfig = savedConfig ? JSON.parse(savedConfig) : {};
+                    globalConfig.isRerank = this.checked;
+                    globalConfig.savedTime = new Date().getTime();
+                    localStorage.setItem('ragConfig', JSON.stringify(globalConfig));
                     console.log(`已更新localStorage中的重排序状态为: ${this.checked}`);
                 } catch (e) {
                     console.error("更新localStorage中RAG配置失败:", e);
@@ -3607,6 +3802,101 @@
                 console.log(`程序设置重排序开关到: ${this.checked}`);
                 this.dataset.init = 'true';
             }
+        });
+
+        // 添加刷新监听用户列表的函数
+        function refreshListenUserList() {
+            // 显示刷新提示
+            showSaveNotification('正在刷新监听用户列表...', 'info');
+            
+            // 获取最新配置数据
+            fetch('/get_config')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success' && data.config) {
+                        if (data.config.LISTEN_LIST) {
+                            console.log("手动刷新监听用户列表:", data.config.LISTEN_LIST);
+                            updateListenUserList(data.config.LISTEN_LIST);
+                            showSaveNotification('监听用户列表已更新', 'success');
+                        } else {
+                            showSaveNotification('没有监听用户数据', 'warning');
+                        }
+                    } else {
+                        showSaveNotification('刷新监听用户列表失败: ' + (data.message || '未知错误'), 'error');
+                    }
+                })
+                .catch(error => {
+                    console.error("刷新监听用户列表失败:", error);
+                    showSaveNotification('刷新监听用户列表失败: ' + error, 'error');
+                });
+        }
+
+        // 添加用户函数
+        function addUser(key) {
+            const inputElement = document.getElementById('new_user_' + key);
+            const newValue = inputElement.value.trim();
+            
+            if (newValue) {
+                const targetElement = document.getElementById(key);
+                const currentValues = targetElement.value ? targetElement.value.split(',') : [];
+                if (!currentValues.includes(newValue)) {
+                    currentValues.push(newValue);
+                    targetElement.value = currentValues.join(',');
+                    
+                    // 添加到用户列表显示
+                    const userListElement = document.getElementById('selected_users_' + key);
+                    const userDiv = document.createElement('div');
+                    userDiv.className = 'list-group-item d-flex justify-content-between align-items-center';
+                    userDiv.innerHTML = `
+                        ${newValue}
+                        <button type="button" class="btn btn-danger btn-sm" onclick="removeUser('${key}', '${newValue}')">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    `;
+                    userListElement.appendChild(userDiv);
+                    
+                    // 清空输入框
+                    inputElement.value = '';
+                }
+            }
+            updateTaskChatIdOptions();
+        }
+
+        // 定义一个查找LISTEN_LIST元素并添加刷新按钮的函数
+        function addRefreshButtonToListenList() {
+            // 查找监听用户列表的控制区域
+            const listenListInputGroup = document.querySelector('input#new_user_LISTEN_LIST').parentElement;
+            
+            // 如果已经存在刷新按钮，则不再添加
+            if (listenListInputGroup.querySelector('.refresh-button')) {
+                return;
+            }
+            
+            // 创建刷新按钮
+            const refreshButton = document.createElement('button');
+            refreshButton.type = 'button';
+            refreshButton.className = 'btn btn-secondary ms-2 refresh-button';
+            refreshButton.innerHTML = '<i class="bi bi-arrow-clockwise"></i> 刷新';
+            refreshButton.onclick = refreshListenUserList;
+            
+            // 添加到控制区域
+            listenListInputGroup.appendChild(refreshButton);
+            
+            console.log('添加监听用户列表刷新按钮');
+        }
+
+        // 在页面加载完成后添加刷新按钮
+        document.addEventListener('DOMContentLoaded', function() {
+            // 其他初始化代码...
+            
+            // 当页面元素完全加载后添加刷新按钮
+            setTimeout(function() {
+                try {
+                    addRefreshButtonToListenList();
+                } catch (e) {
+                    console.error('添加刷新按钮失败:', e);
+                }
+            }, 1000);
         });
     </script>
 </body>

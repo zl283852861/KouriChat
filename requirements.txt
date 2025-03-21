@@ -3,6 +3,7 @@ Werkzeug
 requests
 httpx
 urllib3==1.26.3
+wheel
 
 pandas
 SQLAlchemy

@@ -319,22 +319,32 @@ def save_config():
     """保存配置"""
     try:
         import yaml
-        data = request.get_json()
-        logger.debug(f"接收到的配置数据: {data}")
+        import importlib
+        import sys
+        # 修改为接收表单数据而不是JSON
+        form_data = request.form.to_dict()
+        logger.debug(f"接收到的配置数据: {form_data}")
 
         # 记录安静时间设置
-        if 'QUIET_TIME_START' in data:
-            logger.info(f"接收到安静时间开始设置: {data['QUIET_TIME_START']}")
-        if 'QUIET_TIME_END' in data:
-            logger.info(f"接收到安静时间结束设置: {data['QUIET_TIME_END']}")
+        if 'QUIET_TIME_START' in form_data:
+            logger.info(f"接收到安静时间开始设置: {form_data['QUIET_TIME_START']}")
+        if 'QUIET_TIME_END' in form_data:
+            logger.info(f"接收到安静时间结束设置: {form_data['QUIET_TIME_END']}")
+        
+        # 特殊处理LISTEN_LIST字段
+        if 'LISTEN_LIST' in form_data:
+            # 确保将逗号分隔的字符串转为列表
+            listen_list_str = form_data['LISTEN_LIST']
+            form_data['LISTEN_LIST'] = [user.strip() for user in listen_list_str.split(',') if user.strip()]
+            logger.debug(f"处理LISTEN_LIST为列表: {form_data['LISTEN_LIST']}")
             
         # 特殊处理RAG_IS_RERANK，确保它是布尔值
-        if 'RAG_IS_RERANK' in data:
-            if isinstance(data['RAG_IS_RERANK'], str):
-                data['RAG_IS_RERANK'] = data['RAG_IS_RERANK'].lower() == 'true'
+        if 'RAG_IS_RERANK' in form_data:
+            if isinstance(form_data['RAG_IS_RERANK'], str):
+                form_data['RAG_IS_RERANK'] = form_data['RAG_IS_RERANK'].lower() == 'true'
             try:
-                data['RAG_IS_RERANK'] = bool(data['RAG_IS_RERANK'])
-                logger.debug(f"处理RAG_IS_RERANK为布尔值: {data['RAG_IS_RERANK']}")
+                form_data['RAG_IS_RERANK'] = bool(form_data['RAG_IS_RERANK'])
+                logger.debug(f"处理RAG_IS_RERANK为布尔值: {form_data['RAG_IS_RERANK']}")
             except Exception as e:
                 logger.error(f"转换RAG_IS_RERANK为布尔值失败: {str(e)}")
 
@@ -374,7 +384,7 @@ def save_config():
             }
 
         # 更新配置
-        for key, value in data.items():
+        for key, value in form_data.items():
             # 特殊处理定时任务配置
             if key == 'TASKS':
                 try:
@@ -399,6 +409,20 @@ def save_config():
 
         # 立即重新加载配置
         g.config_data = current_config
+        
+        # 重新加载配置模块，确保更改立即生效
+        try:
+            # 重新加载配置模块
+            importlib.reload(sys.modules['src.config'])
+            # 使用 reload_from_file 方法重新加载配置
+            from src.config import config as settings
+            if hasattr(settings, 'reload_from_file'):
+                settings.reload_from_file()
+                logger.info("成功重新加载配置模块")
+            else:
+                logger.warning("配置模块没有 reload_from_file 方法")
+        except Exception as e:
+            logger.error(f"重新加载配置模块失败: {str(e)}")
         
         # 检查并记录RAG_IS_RERANK设置
         try:
@@ -619,16 +643,23 @@ def get_background():
 
 @app.before_request
 def load_config():
-    """在每次请求之前加载配置"""
+    """每次请求前加载配置"""
     try:
-        import yaml
         config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            g.config_data = yaml.safe_load(f)  # 使用 g 来存储配置数据
+            g.config_data = yaml.safe_load(f)
+            
+        # 尝试重新加载内存中的配置，确保使用最新配置
+        try:
+            from src.config import config as settings
+            if hasattr(settings, 'reload_from_file'):
+                settings.reload_from_file()
+        except Exception as e:
+            logger.warning(f"重新加载内存中配置失败: {str(e)}")
+            
     except Exception as e:
-        # 添加异常处理，确保 g.config_data 始终存在
-        logger.error(f"加载配置文件失败: {str(e)}")
-        g.config_data = {}  # 设置空字典作为默认值
+        logger.error(f"加载配置失败: {str(e)}")
+        g.config_data = {}
 
 
 @app.route('/dashboard')
@@ -2030,7 +2061,13 @@ def init_password():
         if config.update_password(hashed_password):
             # 重新加载配置
             importlib.reload(sys.modules['src.config'])
-            from src.config import config
+            # 使用 reload_from_file 方法重新加载配置
+            from src.config import config as settings
+            if hasattr(settings, 'reload_from_file'):
+                settings.reload_from_file()
+                logger.info("成功重新加载配置模块")
+            else:
+                logger.warning("配置模块没有 reload_from_file 方法")
 
             # 验证密码是否正确保存
             if not config.auth.admin_password:
@@ -2755,6 +2792,58 @@ def handle_wechat_login():
         return jsonify({
             'status': 'error',
             'message': f'操作失败: {str(e)}'
+        })
+
+
+@app.route('/get_config')
+def get_config():
+    """获取配置数据，特别处理LISTEN_LIST字段"""
+    try:
+        import yaml
+        # 直接从配置文件读取配置数据
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_data = yaml.safe_load(f)
+        
+        # 提取所需的配置值
+        config_data_response = {}
+        
+        # 特别处理LISTEN_LIST
+        if ('categories' in config_data and 'user_settings' in config_data['categories'] and
+            'settings' in config_data['categories']['user_settings'] and
+            'listen_list' in config_data['categories']['user_settings']['settings']):
+            listen_list = config_data['categories']['user_settings']['settings']['listen_list'].get('value', [])
+            # 确保listen_list是一个数组
+            if not isinstance(listen_list, list):
+                listen_list = []
+            config_data_response['LISTEN_LIST'] = listen_list
+            logger.debug(f"获取到的监听用户列表: {listen_list}")
+        else:
+            config_data_response['LISTEN_LIST'] = []
+            logger.warning("在配置中找不到监听用户列表")
+        
+        # 处理RAG_IS_RERANK
+        if ('categories' in config_data and 'rag_settings' in config_data['categories'] and
+            'settings' in config_data['categories']['rag_settings'] and
+            'is_rerank' in config_data['categories']['rag_settings']['settings']):
+            rerank_value = config_data['categories']['rag_settings']['settings']['is_rerank'].get('value', False)
+            # 确保是布尔值
+            if isinstance(rerank_value, str):
+                config_data_response['RAG_IS_RERANK'] = rerank_value.lower() == 'true'
+            else:
+                config_data_response['RAG_IS_RERANK'] = bool(rerank_value)
+        
+        # 其他配置按需添加...
+        
+        return jsonify({
+            'status': 'success',
+            'config': config_data_response
+        })
+    except Exception as e:
+        logger.error(f"获取配置数据失败: {str(e)}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
         })
 
 
