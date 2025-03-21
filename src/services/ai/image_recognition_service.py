@@ -20,6 +20,11 @@ class ImageRecognitionService:
     def __init__(self, api_key: str, base_url: str, temperature: float, model: str):
         self.api_key = api_key
         self.base_url = base_url
+        try:
+            temperature = float(temperature)  # 尝试将 temperature 转换为浮点数
+        except ValueError:
+            logger.error(f"传入的 temperature 值 {temperature} 无法转换为浮点数，使用默认值 0.5")
+            temperature = 0.5 
         # 确保 temperature 在有效范围内
         self.temperature = min(max(0.0, temperature), 1.0)  # 限制在 0-1 之间
         self.headers = {
