@@ -70,7 +70,7 @@ try:
     # 行为配置默认值
     behavior.context = SimpleNamespace()
     behavior.context.max_groups = 30
-    behavior.context.avatar_dir = "data/avatars/MONO"
+    behavior.context.avatar_dir = "MONO"
     
     # 添加auto_message配置
     behavior.auto_message = SimpleNamespace()
@@ -108,8 +108,8 @@ try:
             llm.api_key = getattr(config_reader.llm, 'api_key', llm.api_key)
             llm.base_url = getattr(config_reader.llm, 'base_url', llm.base_url)
             llm.model = getattr(config_reader.llm, 'model', llm.model)
-            llm.max_tokens = getattr(config_reader.llm, 'max_tokens', llm.max_tokens)
-            llm.temperature = getattr(config_reader.llm, 'temperature', llm.temperature)
+            llm.max_tokens = int(getattr(config_reader.llm, 'max_tokens', llm.max_tokens))
+            llm.temperature = float(getattr(config_reader.llm, 'temperature', llm.temperature))
         
         # 读取RAG配置
         if hasattr(config_reader, 'rag'):
@@ -275,7 +275,7 @@ except Exception as e:
     # 行为配置默认值
     behavior.context = SimpleNamespace()
     behavior.context.max_groups = 30
-    behavior.context.avatar_dir = "data/avatars/MONO"
+    behavior.context.avatar_dir = "MONO"
     
     # 添加auto_message配置
     behavior.auto_message = SimpleNamespace()

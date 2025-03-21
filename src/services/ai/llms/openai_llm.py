@@ -196,11 +196,18 @@ class OpenAILLM(BaseLLM):
                 # 尝试使用httpx直接测试连接
                 try:
                     self.logger.info(f"尝试直接测试API连接: {self.url}")
-                    with httpx.Client(timeout=5.0) as client:
-                        resp = client.get(self.url)
-                        self.logger.info(f"直接连接测试状态码: {resp.status_code}")
-                except Exception as conn_err:
-                    self.logger.error(f"直接连接测试失败: {str(conn_err)}")
+                    # 确保httpx已导入
+                    try:
+                        import httpx
+                        with httpx.Client(timeout=5.0) as client:
+                            resp = client.get(self.url)
+                            self.logger.info(f"直接连接测试状态码: {resp.status_code}")
+                    except ImportError:
+                        self.logger.error("缺少httpx库，无法进行直接连接测试。请运行 'pip install httpx' 安装。")
+                    except Exception as conn_err:
+                        self.logger.error(f"直接连接测试失败: {str(conn_err)}")
+                except Exception as outer_err:
+                    self.logger.error(f"直接连接测试过程出错: {str(outer_err)}")
                 
                 return f"API调用失败: 连接错误。请检查API配置和网络连接。详细错误: {error_message}"
                 

@@ -182,7 +182,7 @@ categories:
           type: number
           description: 最大上下文轮数
         avatar_dir:
-          value: "data/avatars/MONO"
+          value: "MONO"
           type: string
           description: 人设目录（自动包含 avatar.md 和 emojis 目录）
   

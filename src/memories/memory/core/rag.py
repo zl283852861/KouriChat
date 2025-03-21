@@ -1646,15 +1646,54 @@ class RAG:
                 if isinstance(text, str):
                     all_texts.append(text)
         
+        # 预处理过滤文本内容
+        filtered_texts = []
+        for text in all_texts:
+            if not text or not isinstance(text, str):
+                continue
+                
+            # 文本长度过滤
+            if len(text.strip()) < 5:  # 过滤掉过短的文本
+                logger.debug(f"跳过过短文本: {text}")
+                continue
+                
+            # 内容质量过滤
+            if self._is_low_quality_text(text):
+                logger.debug(f"跳过低质量文本: {text[:50]}...")
+                continue
+                
+            # 应用文本清理（如果能导入相关函数）
+            try:
+                from src.memories.memory_utils import clean_dialog_memory
+                # 对于包含冒号的文本，尝试作为对话清理
+                if ': ' in text or '：' in text:
+                    parts = text.split(':', 1) if ': ' in text else text.split('：', 1)
+                    if len(parts) == 2:
+                        _, cleaned_text = clean_dialog_memory(parts[0], parts[1])
+                        if cleaned_text.strip():
+                            text = cleaned_text
+                
+                # 如果清理后文本为空，则跳过
+                if not text.strip():
+                    logger.debug("清理后文本为空，跳过")
+                    continue
+            except ImportError:
+                # 如果无法导入清理函数，跳过清理步骤
+                pass
+                
+            filtered_texts.append(text)
+            
+        # 如果过滤后没有文本，直接返回
+        if not filtered_texts:
+            logger.warning("过滤后没有有效文本，跳过添加文档")
+            return
+        
         # 去除可能的重复文档
         truly_new_texts = []
         existing_docs_set = set(self.documents)
         duplicate_count = 0
         
-        for text in all_texts:
-            if not text or not isinstance(text, str):
-                continue
-                
+        for text in filtered_texts:
             if text in existing_docs_set:
                 logger.debug(f"跳过重复文档: {text[:50]}...")
                 duplicate_count += 1
@@ -1694,6 +1733,102 @@ class RAG:
         
         # 保存RAG数据到文件
         self.save()
+        
+    def _is_low_quality_text(self, text):
+        """
+        判断文本是否为低质量
+        
+        Args:
+            text: 待判断文本
+            
+        Returns:
+            bool: 是否为低质量文本
+        """
+        import re
+        
+        # 转换为小写便于匹配
+        lower_text = text.lower()
+        
+        # 过滤明显的系统/指令提示
+        system_patterns = [
+            r"请注意[:：]", 
+            r"当任务完成时", 
+            r"请记住你是", 
+            r"请扮演", 
+            r"你的回复应该",
+            r"你现在是一个",
+            r"你现在应该扮演",
+            r"你是一个AI",
+            r"我是你的主人",
+            r"请你记住",
+            r"请保持简洁",
+            r"请回复得",
+            r"我希望你的回复",
+            r"在此消息之后",
+            r"我想要你"
+        ]
+        
+        for pattern in system_patterns:
+            if re.search(pattern, lower_text):
+                return True
+                
+        # 过滤重复模式
+        if self._has_excessive_repetition(text):
+            return True
+            
+        # 过滤无意义字符串
+        noise_patterns = [
+            r"\[MASK\]", r"\[CLS\]", r"\[SEP\]", r"\[PAD\]", r"\[UNK\]",
+            r"<s>", r"</s>", r"<p>", r"</p>", r"<div>", r"</div>",
+            r"^[a-f0-9]{32,}$",  # MD5等哈希值
+            r"^[a-zA-Z0-9+/]{40,}={0,2}$"  # Base64编码
+        ]
+        
+        for pattern in noise_patterns:
+            if re.search(pattern, text):
+                return True
+                
+        # 过滤包含大量特殊符号的文本
+        special_chars = re.findall(r'[^\w\s\u4e00-\u9fff，。？！：；""''【】「」『』（）、]', text)
+        if len(special_chars) / len(text) > 0.3:  # 特殊字符比例过高
+            return True
+            
+        return False
+        
+    def _has_excessive_repetition(self, text):
+        """
+        检测文本中是否有过度重复
+        
+        Args:
+            text: 待检测文本
+            
+        Returns:
+            bool: 是否存在过度重复
+        """
+        import re
+        
+        # 检查重复单词
+        words = re.findall(r'\b\w+\b', text.lower())
+        if len(words) > 5:
+            unique_words = set(words)
+            if len(unique_words) / len(words) < 0.3:  # 如果不同单词比例过低
+                return True
+        
+        # 检查重复段落
+        paragraphs = [p for p in text.split('\n') if p.strip()]
+        if len(paragraphs) > 3:
+            unique_paragraphs = set(paragraphs)
+            if len(unique_paragraphs) / len(paragraphs) < 0.5:  # 如果不同段落比例过低
+                return True
+                
+        # 检查重复模式
+        for length in range(3, min(10, len(text) // 2)):  # 检查3-10个字符的重复
+            for i in range(len(text) - length * 2):
+                pattern = text[i:i+length]
+                if pattern.strip() and text.count(pattern) > 3:  # 同一模式重复超过3次
+                    return True
+                    
+        return False
 
     def query(self, query: str, top_k: int = 5, rerank: bool = False, async_mode: bool = False, timeout: float = 5.0) -> List[str]:
         """
