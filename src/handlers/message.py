@@ -244,7 +244,7 @@ class MessageHandler:
 
     def _calculate_wait_time(self, username: str, msg_count: int) -> float:
         """计算消息等待时间"""
-        base_wait_time = 5.0
+        base_wait_time = 3.0
         typing_speed = self._estimate_typing_speed(username)
         
         if msg_count == 1:
@@ -897,32 +897,35 @@ class MessageHandler:
             # 清理AI回复中的时间戳和第三人称旁白
             reply = re.sub(r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]', '', reply)  # 移除时间戳
             reply = re.sub(r'^你：|^对方：|^AI：', '', reply)  # 移除第三人称旁白
+            
+            # 移除memory_number及其后续内容
+            reply = re.sub(r'\s*memory_number:.*?($|\n|\$)', '', reply, flags=re.DOTALL|re.IGNORECASE)
+            
+            # 如果一行中包含memory_number，直接移除该行
+            if "memory_number:" in reply:
+                lines = reply.split('\n')
+                clean_lines = [line for line in lines if "memory_number:" not in line]
+                reply = '\n'.join(clean_lines)
+            
+            # $符号后如果包含memory_number内容，移除整段
+            reply = re.sub(r'\$\s*memory_number:.*?($|\n|\$)', '$', reply, flags=re.DOTALL|re.IGNORECASE)
+            
             reply = reply.strip()
             
             # 保存原始回复，用于记忆存储
             original_reply = reply
             
-            # 移除[memory_number:...]标记
-            original_reply = re.sub(r'\s*\[memory_number:.*?\]$', '', original_reply)
+            # 过滤括号内的动作和情感描述
+            reply = self._filter_action_emotion(reply)
             
-            # 记录原始回复（无断句标记）
-            logger.info(f"AI回复: {original_reply[:50]}...")
-            
-            # 立即保存对话记忆 - 简化记忆保存的日志
+            # 立即保存对话记忆
             try:
-                # 使用实际用户输入和原始AI回复保存记忆
                 if self.memory_handler:
                     try:
-                        # 导入_run_async函数
-                        from src.handlers.memory import _run_async
-                        
-                        # 检查remember方法是否是异步方法
+                        # 确保保存的记忆内容不包含memory_number相关信息
                         if asyncio.iscoroutinefunction(self.memory_handler.remember):
-                            # 从全局函数导入remember，确保正确处理user_id参数
-                            from src.handlers.handler_init import remember as global_remember
                             save_result = _run_async(global_remember(username, actual_user_input, original_reply))
                         else:
-                            # 确保正确传递参数顺序：用户ID, 用户消息, 助手回复
                             save_result = self.memory_handler.remember(username, actual_user_input, original_reply)
                         
                         if not save_result and hasattr(self.memory_handler, 'add_short_memory'):
@@ -931,9 +934,6 @@ class MessageHandler:
                         logger.error(f"保存记忆失败: {str(e)}")
             except Exception as mem_err:
                 logger.error(f"保存对话记忆失败: {str(mem_err)}")
-            
-            # 过滤括号内的动作和情感描述
-            reply = self._filter_action_emotion(reply)
             
             # 为回复添加断句标记 (用于微信发送)
             reply_with_breaks = self._add_sentence_breaks(reply)
