@@ -7,6 +7,11 @@ import webbrowser
 # 导入配置模块
 from core.config import APIConfig
 from core.error_handler import handle_api_error
+from core.theme_manager import ThemeManager
+
+# 导入UI组件
+from ui.sidebar import Sidebar
+from ui.transition import PageTransition  # 导入页面过渡效果管理器
 
 # 导入API测试模块
 from api.tester import APITester
@@ -23,7 +28,7 @@ class KouriChatApp(ctk.CTk):
         super().__init__()
         
         # 设置窗口属性
-        self.title("Kouri Chat 工具箱 V11.0")
+        self.title("Kouri Chat 工具箱 V12.0")
         self.geometry("1000x700")
         self.minsize(800, 600)  # 设置最小窗口大小
         
@@ -54,6 +59,9 @@ class KouriChatApp(ctk.CTk):
         self.setup_image_page()
         self.setup_help_page()
         
+        # 创建页面过渡动画管理器
+        self.transition = PageTransition(self)
+        
         # 默认显示人设页面
         self.show_character_page()
         
@@ -66,107 +74,11 @@ class KouriChatApp(ctk.CTk):
         self.grid_columnconfigure(1, weight=1)  # 内容区域可扩展
         self.grid_rowconfigure(0, weight=1)  # 行可扩展
         
-        # 创建侧边栏
-        self.setup_sidebar()
+        # 创建侧边栏 - 使用Sidebar类
+        self.sidebar = Sidebar(self)
         
         # 创建内容区域
         self.setup_content_area()
-    
-    def setup_sidebar(self):
-        """设置侧边栏"""
-        # 创建侧边栏框架
-        self.sidebar_frame = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar_frame.grid(row=0, column=0, sticky="nsew")
-        self.sidebar_frame.grid_rowconfigure(6, weight=1)  # 底部空白区域可扩展
-        
-        # 添加应用标题
-        self.logo_label = ctk.CTkLabel(
-            self.sidebar_frame, 
-            text="Kouri Chat",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=20, weight="bold")
-        )
-        self.logo_label.grid(row=0, column=0, padx=20, pady=(20, 20))
-        
-        # 添加侧边栏按钮
-        self.sidebar_buttons = []
-        
-        # 人设按钮
-        self.character_button = ctk.CTkButton(
-            self.sidebar_frame,
-            text="人设",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=14),
-            command=self.show_character_page,
-            fg_color="transparent",
-            hover_color=("gray80", "gray30"),
-            text_color=("black", "white")  # 确保在亮色/暗色主题下文字都可见
-        )
-        self.character_button.grid(row=1, column=0, padx=20, pady=10, sticky="ew")
-        self.sidebar_buttons.append(self.character_button)
-        
-        # API配置按钮
-        self.api_config_button = ctk.CTkButton(
-            self.sidebar_frame,
-            text="API配置",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=14),
-            command=self.show_api_config_page,
-            fg_color="transparent",
-            hover_color=("gray80", "gray30"),
-            text_color=("black", "white")  # 确保在亮色/暗色主题下文字都可见
-        )
-        self.api_config_button.grid(row=2, column=0, padx=20, pady=10, sticky="ew")
-        self.sidebar_buttons.append(self.api_config_button)
-        
-        # 图片按钮
-        self.image_button = ctk.CTkButton(
-            self.sidebar_frame,
-            text="图片",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=14),
-            command=self.show_image_page,
-            fg_color="transparent",
-            hover_color=("gray80", "gray30"),
-            text_color=("black", "white")  # 确保在亮色/暗色主题下文字都可见
-        )
-        self.image_button.grid(row=3, column=0, padx=20, pady=10, sticky="ew")
-        self.sidebar_buttons.append(self.image_button)
-        
-        # 帮助按钮
-        self.help_button = ctk.CTkButton(
-            self.sidebar_frame,
-            text="帮助",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=14),
-            command=self.show_help_page,
-            fg_color="transparent",
-            hover_color=("gray80", "gray30"),
-            text_color=("black", "white")  # 确保在亮色/暗色主题下文字都可见
-        )
-        self.help_button.grid(row=4, column=0, padx=20, pady=10, sticky="ew")
-        self.sidebar_buttons.append(self.help_button)
-        
-        # 底部版本信息
-        self.version_label = ctk.CTkLabel(
-            self.sidebar_frame,
-            text="V11.0",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=10),
-            text_color=("black", "white")
-        )
-        self.version_label.grid(row=8, column=0, padx=20, pady=(5, 20))
-        
-        # 添加主题切换开关 - 移到版本号上方
-        self.appearance_mode_switch = ctk.CTkSwitch(
-            self.sidebar_frame,
-            text="切换模式",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=12),
-            command=self.toggle_theme,
-            text_color=("black", "white"),
-            progress_color=("gray70", "gray30")
-        )
-        self.appearance_mode_switch.grid(row=7, column=0, padx=20, pady=(10, 10), sticky="w")
-        
-        # 根据当前主题设置开关状态
-        if self.current_theme == "dark":
-            self.appearance_mode_switch.select()
-        else:
-            self.appearance_mode_switch.deselect()
     
     def setup_content_area(self):
         """设置内容区域"""
@@ -1655,37 +1567,22 @@ class KouriChatApp(ctk.CTk):
     
     def apply_theme(self):
         """应用主题"""
-        # CustomTkinter 已经内置了主题支持，我们只需要设置外观模式
-        if self.current_theme == "light":
-            ctk.set_appearance_mode("light")
-        elif self.current_theme == "dark":
-            ctk.set_appearance_mode("dark")
-        else:  # system
-            ctk.set_appearance_mode("system")
+        ThemeManager.apply_theme(self, self.current_theme)
     
     def show_character_page(self):
         """显示人设页面"""
-        self.clear_content_frame()
-        self.character_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
-        self.highlight_sidebar_button(self.character_button)
+        # 使用过渡效果管理器进行页面切换
+        self.transition.transit_to(self.character_frame, self.sidebar.character_button)
     
     def show_api_config_page(self):
         """显示API配置页面"""
-        self.clear_content_frame()
-        self.api_config_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
-        self.highlight_sidebar_button(self.api_config_button)
+        # 使用过渡效果管理器进行页面切换
+        self.transition.transit_to(self.api_config_frame, self.sidebar.api_config_button)
     
     def show_image_page(self):
         """显示图片页面"""
-        self.clear_content_frame()
-        self.image_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
-        self.highlight_sidebar_button(self.image_button)
+        # 使用过渡效果管理器进行页面切换
+        self.transition.transit_to(self.image_frame, self.sidebar.image_button)
     
     def setup_theme_page(self):
         """设置主题页面内容"""
@@ -1768,19 +1665,13 @@ class KouriChatApp(ctk.CTk):
     
     def show_theme_page(self):
         """显示主题页面"""
-        self.clear_content_frame()
-        self.theme_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
-        self.highlight_sidebar_button(self.theme_button)
+        # 使用过渡效果管理器进行页面切换
+        self.transition.transit_to(self.theme_frame, self.theme_button)
     
     def show_help_page(self):
         """显示帮助页面"""
-        self.clear_content_frame()
-        self.help_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
-        self.highlight_sidebar_button(self.help_button)
+        # 使用过渡效果管理器进行页面切换
+        self.transition.transit_to(self.help_frame, self.sidebar.help_button)
     
     def clear_content_frame(self):
         """清除内容区域"""
@@ -1790,11 +1681,7 @@ class KouriChatApp(ctk.CTk):
     
     def highlight_sidebar_button(self, active_button):
         """高亮当前选中的侧边栏按钮"""
-        for button in self.sidebar_buttons:
-            if button == active_button:
-                button.configure(fg_color=("gray75", "gray25"))
-            else:
-                button.configure(fg_color="transparent")
+        self.sidebar.highlight_button(active_button)
     
     def save_all_configs(self):
         """保存所有API配置"""
@@ -2046,7 +1933,7 @@ class KouriChatApp(ctk.CTk):
         # 版权信息
         copyright_text = ctk.CTkLabel(
             help_scroll_frame, 
-            text="© 2024-2025 Kouri Chat. 保留所有权利。",
+            text="© 2025 Kouri Chat. 保留所有权利。",
             font=ctk.CTkFont(family="黑体", size=10),
             text_color=("gray50", "gray70")
         )
@@ -2065,13 +1952,8 @@ class KouriChatApp(ctk.CTk):
 
     def toggle_theme(self):
         """切换明暗主题"""
-        if self.appearance_mode_switch.get() == 1:  # 开关打开，使用暗色主题
-            self.current_theme = "dark"
-            ctk.set_appearance_mode("dark")
-        else:  # 开关关闭，使用亮色主题
-            self.current_theme = "light"
-            ctk.set_appearance_mode("light")
-        
-        # 更新配置
-        self.config["theme"] = self.current_theme
-        APIConfig.save_config(self.config)
+        ThemeManager.toggle_theme(self)
+
+    def apply_theme(self):
+        """应用主题"""
+        ThemeManager.apply_theme(self, self.current_theme)
