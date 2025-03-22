@@ -6,6 +6,7 @@ import logging
 import json
 import openai
 import asyncio
+import re
 from typing import Any, Dict, List, Optional, Union
 
 # 设置日志
@@ -136,6 +137,46 @@ class APIWrapper:
         except Exception as e:
             logger.error(f"同步获取嵌入向量失败: {str(e)}")
             return None
+
+    async def async_completion(self, prompt: str, temperature: float = 0.7, max_tokens: int = 1000) -> Dict:
+        """
+        异步获取完成响应
+        
+        Args:
+            prompt: 提示词
+            temperature: 温度参数
+            max_tokens: 最大token数
+            
+        Returns:
+            Dict: 包含响应内容的字典
+        """
+        try:
+            # 调用OpenAI API
+            response = await asyncio.to_thread(
+                self.client.chat.completions.create,
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=temperature,
+                max_tokens=max_tokens
+            )
+            
+            # 解析结果
+            if hasattr(response, 'choices') and len(response.choices) > 0:
+                content = response.choices[0].message.content
+                # 移除所有[memory_number: ...]标记
+                cleaned_content = re.sub(r'\s*\[memory_number:.*?\]$', '', content)
+                return {"content": cleaned_content.strip()}
+            elif isinstance(response, dict) and 'choices' in response:
+                content = response['choices'][0]['message']['content']
+                # 移除所有[memory_number: ...]标记
+                cleaned_content = re.sub(r'\s*\[memory_number:.*?\]$', '', content)
+                return {"content": cleaned_content.strip()}
+            else:
+                logger.error(f"无法解析完成响应: {response}")
+                return {"content": "无法解析响应"}
+        except Exception as e:
+            logger.error(f"获取完成响应失败: {str(e)}")
+            return {"content": f"API调用错误: {str(e)}"}
 
 class APIEmbeddings:
     """嵌入API接口"""

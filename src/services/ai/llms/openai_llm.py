@@ -164,6 +164,10 @@ class OpenAILLM(BaseLLM):
                         
                     assistant_response = response.choices[0].message.content.strip()
                     
+                    # 移除[memory_number:...]标记
+                    import re
+                    assistant_response = re.sub(r'\s*\[memory_number:.*?\]$', '', assistant_response)
+                    
                     self.logger.info("========= API响应信息 =========")
                     self.logger.info(f"响应长度: {len(assistant_response)}")
                     self.logger.info(f"响应前100字符: {assistant_response[:100]}")

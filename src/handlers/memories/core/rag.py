@@ -34,6 +34,14 @@ class RagManager:
         # 加载配置
         self.config = self._load_config()
         
+        # 获取当前角色名
+        try:
+            from src.config import config
+            self.avatar_name = config.behavior.context.avatar_dir
+        except Exception as e:
+            logger.error(f"获取角色名失败: {str(e)}")
+            self.avatar_name = "default"
+        
         # 初始化组件
         self.embedding_model = self._init_embedding_model()
         self.storage = self._init_storage()
@@ -42,7 +50,7 @@ class RagManager:
         # 记录状态
         self.document_count = 0
         
-        logger.info(f"RAG管理器初始化完成，使用嵌入模型: {self.config.get('embedding_model', {}).get('name', 'default')}")
+        logger.info(f"RAG管理器初始化完成，角色: {self.avatar_name}，使用嵌入模型: {self.config.get('embedding_model', {}).get('name', 'default')}")
         
     def _load_config(self) -> Dict:
         """
@@ -136,13 +144,20 @@ class RagManager:
         """
         storage_config = self.config.get("storage", {})
         storage_type = storage_config.get("type", "json")
-        storage_path = storage_config.get("path", "./data/rag_storage.json")
+        
+        # 使用角色专属的存储路径，确保与memory.json在同一文件夹
+        base_storage_path = storage_config.get("path", "./data/rag_storage.json")
+        storage_filename = os.path.basename(base_storage_path)
+        
+        # 角色记忆目录为 data/avatars/角色名/
+        avatar_storage_dir = os.path.join("data", "avatars", self.avatar_name)
+        avatar_storage_path = os.path.join(avatar_storage_dir, storage_filename)
         
         # 确保路径有效
-        storage_path = self._ensure_valid_path(storage_path)
+        os.makedirs(avatar_storage_dir, exist_ok=True)
         
-        logger.info(f"初始化RAG存储: {storage_type}, 路径: {storage_path}")
-        return JsonStorage(storage_path)
+        logger.info(f"初始化RAG存储: {storage_type}, 路径: {avatar_storage_path}")
+        return JsonStorage(avatar_storage_path)
     
     def _init_reranker(self):
         """
@@ -256,14 +271,13 @@ class RagManager:
             
         return True
     
-    async def query(self, query_text: str, top_k: int = None, user_id: str = None) -> List[Dict]:
+    async def query(self, query_text: str, top_k: int = None) -> List[Dict]:
         """
         查询相关文档
         
         Args:
             query_text: 查询文本
             top_k: 返回结果数量，如果为None则使用配置中的值
-            user_id: 用户ID，如果提供则只在该用户的记忆中检索
             
         Returns:
             List[Dict]: 相关文档列表
@@ -280,8 +294,13 @@ class RagManager:
                 logger.warning("生成查询嵌入向量失败")
                 return []
                 
-            # 从存储中检索相关文档
-            results = self.storage.search(query_embedding, top_k * 2, user_id)  # 检索更多结果以便重排序
+            # 从存储中检索相关文档，使用角色名作为过滤条件
+            # 这确保只检索当前角色的记忆
+            results = self.storage.search(
+                query_embedding, 
+                top_k * 2,  # 检索更多结果以便重排序
+                avatar_name=self.avatar_name  # 使用当前角色名作为过滤条件
+            )
             
             if not results:
                 logger.info("未找到相关文档")
@@ -294,7 +313,7 @@ class RagManager:
             else:
                 results = results[:top_k]  # 直接截取top_k个结果
                 
-            logger.info(f"查询成功，找到 {len(results)} 个相关文档")
+            logger.info(f"查询成功，找到 {len(results)} 个相关文档，角色: {self.avatar_name}")
             return results
         except Exception as e:
             logger.error(f"查询失败: {str(e)}")
@@ -895,14 +914,14 @@ class JsonStorage:
             logger.error(f"添加文档失败: {str(e)}")
             return False
             
-    def search(self, query_embedding: List[float], top_k: int = 5, user_id: str = None) -> List[Dict]:
+    def search(self, query_embedding: List[float], top_k: int = 5, avatar_name: str = None) -> List[Dict]:
         """
         搜索相关文档
         
         Args:
             query_embedding: 查询嵌入向量
             top_k: 返回结果数量
-            user_id: 用户ID，如果提供则只搜索该用户的记忆
+            avatar_name: 角色名，如果提供则只搜索该角色的记忆
             
         Returns:
             List[Dict]: 相关文档列表
@@ -915,8 +934,8 @@ class JsonStorage:
             results = []
             
             for doc in self.data["documents"]:
-                # 如果指定了用户ID，则只检索该用户的记忆
-                if user_id and doc.get("metadata", {}).get("user_id") != user_id:
+                # 如果指定了角色名，则只检索该角色的记忆
+                if avatar_name and doc.get("metadata", {}).get("user_id") != avatar_name:
                     continue
                     
                 doc_embedding = doc.get("embedding")
@@ -975,28 +994,28 @@ class JsonStorage:
             logger.error(f"计算余弦相似度失败: {str(e)}")
             return 0.0
             
-    def get_document_count(self, user_id: str = None) -> int:
+    def get_document_count(self, avatar_name: str = None) -> int:
         """
         获取文档数量
         
         Args:
-            user_id: 用户ID，如果提供则只计算该用户的记忆数量
+            avatar_name: 角色名，如果提供则只计算该角色的记忆数量
             
         Returns:
             int: 文档数量
         """
-        if user_id:
+        if avatar_name:
             return len([doc for doc in self.data.get("documents", []) 
-                       if doc.get("metadata", {}).get("user_id") == user_id])
+                       if doc.get("metadata", {}).get("user_id") == avatar_name])
         return len(self.data.get("documents", []))
         
-    def get_latest_documents(self, limit: int = 20, user_id: str = None) -> List[Dict]:
+    def get_latest_documents(self, limit: int = 20, avatar_name: str = None) -> List[Dict]:
         """
         获取最新文档
         
         Args:
             limit: 返回的文档数量
-            user_id: 用户ID，如果提供则只返回该用户的记忆
+            avatar_name: 角色名，如果提供则只返回该角色的记忆
             
         Returns:
             List[Dict]: 文档列表
@@ -1004,10 +1023,10 @@ class JsonStorage:
         try:
             documents = self.data.get("documents", [])
             
-            # 如果指定了用户ID，只获取该用户的文档
-            if user_id:
+            # 如果指定了角色名，只获取该角色的文档
+            if avatar_name:
                 documents = [doc for doc in documents 
-                           if doc.get("metadata", {}).get("user_id") == user_id]
+                           if doc.get("metadata", {}).get("user_id") == avatar_name]
             
             # 如果数据中包含创建时间，按时间排序
             try:
@@ -1044,21 +1063,21 @@ class JsonStorage:
             logger.error(f"获取最新文档失败: {str(e)}")
             return []
             
-    def clear(self, user_id: str = None) -> bool:
+    def clear(self, avatar_name: str = None) -> bool:
         """
         清空存储
         
         Args:
-            user_id: 用户ID，如果提供则只清空该用户的记忆
+            avatar_name: 角色名，如果提供则只清空该角色的记忆
             
         Returns:
             bool: 是否成功清空
         """
         try:
-            if user_id:
-                # 只清空指定用户的记忆
+            if avatar_name:
+                # 只清空指定角色的记忆
                 self.data["documents"] = [doc for doc in self.data.get("documents", [])
-                                        if doc.get("metadata", {}).get("user_id") != user_id]
+                                        if doc.get("metadata", {}).get("user_id") != avatar_name]
             else:
                 # 清空所有记忆
                 self.data = {"documents": []}

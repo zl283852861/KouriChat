@@ -244,13 +244,13 @@ class MessageHandler:
 
     def _calculate_wait_time(self, username: str, msg_count: int) -> float:
         """计算消息等待时间"""
-        base_wait_time = 3.0
+        base_wait_time = 5.0
         typing_speed = self._estimate_typing_speed(username)
         
         if msg_count == 1:
             wait_time = base_wait_time + 5.0
         else:
-            estimated_typing_time = min(8.0, typing_speed * 20)  # 假设用户输入20个字符
+            estimated_typing_time = min(4.0, typing_speed * 20)  # 假设用户输入20个字符
             wait_time = base_wait_time + estimated_typing_time
             
         # 简化日志，只在debug级别显示详细计算过程
@@ -288,7 +288,7 @@ class MessageHandler:
                     raw_contents.append(cleaned_content)
             
             # 使用 \ 作为句子分隔符合并消息
-            content_text = ' \\ '.join(raw_contents)
+            content_text = ' $ '.join(raw_contents)
             
             # 格式化最终消息
             first_timestamp = first_timestamp or datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -323,14 +323,62 @@ class MessageHandler:
     def _get_conversation_context(self, username: str) -> str:
         """获取对话上下文"""
         try:
+            # 构建更精确的查询，包含用户ID和当前时间信息，以获取更相关的记忆
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            query = f"与用户 {username} 相关的最近重要对话 {current_time}"
+            
+            # 获取相关记忆
             recent_history = self.memory_handler.get_relevant_memories(
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 
-                username
+                query, 
+                username,
+                top_k=10  # 增加获取的记忆数量，后续会基于质量筛选
             )
             
             if recent_history and len(recent_history) > 0:
+                # 根据记忆质量排序和筛选
+                # 筛选标准：
+                # 1. 尽量选择长度适中的对话（不太短也不太长）
+                # 2. 优先选择更复杂的对话（含有特定信息的）
+                
+                # 简单评分函数
+                def memory_quality_score(mem):
+                    if not mem.get('message') or not mem.get('reply'):
+                        return 0
+                    
+                    msg_len = len(mem['message'])
+                    reply_len = len(mem['reply'])
+                    
+                    # 太短的对话质量低
+                    if msg_len < 5 or reply_len < 10:
+                        return 0
+                    
+                    # 太长的对话也不理想
+                    if msg_len > 500 or reply_len > 1000:
+                        return 10
+                    
+                    # 基础分数
+                    score = min(100, (msg_len + reply_len) / 10)
+                    
+                    # 包含特定用户名或对话元素的加分
+                    if username.lower() in mem['message'].lower() or username.lower() in mem['reply'].lower():
+                        score += 15
+                    
+                    # 包含问答格式的加分
+                    if "?" in mem['message'] or "？" in mem['message']:
+                        score += 10
+                        
+                    return score
+                
+                # 按质量排序
+                sorted_memories = sorted(recent_history, key=memory_quality_score, reverse=True)
+                
+                # 选取最高质量的记忆（最多5条）
+                quality_memories = sorted_memories[:5]
+                logger.info(f"从 {len(recent_history)} 条记忆中筛选出 {len(quality_memories)} 条高质量记忆")
+                
+                # 构建上下文
                 context_parts = []
-                for idx, hist in enumerate(recent_history[:30]):
+                for idx, hist in enumerate(quality_memories):
                     if hist.get('message') and hist.get('reply'):
                         context_parts.append(f"对话{idx+1}:\n用户: {hist['message']}\nAI: {hist['reply']}")
                 
@@ -423,16 +471,16 @@ class MessageHandler:
         # 如果我们有历史记录的打字速度，将其纳入考虑
         if hasattr(self, '_typing_speeds') and username in self._typing_speeds:
             prev_speed = self._typing_speeds[username]
-            # 使用加权平均，新速度权重0.3，历史速度权重0.7
-            typing_speed = 0.3 * typing_speed + 0.7 * prev_speed
+            # 使用加权平均，新速度权重0.4，历史速度权重0.6
+            typing_speed = 0.4 * typing_speed + 0.6 * prev_speed
         
         # 存储计算出的打字速度
         if not hasattr(self, '_typing_speeds'):
             self._typing_speeds = {}
         self._typing_speeds[username] = typing_speed
         
-        # 限制在合理范围内：0.2秒/字 到 1秒/字
-        typing_speed = max(0.2, min(1, typing_speed))
+        # 限制在合理范围内：0.2秒/字 到 1.2秒/字
+        typing_speed = max(0.2, min(1.2, typing_speed))
         
         # 只输出最终的打字速度
         logger.info(f"用户打字速度: {typing_speed:.2f}秒/字符")
@@ -535,57 +583,87 @@ class MessageHandler:
         return None
 
     def _filter_action_emotion(self, text):
-        """智能过滤括号内的动作和情感描述，保留颜文字"""
-        # 缓存常用的颜文字和动作关键词，避免重复创建
+        """处理动作描写和颜文字，确保格式一致"""
+        # 1. 先移除文本中的引号，避免引号包裹非动作文本
+        text = text.replace('"', '').replace('"', '').replace('"', '')
+        
+        # 2. 保护已经存在的括号内容
+        protected_parts = {}
+        
+        # 匹配所有类型的括号及其内容
+        bracket_pattern = r'[\(\[（【][^\(\[（【\)\]）】]*[\)\]）】]'
+        brackets = list(re.finditer(bracket_pattern, text))
+        
+        # 保护已有的括号内容
+        for i, match in enumerate(brackets):
+            placeholder = f"__PROTECTED_{i}__"
+            protected_parts[placeholder] = match.group()
+            text = text.replace(match.group(), placeholder)
+        
+        # 3. 保护颜文字 - 使用更宽松的匹配规则
         if not hasattr(self, '_emoticon_chars_set'):
             self._emoticon_chars_set = set(
-                '（()）~～‿⁀∀︿⌒▽△□◇○●ˇ＾∇＿゜◕ω・ノ丿╯╰つ⊂＼／┌┐┘└°△▲▽▼◇◆○●◎■□▢▣▤▥▦▧▨▩♡♥ღ☆★✡⁂✧✦❈❇✴✺✹✸✷✶✵✳✲✱✰✯✮✭✬✫✪✩✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁✀✿✾✽✼✻✺✹✸✷✶✵✴✳✲✱✰✯✮✭✬✫✪✩✨✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁❤♪♫♬♩♭♮♯°○◎●◯◐◑◒◓◔◕◖◗¤☼☀☁☂☃☄★☆☎☏⊙◎☺☻☯☭♠♣♧♡♥❤❥❣♂♀☿❀❁❃❈❉❊❋❖☠☢☣☤☥☦☧☨☩☪☫☬☭☮☯☸☹☺☻☼☽☾☿♀♁♂♃♄♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟')
+                '（()）~～‿⁀∀︿⌒▽△□◇○●ˇ＾∇＿゜◕ω・ノ丿╯╰つ⊂＼／┌┐┘└°△▲▽▼◇◆○●◎■□▢▣▤▥▦▧▨▩♡♥ღ☆★✡⁂✧✦❈❇✴✺✹✸✷✶✵✳✲✱✰✯✮✭✬✫✪✩✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁✀✿✾✽✼✻✺✹✸✷✶✵✴✳✲✱✰✯✮✭✬✫✪✩✨✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁❤♪♫♬♩♭♮♯°○◎●◯◐◑◒◓◔◕◖◗¤☼☀☁☂☃☄★☆☎☏⊙◎☺☻☯☭♠♣♧♡♥❤❥❣♂♀☿❀❁❃❈❉❊❋❖☠☢☣☤☥☦☧☨☩☪☫☬☭☮☯☸☹☺☻☼☽☾☿♀♁♂♃♄♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟*^_^')
         
-        if not hasattr(self, '_action_keywords'):
-            self._action_keywords = {'微笑', '笑', '哭', '叹气', '摇头', '点头', '皱眉', '思考',
-                           '无奈', '开心', '生气', '害羞', '紧张', '兴奋', '疑惑', '惊讶',
-                           '叹息', '沉思', '撇嘴', '歪头', '摊手', '耸肩', '抱抱', '拍拍',
-                           '摸摸头', '握手', '挥手', '鼓掌', '捂脸', '捂嘴', '翻白眼',
-                           '叉腰', '双手合十', '竖起大拇指', '比心', '摸摸', '拍肩', '戳戳',
-                           '摇晃', '蹦跳', '转圈', '倒地', '趴下', '站起', '坐下'}
-    
-        # 使用正则表达式缓存
-        if not hasattr(self, '_cn_pattern'):
-            self._cn_pattern = re.compile(r'（[^）]*）')
-            self._en_pattern = re.compile(r'\([^\)]*\)')
-    
-        def is_emoticon(content):
-            """判断是否为颜文字"""
-            text = content.strip('（()）')  # 去除外围括号
-            if not text:  # 如果去除括号后为空，返回False
-                return False
-            emoticon_char_count = sum(1 for c in text if c in self._emoticon_chars_set)
-            return emoticon_char_count / len(text) > 0.5  # 如果超过50%是颜文字字符则认为是颜文字
-    
-        def contains_action_keywords(content):
-            """检查是否包含动作或情感描述关键词"""
-            text = content.strip('（()）')  # 去除外围括号
-            # 使用jieba分词，检查是否包含动作关键词
-            words = set(jieba.cut(text))
-            return bool(words & self._action_keywords)
-    
-        def smart_filter(match):
-            content = match.group(0)
-            # 如果是颜文字，保留
-            if is_emoticon(content):
-                return content
-            # 如果包含动作关键词，移除
-            elif contains_action_keywords(content):
-                return ''
-            # 如果无法判断，保留原文
-            return content
-    
-        # 处理中文括号
-        text = self._cn_pattern.sub(smart_filter, text)
-        # 处理英文括号
-        text = self._en_pattern.sub(smart_filter, text)
-    
-        return text
+        emoji_patterns = [
+            # 括号类型的颜文字
+            r'\([\w\W]{1,10}?\)',  # 匹配较短的括号内容
+            r'（[\w\W]{1,10}?）',  # 中文括号
+            
+            # 符号组合类型
+            r'[＼\\\/\*\-\+\<\>\^\$\%\!\?\@\#\&\|\{\}\=\;\:\,\.]{2,}',  # 常见符号组合
+            
+            # 常见表情符号
+            r'[◕◑◓◒◐•‿\^▽\◡\⌒\◠\︶\ω\´\`\﹏\＾\∀\°\◆\□\▽\﹃\△\≧\≦\⊙\→\←\↑\↓\○\◇\♡\❤\♥\♪\✿\★\☆]{1,}',
+            
+            # *号组合
+            r'\*[\w\W]{1,5}?\*'  # 星号强调内容
+        ]
+        
+        for pattern in emoji_patterns:
+            emojis = list(re.finditer(pattern, text))
+            for i, match in enumerate(emojis):
+                # 避免处理过长的内容，可能是动作描写而非颜文字
+                if len(match.group()) <= 15 and not any(p in match.group() for p in protected_parts.values()):
+                    # 检查是否包含足够的表情符号字符
+                    chars_count = sum(1 for c in match.group() if c in self._emoticon_chars_set)
+                    if chars_count >= 2 or len(match.group()) <= 5:
+                        placeholder = f"__EMOJI_{i}__"
+                        protected_parts[placeholder] = match.group()
+                        text = text.replace(match.group(), placeholder)
+        
+        # 4. 处理分隔符 - 保留原样
+        parts = text.split('$')
+        new_parts = []
+        
+        for i, part in enumerate(parts):
+            part = part.strip()
+            if not part:  # 跳过空部分
+                continue
+                
+            # 直接添加部分，不添加括号
+            new_parts.append(part)
+        
+        # 5. 特殊处理：同时兼容原来的 \ 分隔符
+        if len(new_parts) == 1:  # 如果没有找到 $ 分隔符，尝试处理 \ 分隔符
+            parts = text.split('\\')
+            if len(parts) > 1:  # 确认有实际分隔
+                new_parts = []
+                for i, part in enumerate(parts):
+                    part = part.strip()
+                    if not part:
+                        continue
+                    # 直接添加部分，不添加括号
+                    new_parts.append(part)
+        
+        # 6. 重新组合文本
+        result = " $ ".join(new_parts)
+        
+        # 7. 恢复所有保护的内容
+        for placeholder, content in protected_parts.items():
+            result = result.replace(placeholder, content)
+            
+        return result
 
     def _handle_file_request(self, file_path, chat_id, sender_name, username, is_group):
         """处理文件请求"""
@@ -629,7 +707,7 @@ class MessageHandler:
                 delayed_reply = []
                 current_sentence = []
                 ending_punctuations = {'。', '！', '？', '!', '?', '…', '……'}
-                split_symbols = {'\\', '|', '￤', '\n', '\\n'}  # 支持多种手动分割符
+                split_symbols = {'$', '|', '￤', '\n', '\\n'}  # 支持多种手动分割符
 
                 for idx, char in enumerate(reply):
                     # 处理手动分割符号（优先级最高）
@@ -785,6 +863,9 @@ class MessageHandler:
             # 添加长度限制提示词
             length_prompt = f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_length+15}个字符和{target_sentences+2}个句子左右。"
             
+            # 保存原始记忆上下文，避免将其作为用户ID
+            memory_context = ""
+            
             if is_end_of_conversation:
                 # 如果检测到结束关键词，在消息末尾添加提示
                 api_content += "\n请以你的身份回应用户的结束语" + length_prompt
@@ -821,6 +902,9 @@ class MessageHandler:
             # 保存原始回复，用于记忆存储
             original_reply = reply
             
+            # 移除[memory_number:...]标记
+            original_reply = re.sub(r'\s*\[memory_number:.*?\]$', '', original_reply)
+            
             # 记录原始回复（无断句标记）
             logger.info(f"AI回复: {original_reply[:50]}...")
             
@@ -836,13 +920,13 @@ class MessageHandler:
                         if asyncio.iscoroutinefunction(self.memory_handler.remember):
                             # 从全局函数导入remember，确保正确处理user_id参数
                             from src.handlers.handler_init import remember as global_remember
-                            save_result = _run_async(global_remember(actual_user_input, original_reply, username))
+                            save_result = _run_async(global_remember(username, actual_user_input, original_reply))
                         else:
-                            # 如果是同步方法，传递三个参数
-                            save_result = self.memory_handler.remember(actual_user_input, original_reply, username)
+                            # 确保正确传递参数顺序：用户ID, 用户消息, 助手回复
+                            save_result = self.memory_handler.remember(username, actual_user_input, original_reply)
                         
                         if not save_result and hasattr(self.memory_handler, 'add_short_memory'):
-                            self.memory_handler.add_short_memory(actual_user_input, original_reply, username)
+                            self.memory_handler.add_short_memory(username, actual_user_input, original_reply)
                     except Exception as e:
                         logger.error(f"保存记忆失败: {str(e)}")
             except Exception as mem_err:
@@ -912,23 +996,44 @@ class MessageHandler:
             return [error_msg]
             
     def _add_sentence_breaks(self, text):
-        """在句子之间添加断句标记(\)用于微信发送"""
+        """在句子之间添加断句标记($)用于微信发送"""
         # 定义句子结束标点
-        sentence_ends = ['。', '！', '？', '!', '?', '\n']
-        # 定义不应断句的短语
-        ignore_patterns = [
-            r'\.\.\.', r'…+',           # 各种省略号
-            r'\([^)]*\)', r'（[^）]*）',  # 括号内容
-            r'\\\([^)]*\)', r'\\（[^）]*）',  # 带反斜杠的表情
-            r'\^_\^', r'>_<', r'o_o', r'O_O',  # 常见表情
-            r'[╯╰┌┐┘└]'  # 特殊符号
+        sentence_ends = ['。', '！', '？', '!', '?', '.', '\n']
+        
+        # 1. 先移除文本中的引号，避免引号包裹非动作文本
+        text = text.replace('"', '').replace('"', '').replace('"', '')
+        
+        # 2. 保护已经存在的括号内容和颜文字
+        protected_parts = {}
+        
+        # 匹配所有类型的括号及其内容
+        bracket_pattern = r'[\(\[（【][^\(\[（【\)\]）】]*[\)\]）】]'
+        brackets = list(re.finditer(bracket_pattern, text))
+        
+        # 保护已有的括号内容
+        for i, match in enumerate(brackets):
+            placeholder = f"__PROTECTED_{i}__"
+            protected_parts[placeholder] = match.group()
+            text = text.replace(match.group(), placeholder)
+        
+        # 保护颜文字 - 使用更宽松的匹配规则
+        emoji_patterns = [
+            r'\([\w\W]{1,10}?\)',  # 匹配较短的括号内容
+            r'（[\w\W]{1,10}?）',  # 中文括号
+            r'[＼\\\/\*\-\+\<\>\^\$\%\!\?\@\#\&\|\{\}\=\;\:\,\.]{2,}',  # 常见符号组合
+            r'[◕◑◓◒◐•‿\^▽\◡\⌒\◠\︶\ω\´\`\﹏\＾\∀\°\◆\□\▽\﹃\△\≧\≦\⊙\→\←\↑\↓\○\◇\♡\❤\♥\♪\✿\★\☆]{1,}',
+            r'\*[\w\W]{1,5}?\*'  # 星号强调内容
         ]
         
-        # 临时替换需要保护的模式
-        for i, pattern in enumerate(ignore_patterns):
-            text = re.sub(pattern, f"IGNORE_MARK_{i}_", text)
+        for pattern in emoji_patterns:
+            emojis = list(re.finditer(pattern, text))
+            for i, match in enumerate(emojis):
+                if len(match.group()) <= 15 and not any(p in match.group() for p in protected_parts.values()):
+                    placeholder = f"__EMOJI_{i}__"
+                    protected_parts[placeholder] = match.group()
+                    text = text.replace(match.group(), placeholder)
         
-        # 分析文本并添加断句标记
+        # 3. 分析文本并添加断句标记
         result = []
         current_sentence = ""
         min_sentence_length = 6  # 最小断句长度
@@ -942,10 +1047,10 @@ class MessageHandler:
                 # 获取完整句子
                 full_sentence = text[last_pos:i+1].strip()
                 # 检查句子长度和是否包含临时标记
-                if len(full_sentence) >= min_sentence_length and "IGNORE_MARK_" not in full_sentence:
+                if len(full_sentence) >= min_sentence_length and not any(p in full_sentence for p in protected_parts.keys()):
                     sentences.append(full_sentence)
                     last_pos = i + 1
-                elif "IGNORE_MARK_" in full_sentence:
+                elif any(p in full_sentence for p in protected_parts.keys()):
                     # 如果句子包含临时标记，尝试找到下一个安全的断句点
                     continue
                 elif i - last_pos > 15:  
@@ -977,33 +1082,32 @@ class MessageHandler:
             else:
                 final_sentences.append(sentence)
         
-        # 恢复临时标记并合并结果
-        text_with_breaks = ' \\ '.join(final_sentences)
-        for i, pattern in enumerate(ignore_patterns):
-            text_with_breaks = text_with_breaks.replace(f"IGNORE_MARK_{i}_", 
-                                                       '...' if i == 0 else 
-                                                       '…' if i == 1 else
-                                                       pattern.replace('\\', ''))
+        # 使用$分隔符，不再添加括号
+        text_with_breaks = ' $ '.join(final_sentences)
+        
+        # 4. 恢复所有保护的内容
+        for placeholder, content in protected_parts.items():
+            text_with_breaks = text_with_breaks.replace(placeholder, content)
         
         return text_with_breaks
 
     def _extract_actual_user_input(self, content: str) -> str:
-        """提取用户实际输入的内容，去除历史记忆和系统提示"""
-        # 移除历史对话记录部分
-        if "以下是之前的对话记录：" in content:
-            parts = content.split("(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容)")
-            if len(parts) > 1:
-                content = parts[-1].strip()
+        """
+        提取实际的用户输入内容，去除历史对话和时间戳等
         
-        # 移除记忆内容部分
-        if "以下是相关记忆内容：" in content:
-            parts = content.split("以下是相关记忆内容：")
-            if len(parts) > 1:
-                content = parts[0].strip()
+        Args:
+            content: 用户发送的原始消息内容
+            
+        Returns:
+            str: 处理后的用户实际输入内容
+        """
+        # 移除可能的历史对话记录
+        content = re.sub(r'以下是之前的对话记录：.*?(?=\(以上是历史对话内容)', '', content, flags=re.DOTALL)
+        content = re.sub(r'\(以上是历史对话内容，[^)]*\)\s*', '', content)
         
-        # 移除时间戳和前缀
-        content = re.sub(r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]', '', content)
-        content = re.sub(r'ta[私聊|在群聊里]*对你说[：:]\s*', '', content)
+        # 移除系统提示和指令
+        content = re.sub(r'\[系统提示\].*?\[/系统提示\]', '', content, flags=re.DOTALL)
+        content = re.sub(r'\[系统指令\].*?\[/系统指令\]', '', content, flags=re.DOTALL)
         
         # 移除长度限制提示词
         content = re.sub(r'请注意：你的回复应当与用户消息的长度相当，控制在约\d+个字符和\d+个句子左右。', '', content)
@@ -1273,33 +1377,93 @@ class MessageHandler:
         # 整理清理后的文本
         reply = reply.strip()
         
-        # 按反斜杠分割
+        # 1. 先移除文本中的引号，避免引号包裹非动作文本
+        reply = reply.replace('"', '').replace('"', '').replace('"', '')
+        
+        # 2. 保护已经存在的括号内容和颜文字
+        protected_parts = {}
+        
+        # 匹配所有类型的括号及其内容
+        bracket_pattern = r'[\(\[（【][^\(\[（【\)\]）】]*[\)\]）】]'
+        brackets = list(re.finditer(bracket_pattern, reply))
+        
+        # 保护已有的括号内容
+        for i, match in enumerate(brackets):
+            placeholder = f"__PROTECTED_{i}__"
+            protected_parts[placeholder] = match.group()
+            reply = reply.replace(match.group(), placeholder)
+        
+        # 保护颜文字 - 使用更宽松的匹配规则
+        emoji_patterns = [
+            # 常见颜文字组合
+            r'\([\w\W]{1,10}?\)',  # 匹配较短的括号内容
+            r'（[\w\W]{1,10}?）',  # 中文括号
+            r'[＼\\\/\*\-\+\<\>\^\$\%\!\?\@\#\&\|\{\}\=\;\:\,\.]{2,}',  # 常见符号组合
+            r'[◕◑◓◒◐•‿\^▽\◡\⌒\◠\︶\ω\´\`\﹏\＾\∀\°\◆\□\▽\﹃\△\≧\≦\⊙\→\←\↑\↓\○\◇\♡\❤\♥\♪\✿\★\☆]{1,}',
+            r'\*[\w\W]{1,5}?\*'  # 星号强调内容
+        ]
+        
+        for pattern in emoji_patterns:
+            emojis = list(re.finditer(pattern, reply))
+            for i, match in enumerate(emojis):
+                if len(match.group()) <= 15 and not any(p in match.group() for p in protected_parts.values()):
+                    placeholder = f"__EMOJI_{i}__"
+                    protected_parts[placeholder] = match.group()
+                    reply = reply.replace(match.group(), placeholder)
+        
+        # 3. 统一处理斜杠/和反斜杠\为$分隔符（排除URL中的斜杠）
+        # 处理斜杠/，但避免替换//（URL协议部分）
+        reply = re.sub(r'(?<![A-Za-z:])\/(?![\/])', ' $ ', reply)
+        
+        # 处理反斜杠\，避免替换\\（转义字符）
+        reply = re.sub(r'\\(?![\\])', ' $ ', reply)
+        
+        # 4. 将换行符替换为$分隔符（保留连续的换行符）
+        reply = re.sub(r'\n(?!\n)', ' $ ', reply)
+        
+        # 5. 确保不会有连续的$分隔符出现，并移除多余空格
+        reply = re.sub(r'\s*\$\s*\$\s*', ' $ ', reply)
+        reply = re.sub(r'\s+\$\s+', ' $ ', reply)
+        
+        # 6. 恢复所有保护的内容
+        for placeholder, content in protected_parts.items():
+            reply = reply.replace(placeholder, content)
+        
+        # 按$分隔符分割
         parts = []
         total_length = 0
         sentence_count = 0
         
-        if '\\' in reply:
-            # 使用正则表达式保护颜表情中的反斜杠，如 \(^o^)/、(>_<)/等
-            protected_reply = re.sub(r'\\(\([^)]*\)|\([^)]*\)/|[oO]_[oO]/|>_</|\^o\^/)', 'EMOJI_BACKSLASH\\1', reply)
+        if '$' in reply:
             # 分割消息
-            temp_parts = protected_reply.split('\\')
-            # 恢复颜表情中的反斜杠并清理每个部分
-            for part in temp_parts:
-                cleaned_part = part.replace('EMOJI_BACKSLASH', '\\').strip()
-                if cleaned_part:  # 只添加非空部分
+            temp_parts = reply.split('$')
+            # 处理每个部分
+            for i, part in enumerate(temp_parts):
+                part = part.strip()
+                if not part:  # 跳过空部分
+                    continue
+                
+                # 无论是第几部分，都直接添加，不再添加括号
+                parts.append(part)
+                
+                # 计算长度和句子数
+                if i == 0:  # 第一部分通常是主要文本
                     # 检查是否需要进一步按自然句子分割
-                    if len(cleaned_part) > self.MAX_MESSAGE_LENGTH:
-                        sub_parts_info = self._split_by_sentences(cleaned_part)
-                        parts.extend(sub_parts_info['parts'])
-                        total_length += sub_parts_info['total_length']
-                        sentence_count += sub_parts_info['sentence_count']
+                    if len(part) > self.MAX_MESSAGE_LENGTH:
+                        sub_parts_info = self._split_by_sentences(part)
+                        parts = sub_parts_info['parts']  # 替换整个parts
+                        total_length = sub_parts_info['total_length']
+                        sentence_count = sub_parts_info['sentence_count']
+                        break  # 如果第一部分需要分割，就忽略其他部分
                     else:
-                        parts.append(cleaned_part)
-                        total_length += len(cleaned_part)
+                        total_length += len(part)
                         # 计算句子数（按句号、感叹号、问号等标点符号）
-                        sentence_count += len(re.findall(r'[。！？!?…]+', cleaned_part)) or 1
+                        sentence_count += len(re.findall(r'[。！？!?…]+', part)) or 1
+                else:
+                    total_length += len(part)
+                    sentence_count += 1
         else:
-            # 如果没有反斜杠，按自然句子分割
+            # 如果没有分隔符，按自然句子分割
             split_info = self._split_by_sentences(reply)
             parts = split_info['parts']
             total_length = split_info['total_length']
@@ -1312,8 +1476,12 @@ class MessageHandler:
         # 仅在debug级别记录详细日志
         logger.debug(f"消息分割: {len(parts)}部分, {total_length}字符, {sentence_count}句")
         
+        # 记录分隔符处理情况
+        if len(parts) > 1:
+            logger.debug(f"已将消息按分隔符'$'分割为{len(parts)}部分，统一了不同的句子分隔符")
+        
         return {'parts': parts, 'total_length': total_length, 'sentence_count': sentence_count}
-
+    
     def _split_by_sentences(self, text):
         """按自然句子分割文本，并返回分割信息"""
         # 中文句子结束符
@@ -1347,7 +1515,7 @@ class MessageHandler:
                         i += 1  # 跳过下一个省略号
                     i += 1
                     continue
-            
+                
             # 检查是否遇到句子结束符
             if char in sentence_ends:
                 if current_sentence.strip():
@@ -1379,7 +1547,7 @@ class MessageHandler:
                 sentence_count += 1
         
         return {'parts': sentences, 'total_length': total_length, 'sentence_count': sentence_count}
-
+    
     def _split_long_sentence(self, sentence):
         """分割过长的单个句子，并返回分割信息"""
         parts = []
@@ -1542,6 +1710,15 @@ class MessageHandler:
                             time.sleep(1)  # 添加短暂延迟避免发送过快
                         
                         logger.info(f"已发送主动消息到 {target_user}: {ai_response[:50]}...")
+                        
+                        # 记录主动消息到记忆
+                        if self.memory_handler:
+                            try:
+                                # 确保参数顺序正确：用户ID, 用户消息(系统指令), AI回复
+                                self.memory_handler.remember(target_user, system_instruction, ai_response)
+                                logger.info(f"成功记录主动消息到记忆")
+                            except Exception as e:
+                                logger.error(f"记录主动消息到记忆失败: {str(e)}")
                     else:
                         logger.warning(f"AI未生成有效回复，跳过发送")
                     # 重新开始倒计时

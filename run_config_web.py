@@ -73,16 +73,16 @@ dictConfig({
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'default',
-            'level': 'DEBUG'
+            'level': 'ERROR'  # 将控制台处理器的级别改为 ERROR
         }
     },
     'root': {
-        'level': 'DEBUG',
+        'level': 'ERROR',  # 将根日志记录器的级别改为 ERROR
         'handlers': ['console']
     },
     'loggers': {
         'werkzeug': {
-            'level': 'ERROR',  # 将 Werkzeug 的日志级别设置为 ERROR
+            'level': 'ERROR',
             'handlers': ['console'],
             'propagate': False
         }
@@ -328,8 +328,34 @@ def save_config():
 
         # 记录安静时间设置
         if 'QUIET_TIME_START' in form_data:
+            # 特殊处理：如果值为1320，自动转换为22:00
+            if form_data['QUIET_TIME_START'] == '1320':
+                form_data['QUIET_TIME_START'] = '22:00'
+                logger.info(f"安静时间开始值1320已自动转换为22:00")
+            # 如果格式不包含冒号，尝试转换
+            elif form_data['QUIET_TIME_START'] and ':' not in form_data['QUIET_TIME_START']:
+                try:
+                    hour = int(form_data['QUIET_TIME_START']) // 100
+                    minute = int(form_data['QUIET_TIME_START']) % 100
+                    form_data['QUIET_TIME_START'] = f"{hour:02d}:{minute:02d}"
+                    logger.info(f"转换安静时间开始格式: {form_data['QUIET_TIME_START']}")
+                except (ValueError, TypeError):
+                    logger.warning(f"无法转换安静时间开始格式: {form_data['QUIET_TIME_START']}")
             logger.info(f"接收到安静时间开始设置: {form_data['QUIET_TIME_START']}")
         if 'QUIET_TIME_END' in form_data:
+            # 特殊处理：如果值为1320，自动转换为08:00
+            if form_data['QUIET_TIME_END'] == '1320':
+                form_data['QUIET_TIME_END'] = '08:00'
+                logger.info(f"安静时间结束值1320已自动转换为08:00")
+            # 如果格式不包含冒号，尝试转换
+            elif form_data['QUIET_TIME_END'] and ':' not in form_data['QUIET_TIME_END']:
+                try:
+                    hour = int(form_data['QUIET_TIME_END']) // 100
+                    minute = int(form_data['QUIET_TIME_END']) % 100
+                    form_data['QUIET_TIME_END'] = f"{hour:02d}:{minute:02d}"
+                    logger.info(f"转换安静时间结束格式: {form_data['QUIET_TIME_END']}")
+                except (ValueError, TypeError):
+                    logger.warning(f"无法转换安静时间结束格式: {form_data['QUIET_TIME_END']}")
             logger.info(f"接收到安静时间结束设置: {form_data['QUIET_TIME_END']}")
         
         # 特殊处理LISTEN_LIST字段
@@ -618,19 +644,26 @@ def load_config():
 
 @app.route('/dashboard')
 def dashboard():
-    """仪表盘页面"""
+    # 检查是否登录
     if not session.get('logged_in'):
+        # 检查是否需要设置密码
+        from src.config import config
+        if not config.auth.admin_password:
+            return redirect(url_for('init_password'))
         return redirect(url_for('login'))
-
-    # 使用 g 中的配置数据
-    config_groups = g.config_data.get('categories', {})
-
-    return render_template(
-        'dashboard.html',
-        is_local=is_local_network(),
-        active_page='dashboard',
-        config_groups=config_groups  # 传递完整的配置组
-    )
+    
+    # 日志调试
+    logging.info("访问仪表盘页面，登录状态: " + str(session.get('logged_in')))
+    
+    # 检查是否有机器人状态
+    if not hasattr(g, 'bot_status'):
+        g.bot_status = {
+            'running': False,
+            'messages': []
+        }
+    
+    # 渲染仪表盘模板
+    return render_template('dashboard.html')
 
 
 @app.route('/system_info')
@@ -1054,7 +1087,7 @@ type - 显示文件内容
         # 处理RAG相关命令
         elif command.lower() == 'download_model':
             # 执行模型下载
-            from src.memories.memory.core.rag import LocalEmbeddingModel
+            from src.handlers.memories.core.rag import LocalEmbeddingModel
             from src.config import config
             
             # 获取模型路径配置
@@ -1921,22 +1954,46 @@ def is_local_network() -> bool:
 def check_auth():
     # 请求前验证登录状态
     # 排除不需要验证的路由
-    public_routes = ['login', 'static', 'init_password']
-    if request.endpoint in public_routes:
-        return
-
-    # 检查是否需要初始化密码
+    logging.debug(f"请求路径: {request.path}")
+    
+    # 定义不需要验证的路由
+    excluded_paths = [
+        '/login', 
+        '/init_password', 
+        '/static', 
+        '/favicon.ico', 
+        '/background_image',
+    ]
+    
+    # 检查是否为排除路径
+    for path in excluded_paths:
+        if request.path.startswith(path):
+            return None
+    
+    # 检查是否已登录
+    if session.get('logged_in'):
+        return None
+    
+    # 如果是API请求，返回JSON错误
+    if (request.path.startswith('/api') or 
+        request.is_json or 
+        request.headers.get('X-Requested-With') == 'XMLHttpRequest'):
+        return jsonify({
+            'status': 'error',
+            'message': '未授权访问',
+            'redirect': url_for('login')
+        }), 401
+    
+    # 如果尚未设置密码，则重定向到初始化密码页面
     from src.config import config
     if not config.auth.admin_password:
+        # 调试信息
+        logging.info("未设置密码，重定向到初始化密码页面")
+        session.clear()
         return redirect(url_for('init_password'))
-
-    # 如果是本地网络访问，自动登录
-    if is_local_network():
-        session['logged_in'] = True
-        return
-
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
+    
+    # 对于普通请求，重定向到登录页面
+    return redirect(url_for('login'))
 
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -1985,17 +2042,23 @@ def login():
 def init_password():
     # 初始化管理员密码页面
     from src.config import config
-
+    
+    logging.info(f"初始化密码请求: {request.method}")
+    
     if request.method == 'GET':
         # 如果已经设置了密码，重定向到登录页面
         if config.auth.admin_password:
+            logging.info("已设置密码，重定向到登录页面")
             return redirect(url_for('login'))
         return render_template('init_password.html')
 
     # POST请求处理
     try:
         data = request.get_json()
+        logging.info(f"收到初始化密码请求: {data}")
+        
         if not data or 'password' not in data:
+            logging.warning("无效的请求数据")
             return jsonify({
                 'status': 'error',
                 'message': '无效的请求数据'
@@ -2005,39 +2068,61 @@ def init_password():
 
         # 再次检查是否已经设置了密码
         if config.auth.admin_password:
+            logging.warning("密码已经设置")
             return jsonify({
                 'status': 'error',
                 'message': '密码已经设置'
             })
 
+        # 先尝试修复配置文件
+        fixed = fix_config_file()
+        if fixed:
+            logging.info("配置文件已检查和修复")
+        
         # 保存新密码的哈希值
         hashed_password = hash_password(password)
-        if config.update_password(hashed_password):
-            # 重新加载配置
-            importlib.reload(sys.modules['src.config'])
-            # 使用 reload_from_file 方法重新加载配置
-            from src.config import config as settings
-            if hasattr(settings, 'reload_from_file'):
-                settings.reload_from_file()
-                logger.info("成功重新加载配置模块")
+        logging.info("尝试保存密码哈希值")
+        
+        # 使用直接更新函数保存密码
+        if direct_update_password(hashed_password):
+            logging.info("密码更新成功，重新加载配置")
+            # 使用reload_config从config模块导入直接重载
+            from src.config import reload_config
+            reload_config()
+            
+            # 再次检查密码是否正确设置
+            from src.config import config as new_config
+            if hasattr(new_config, 'auth') and hasattr(new_config.auth, 'admin_password') and new_config.auth.admin_password:
+                logging.info("验证密码已成功保存到配置中")
             else:
-                logger.warning("配置模块没有 reload_from_file 方法")
-
-            # 验证密码是否正确保存
-            if not config.auth.admin_password:
-                return jsonify({
-                    'status': 'error',
-                    'message': '密码保存失败'
-                })
-
+                logging.warning("密码设置成功但未反映在配置对象中")
+            
             # 设置登录状态
             session.clear()
             session['logged_in'] = True
+            logging.info("设置登录状态成功，返回success状态")
             return jsonify({'status': 'success'})
+        
+        # 如果常规方法失败，尝试简单地直接写入文件
+        logging.warning("直接更新失败，尝试简单写入")
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        
+        try:
+            with open(config_path, 'a', encoding='utf-8') as f:
+                f.write("\n  auth_settings:\n    title: 认证设置\n    settings:\n      admin_password:\n        value: " + hashed_password + "\n        type: string\n        description: 管理员密码\n        is_secret: true\n")
+            
+            # 设置登录状态
+            session.clear()
+            session['logged_in'] = True
+            logging.info("使用备用方法设置密码成功")
+            return jsonify({'status': 'success'})
+        except Exception as e:
+            logging.error(f"备用密码设置方法失败: {str(e)}")
 
+        logging.error("所有密码设置方法均失败")
         return jsonify({
             'status': 'error',
-            'message': '保存密码失败'
+            'message': '保存密码失败，请联系管理员检查配置文件权限'
         })
 
     except Exception as e:
@@ -2799,6 +2884,122 @@ def get_config():
             'status': 'error',
             'message': str(e)
         })
+
+
+def direct_update_password(password: str) -> bool:
+    """直接更新配置文件中的密码"""
+    try:
+        # 配置文件路径
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        
+        # 尝试读取现有配置
+        with open(config_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # 检查是否存在auth_settings部分
+        if 'auth_settings' not in content:
+            # 如果不存在，添加auth_settings部分
+            auth_section = """
+  auth_settings:
+    title: 认证设置
+    settings:
+      admin_password:
+        value: {password}
+        type: string
+        description: 管理员密码
+        is_secret: true
+""".format(password=password)
+            
+            # 找到categories行
+            if 'categories:' in content:
+                # 在categories行之后插入auth_settings部分
+                content = content.replace('categories:', 'categories:' + auth_section)
+            else:
+                # 如果没有categories行，添加完整结构
+                content = "categories:" + auth_section + content
+        else:
+            # 如果已存在auth_settings部分，直接更新password值
+            if 'admin_password' in content:
+                # 使用正则表达式匹配admin_password部分
+                import re
+                pattern = r'(admin_password:.*?value:)(.*?)(\n.*?type:)'
+                content = re.sub(pattern, r'\1 {0}\3'.format(password), content, flags=re.DOTALL)
+            else:
+                # 如果auth_settings存在但admin_password不存在，添加admin_password
+                admin_pwd_entry = """
+      admin_password:
+        value: {password}
+        type: string
+        description: 管理员密码
+        is_secret: true
+""".format(password=password)
+                
+                # 找到auth_settings部分，在settings下添加admin_password
+                auth_settings_pattern = r'(auth_settings:.*?settings:.*?)(\n\s+\w+)'
+                content = re.sub(auth_settings_pattern, r'\1' + admin_pwd_entry + r'\2', 
+                                content, flags=re.DOTALL)
+        
+        # 写回配置文件
+        with open(config_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        
+        # 输出调试信息
+        logging.info("密码已直接更新到配置文件")
+        return True
+    
+    except Exception as e:
+        logging.error(f"直接更新密码失败: {str(e)}")
+        return False
+
+
+def fix_config_file():
+    """修复配置文件结构"""
+    try:
+        # 配置文件路径
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        template_path = os.path.join(ROOT_DIR, 'src/config/template.yaml')
+        
+        # 检查模板文件是否存在
+        if not os.path.exists(template_path):
+            logging.error("模板文件不存在")
+            return False
+        
+        # 读取模板文件
+        with open(template_path, 'r', encoding='utf-8') as f:
+            template_content = f.read()
+        
+        # 如果配置文件不存在或结构出问题，直接用模板替换
+        if not os.path.exists(config_path) or os.path.getsize(config_path) < 100:
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(template_content)
+            logging.info("已使用模板重置配置文件")
+            return True
+        
+        # 否则尝试读取现有配置，检查结构
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 检查基本结构
+            if 'categories:' not in content or len(content) < 100:
+                # 结构有问题，重置
+                with open(config_path, 'w', encoding='utf-8') as f:
+                    f.write(template_content)
+                logging.info("检测到配置文件结构有问题，已重置")
+                return True
+            
+            # 结构正常
+            return True
+        except Exception as e:
+            # 读取失败，重置文件
+            with open(config_path, 'w', encoding='utf-8') as f:
+                f.write(template_content)
+            logging.error(f"配置文件读取失败，已重置: {str(e)}")
+            return True
+    
+    except Exception as e:
+        logging.error(f"修复配置文件失败: {str(e)}")
+        return False
 
 
 if __name__ == '__main__':
