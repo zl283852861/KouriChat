@@ -395,8 +395,17 @@ class MemoryProcessor:
             # 清理消息内容
             clean_user_msg, clean_assistant_msg = clean_memory_content(user_message, assistant_response)
             
-            # 额外清理：移除[memory_number:...]标记
-            clean_assistant_msg = re.sub(r'\s*\[memory_number:.*?\]$', '', clean_assistant_msg)
+            # 额外清理：确保移除memory_number及其后续内容
+            clean_assistant_msg = re.sub(r'\s*memory_number:.*?($|\n)', '', clean_assistant_msg)
+            
+            # 确保移除memory_number和$分隔符混合情况
+            clean_assistant_msg = re.sub(r'\s*memory_number:.*?\$', '', clean_assistant_msg)
+            
+            # 最后一道防线：直接移除包含memory_number的整行
+            if "memory_number:" in clean_assistant_msg:
+                lines = clean_assistant_msg.split('\n')
+                clean_lines = [line for line in lines if "memory_number:" not in line]
+                clean_assistant_msg = '\n'.join(clean_lines)
             
             # 创建记忆条目
             memory_entry = {
@@ -437,7 +446,7 @@ class MemoryProcessor:
                         "receiver_text": clean_assistant_msg,
                         "timestamp": memory_entry["timestamp"],
                         "type": "chat",
-                        "user_id": avatar_name  # 使用角色名作为user_id，这样RAG系统可以根据角色名过滤记忆
+                        "user_id": avatar_name
                     }
                 }
                 

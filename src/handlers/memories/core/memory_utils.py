@@ -160,8 +160,9 @@ def clean_memory_content(key: str, value: str) -> Tuple[str, str]:
             r'根据我的记忆，我们之前聊过这些内容：.*?(?=\n)',
             r'还有\d+条相关记忆',
             
-            # 记忆编号标记
-            r'\s*\[memory_number:.*?\]$',  # 移除 [memory_number:...] 结尾标记
+            # 记忆编号标记 - 使用更严格的规则
+            r'\s*memory_number:.*?$',  # 移除memory_number及之后所有内容到行尾
+            r'\s*memory_number:.*',    # 移除整行包含memory_number的内容
         ]
         
         # 应用所有过滤规则
@@ -188,7 +189,7 @@ def clean_memory_content(key: str, value: str) -> Tuple[str, str]:
         return user_message, ai_reply
     except Exception as e:
         logger.error(f"清理记忆内容失败: {str(e)}")
-        return key.strip(), value.strip()
+        return key, value
 
 def remove_special_instructions(text: str) -> str:
     """
