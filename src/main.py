@@ -681,7 +681,7 @@ def message_listener():
     
     wx = None
     last_window_check = 0
-    check_interval = 600  # 10分钟检查一次
+    check_interval = 0  # 取消定时检查，避免在10分钟内导致消息遗漏问题（原为600秒/10分钟）
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 30  # 重连等待时间（秒）
@@ -1048,6 +1048,28 @@ def main(debug_mode=True):
         logger.error(f"初始化记忆系统失败: {str(e)}")
         memory_handler = None
         logger.warning("记忆系统已禁用")
+    
+    # 关键优化：注册上下文处理函数，将被移除的对话保存到记忆系统
+    if memory_handler:
+        try:
+            # 定义上下文处理函数
+            @deepseek.llm.context_handler
+            def handle_removed_context(user_id, user_msg, ai_msg):
+                """当上下文移除消息时，将对话保存到记忆系统"""
+                try:
+                    if user_msg and ai_msg:
+                        # 移除"[当前用户问题]"标记
+                        if "[当前用户问题]" in user_msg:
+                            user_msg = user_msg.replace("[当前用户问题]", "").strip()
+                        
+                        logger.info(f"将移除的上下文对话保存到记忆: 用户={user_id}")
+                        memory_handler.remember(user_msg, ai_msg, user_id)
+                except Exception as e:
+                    logger.error(f"处理移除的上下文失败: {str(e)}")
+            
+            logger.info("已成功注册上下文处理函数，超出上下文的对话将保存到记忆系统")
+        except Exception as ctx_err:
+            logger.error(f"注册上下文处理函数失败: {str(ctx_err)}")
     
     moonshot_ai = ImageRecognitionService(
         api_key=config.media.image_recognition.api_key,

@@ -208,6 +208,10 @@ class MemoryProcessor:
                 logger.error("记住对话失败：未提供用户ID")
                 return False
             
+            # 移除"[当前用户问题]"标记
+            if "[当前用户问题]" in user_message:
+                user_message = user_message.replace("[当前用户问题]", "").strip()
+            
             # 清理内容
             clean_user_msg, clean_assistant_msg = clean_memory_content(user_message, assistant_response)
             

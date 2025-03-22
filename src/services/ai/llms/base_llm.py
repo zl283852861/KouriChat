@@ -160,28 +160,14 @@ class BaseLLM(online_llm):
     
     def handel_prompt(self, prompt: str, user_id: str = None) -> str:
         """
-        处理用户输入并生成回复 (方法名拼写已知问题，保留兼容性)
+        处理用户输入并返回响应
         
         Args:
-            prompt: 用户输入的提示
-            user_id: 用户ID，用于关联上下文
+            prompt: 用户输入
+            user_id: 用户ID
             
         Returns:
-            模型生成的回复
-        """
-        # 为保持向后兼容，调用正确拼写的方法
-        return self.handle_prompt(prompt, user_id)
-        
-    def handle_prompt(self, prompt: str, user_id: str = None) -> str:
-        """
-        处理用户输入并生成回复 (正确拼写)
-        
-        Args:
-            prompt: 用户输入的提示
-            user_id: 用户ID，用于关联上下文
-            
-        Returns:
-            模型生成的回复
+            str: 助手回复
         """
         try:
             self.logger.info(f"[处理提示] 收到输入: {prompt}")
@@ -203,7 +189,10 @@ class BaseLLM(online_llm):
             
             # 获取当前用户的上下文
             current_context = self.user_contexts[context_key].copy()
-            current_context.append({"role": "user", "content": prompt})
+            
+            # 添加用户请求前的识别标记，帮助模型区分新旧内容
+            prompt_with_marker = f"[当前用户问题] {prompt}"
+            current_context.append({"role": "user", "content": prompt_with_marker})
             
             # 构建完整提示
             self.logger.info(f"[上下文跟踪] 构建提示，当前上下文消息数: {len(current_context)}")
@@ -251,7 +240,7 @@ class BaseLLM(online_llm):
             
             # 只有在成功获取有效响应时才更新上下文
             if not any(error_text in response for error_text in ["API调用失败", "Connection error", "服务暂时不可用"]):
-                # 更新用户上下文
+                # 更新用户上下文，用原始prompt而不是带标记的
                 self.user_contexts[context_key].append({"role": "user", "content": prompt})
                 self.user_contexts[context_key].append({"role": "assistant", "content": response})
                 
@@ -293,12 +282,15 @@ class BaseLLM(online_llm):
         
         # 如果超出对话对数量限制，移除最早的对话对
         if pair_count > self.max_context_messages:
-            # 计算需要移除的对话对数量
-            excess_pairs = pair_count - self.max_context_messages
+            # 计算需要移除的对话对数量 - 移除更多对话对以防止上下文混乱，保留最近70%的对话
+            # 这样可以确保移除足够多的旧对话，避免记忆混乱
+            retain_ratio = 0.7  # 保留最近70%的对话对
+            target_pairs = int(self.max_context_messages * retain_ratio)
+            excess_pairs = pair_count - target_pairs
             # 每对包含两条消息
             excess_messages = excess_pairs * 2
             
-            self.logger.warning(f"[上下文截断] 超出限制，需要移除 {excess_pairs} 对对话（{excess_messages} 条消息）")
+            self.logger.warning(f"[上下文优化] 超出限制，将保留最近 {target_pairs} 对对话，移除 {excess_pairs} 对对话（{excess_messages} 条消息）")
             
             # 保存被移除的消息用于处理
             start_idx = system_offset

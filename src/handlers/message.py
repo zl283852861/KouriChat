@@ -244,13 +244,13 @@ class MessageHandler:
 
     def _calculate_wait_time(self, username: str, msg_count: int) -> float:
         """计算消息等待时间"""
-        base_wait_time = 3.0
+        base_wait_time = 5.0
         typing_speed = self._estimate_typing_speed(username)
         
         if msg_count == 1:
             wait_time = base_wait_time + 5.0
         else:
-            estimated_typing_time = min(8.0, typing_speed * 20)  # 假设用户输入20个字符
+            estimated_typing_time = min(4.0, typing_speed * 20)  # 假设用户输入20个字符
             wait_time = base_wait_time + estimated_typing_time
             
         # 简化日志，只在debug级别显示详细计算过程
@@ -323,14 +323,62 @@ class MessageHandler:
     def _get_conversation_context(self, username: str) -> str:
         """获取对话上下文"""
         try:
+            # 构建更精确的查询，包含用户ID和当前时间信息，以获取更相关的记忆
+            current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            query = f"与用户 {username} 相关的最近重要对话 {current_time}"
+            
+            # 获取相关记忆
             recent_history = self.memory_handler.get_relevant_memories(
-                f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", 
-                username
+                query, 
+                username,
+                top_k=10  # 增加获取的记忆数量，后续会基于质量筛选
             )
             
             if recent_history and len(recent_history) > 0:
+                # 根据记忆质量排序和筛选
+                # 筛选标准：
+                # 1. 尽量选择长度适中的对话（不太短也不太长）
+                # 2. 优先选择更复杂的对话（含有特定信息的）
+                
+                # 简单评分函数
+                def memory_quality_score(mem):
+                    if not mem.get('message') or not mem.get('reply'):
+                        return 0
+                    
+                    msg_len = len(mem['message'])
+                    reply_len = len(mem['reply'])
+                    
+                    # 太短的对话质量低
+                    if msg_len < 5 or reply_len < 10:
+                        return 0
+                    
+                    # 太长的对话也不理想
+                    if msg_len > 500 or reply_len > 1000:
+                        return 10
+                    
+                    # 基础分数
+                    score = min(100, (msg_len + reply_len) / 10)
+                    
+                    # 包含特定用户名或对话元素的加分
+                    if username.lower() in mem['message'].lower() or username.lower() in mem['reply'].lower():
+                        score += 15
+                    
+                    # 包含问答格式的加分
+                    if "?" in mem['message'] or "？" in mem['message']:
+                        score += 10
+                        
+                    return score
+                
+                # 按质量排序
+                sorted_memories = sorted(recent_history, key=memory_quality_score, reverse=True)
+                
+                # 选取最高质量的记忆（最多5条）
+                quality_memories = sorted_memories[:5]
+                logger.info(f"从 {len(recent_history)} 条记忆中筛选出 {len(quality_memories)} 条高质量记忆")
+                
+                # 构建上下文
                 context_parts = []
-                for idx, hist in enumerate(recent_history[:30]):
+                for idx, hist in enumerate(quality_memories):
                     if hist.get('message') and hist.get('reply'):
                         context_parts.append(f"对话{idx+1}:\n用户: {hist['message']}\nAI: {hist['reply']}")
                 
@@ -431,8 +479,8 @@ class MessageHandler:
             self._typing_speeds = {}
         self._typing_speeds[username] = typing_speed
         
-        # 限制在合理范围内：0.2秒/字 到 1秒/字
-        typing_speed = max(0.2, min(1, typing_speed))
+        # 限制在合理范围内：0.2秒/字 到 1.2秒/字
+        typing_speed = max(0.2, min(1.2, typing_speed))
         
         # 只输出最终的打字速度
         logger.info(f"用户打字速度: {typing_speed:.2f}秒/字符")
@@ -1273,6 +1321,22 @@ class MessageHandler:
         # 整理清理后的文本
         reply = reply.strip()
         
+        # 统一处理不同的句子分隔符
+        # 保护表情符号中的特殊字符
+        protected_reply = re.sub(r'\\(\([^)]*\)|\([^)]*\)/|[oO]_[oO]/|>_</|\^o\^/)', 'EMOJI_BACKSLASH\\1', reply)
+        
+        # 统一处理斜杠/为反斜杠\（排除URL中的斜杠）
+        protected_reply = re.sub(r'(?<![A-Za-z:])\/(?![\/])', '\\\\', protected_reply)
+        
+        # 将换行符替换为反斜杠（保留连续的换行符）
+        protected_reply = re.sub(r'\n(?!\n)', '\\\\', protected_reply)
+        
+        # 确保不会有连续的反斜杠出现
+        protected_reply = re.sub(r'\\{2,}', '\\\\', protected_reply)
+        
+        # 恢复保护的表情符号
+        reply = protected_reply.replace('EMOJI_BACKSLASH', '\\')
+        
         # 按反斜杠分割
         parts = []
         total_length = 0
@@ -1311,6 +1375,10 @@ class MessageHandler:
         
         # 仅在debug级别记录详细日志
         logger.debug(f"消息分割: {len(parts)}部分, {total_length}字符, {sentence_count}句")
+        
+        # 记录分隔符处理情况
+        if len(parts) > 1:
+            logger.debug(f"已将消息按分隔符'\'分割为{len(parts)}部分，统一了不同的句子分隔符")
         
         return {'parts': parts, 'total_length': total_length, 'sentence_count': sentence_count}
 

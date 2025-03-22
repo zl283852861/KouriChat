@@ -96,20 +96,14 @@ def init_memory(root_dir, api_wrapper=None):
                 with open(rag_config_path, 'r', encoding='utf-8') as f:
                     config_data = yaml.safe_load(f)
                 
-                # 更新API配置
-                config_data['api_key'] = config.llm.api_key
-                config_data['base_url'] = config.llm.base_url
-                
-                # 更新嵌入模型配置为硅基流动兼容
-                if config.llm.base_url and 'siliconflow' in config.llm.base_url.lower():
-                    config_data['embedding_model']['type'] = 'silicon_flow'
-                    config_data['embedding_model']['name'] = 'text-embedding-3-large'
+                # 不再同步LLM的API配置到RAG配置
+                # 使用默认的RAG配置
                 
                 # 保存修改后的配置
                 with open(rag_config_path, 'w', encoding='utf-8') as f:
                     yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
                 
-                logger.info(f"已更新RAG配置文件")
+                logger.info(f"已保存RAG配置文件")
             except Exception as e:
                 logger.error(f"创建RAG配置文件失败: {str(e)}")
         else:
@@ -146,6 +140,10 @@ def remember(user_message, assistant_response, user_id=None):
         return False
         
     try:
+        # 移除"[当前用户问题]"标记
+        if isinstance(user_message, str) and "[当前用户问题]" in user_message:
+            user_message = user_message.replace("[当前用户问题]", "").strip()
+            
         # 直接调用，MemoryProcessor.remember已改为同步方法
         return _memory_processor.remember(user_message, assistant_response, user_id)
     except Exception as e:
