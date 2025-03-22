@@ -7,6 +7,7 @@ import logging
 import json
 import time
 import asyncio
+import re
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 from datetime import datetime
 
@@ -47,6 +48,11 @@ class MemoryProcessor:
         """
         # 避免重复初始化
         if MemoryProcessor._initialized:
+            # 如果切换了角色，需要重新加载记忆
+            if self.root_dir != root_dir:
+                logger.info("检测到角色切换，重新加载记忆")
+                self.root_dir = root_dir
+                self.reload_memory()
             return
             
         # 设置根目录
@@ -86,10 +92,133 @@ class MemoryProcessor:
                     self.memory_data = data.get("memories", {})
                     self.embedding_data = data.get("embeddings", {})
                     
-                # 确保每个用户的记忆是列表格式
-                for user_id in self.memory_data:
+                # 确保每个用户的记忆是列表格式，并且记忆条目格式正确
+                memory_format_corrected = False
+                
+                # 合并错误格式的用户ID (以"["开头的时间戳格式)
+                # 创建一个映射，将错误的用户ID映射到正确的用户ID
+                user_id_mapping = {}
+                for user_id in list(self.memory_data.keys()):
+                    # 检查是否是带时间戳的错误格式
+                    if user_id.startswith("["):
+                        memory_format_corrected = True
+                        # 提取真实用户ID，通常格式为"[时间戳]ta 私聊对你说：xxx"
+                        real_user_id = None
+                        # 尝试多种模式匹配
+                        match_patterns = [
+                            r"\[.*?\]ta\s+私聊对你说：\s*(.*?)$",  # 标准私聊格式
+                            r"\[.*?\]ta\s+私聊对你说：\s*(.*?)\s*\$.*$",  # 带分隔符的格式
+                            r"\[.*?\]ta.*?私聊.*?：\s*(.*?)$",  # 宽松私聊格式
+                            r"\[.*?\].*?在群聊里.*?：\s*(.*?)$",  # 群聊格式
+                            r"\[.*?\](.*?)$"  # 最宽松模式，只提取时间戳后的内容
+                        ]
+                        
+                        for pattern in match_patterns:
+                            match = re.search(pattern, user_id)
+                            if match:
+                                extracted_id = match.group(1).strip()
+                                # 避免空ID或过长ID（可能是消息内容而非用户ID）
+                                if extracted_id and len(extracted_id) < 30:
+                                    real_user_id = extracted_id
+                                    break
+                        
+                        if real_user_id:
+                            user_id_mapping[user_id] = real_user_id
+                            logger.info(f"映射错误的用户ID: '{user_id}' -> '{real_user_id}'")
+                        else:
+                            # 无法提取有效ID，使用默认ID
+                            user_id_mapping[user_id] = "未知用户"
+                            logger.warning(f"无法从 '{user_id}' 提取有效用户ID，使用默认ID")
+                
+                # 根据映射合并记忆数据
+                for old_id, new_id in user_id_mapping.items():
+                    if old_id in self.memory_data:
+                        # 确保目标用户ID存在记忆列表
+                        if new_id not in self.memory_data:
+                            self.memory_data[new_id] = []
+                        elif not isinstance(self.memory_data[new_id], list):
+                            # 如果不是列表，转换为列表
+                            old_data = self.memory_data[new_id]
+                            self.memory_data[new_id] = []
+                            # 尝试保存旧数据
+                            if isinstance(old_data, dict) and old_data:
+                                try:
+                                    for k, v in old_data.items():
+                                        self.memory_data[new_id].append({
+                                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                            "human_message": k,
+                                            "assistant_message": v
+                                        })
+                                except Exception as e:
+                                    logger.error(f"转换旧数据格式失败: {str(e)}")
+                        
+                        # 将旧ID的记忆添加到新ID下
+                        old_memories = self.memory_data[old_id]
+                        if isinstance(old_memories, list):
+                            # 修复记忆条目中的human_message和assistant_message颠倒问题
+                            for memory in old_memories:
+                                if isinstance(memory, dict):
+                                    # 检查assistant_message是否是用户ID，如果是则交换
+                                    if memory.get("assistant_message") == new_id:
+                                        temp = memory.get("human_message", "")
+                                        memory["human_message"] = memory.get("assistant_message", "")
+                                        memory["assistant_message"] = temp
+                            
+                            # 添加到新ID的记忆列表
+                            self.memory_data[new_id].extend(old_memories)
+                            logger.info(f"已合并 {len(old_memories)} 条记忆从 '{old_id}' 到 '{new_id}'")
+                        
+                        # 删除旧ID的记忆
+                        del self.memory_data[old_id]
+                        memory_format_corrected = True
+                
+                # 确保所有用户的记忆都是列表格式
+                for user_id in list(self.memory_data.keys()):
                     if not isinstance(self.memory_data[user_id], list):
+                        memory_format_corrected = True
+                        old_data = self.memory_data[user_id]
                         self.memory_data[user_id] = []
+                        
+                        # 尝试转换非列表格式的记忆
+                        if isinstance(old_data, dict):
+                            for key, value in old_data.items():
+                                entry = {
+                                    "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                    "human_message": key,
+                                    "assistant_message": value
+                                }
+                                self.memory_data[user_id].append(entry)
+                        
+                        logger.info(f"已将用户 '{user_id}' 的记忆转换为列表格式")
+                
+                # 验证每个记忆条目的格式
+                for user_id, memories in self.memory_data.items():
+                    if isinstance(memories, list):
+                        for i, memory in enumerate(memories):
+                            if not isinstance(memory, dict) or "human_message" not in memory or "assistant_message" not in memory:
+                                memory_format_corrected = True
+                                # 尝试修复格式
+                                if isinstance(memory, dict):
+                                    # 确保所需的键存在
+                                    if "timestamp" not in memory:
+                                        memory["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    if "human_message" not in memory:
+                                        memory["human_message"] = "未知消息"
+                                    if "assistant_message" not in memory:
+                                        memory["assistant_message"] = "未知回复"
+                                    memories[i] = memory
+                                else:
+                                    # 无法修复，用默认条目替换
+                                    memories[i] = {
+                                        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                        "human_message": "格式错误的记忆",
+                                        "assistant_message": str(memory)
+                                    }
+                
+                # 如果有修正，保存更新后的数据
+                if memory_format_corrected:
+                    logger.info("检测到并修复了记忆格式问题，将保存修复后的格式")
+                    self.save()
                         
                 self.memory_count = sum(len(memories) for memories in self.memory_data.values())
                 self.embedding_count = len(self.embedding_data)
@@ -191,70 +320,124 @@ class MemoryProcessor:
         self.memory_hooks.append(hook)
         logger.debug(f"已添加记忆钩子: {hook.__name__}")
         
-    def remember(self, user_message: str, assistant_response: str, user_id: str = None) -> bool:
+    def remember(self, user_id: str, user_message: str, assistant_response: str) -> bool:
         """
-        记住对话内容
+        记住对话
         
         Args:
+            user_id: 用户ID
             user_message: 用户消息
             assistant_response: 助手回复
-            user_id: 用户ID（必需）
             
         Returns:
             bool: 是否成功记住
         """
         try:
-            if not user_id:
-                logger.error("记住对话失败：未提供用户ID")
+            # 检查是否为API错误消息，如果是则不存储
+            api_error_patterns = [
+                "无法连接到API服务器", 
+                "API请求失败", 
+                "连接超时", 
+                "无法访问API", 
+                "API返回错误",
+                "抱歉，我暂时无法连接",
+                "无法连接到服务器",
+                "网络连接问题",
+                "服务暂时不可用"
+            ]
+            
+            # 检查助手回复是否包含API错误信息
+            if any(pattern in assistant_response for pattern in api_error_patterns):
+                logger.info("检测到API错误消息，跳过存储记忆")
                 return False
             
-            # 移除"[当前用户问题]"标记
-            if "[当前用户问题]" in user_message:
-                user_message = user_message.replace("[当前用户问题]", "").strip()
+            # 获取当前角色名
+            try:
+                from src.config import config
+                avatar_name = config.behavior.context.avatar_dir
+                if not avatar_name:
+                    logger.error("未设置当前角色")
+                    avatar_name = "default"
+            except Exception as e:
+                logger.error(f"获取角色名失败: {str(e)}")
+                avatar_name = "default"
             
-            # 清理内容
+            # 清理用户ID - 确保使用真实用户ID而不是格式化的消息内容
+            clean_user_id = user_id
+            
+            # 检查用户ID是否包含时间戳和消息内容格式
+            if user_id.startswith("[") and "]" in user_id:
+                # 尝试提取真实用户ID
+                match_patterns = [
+                    r"\[.*?\]ta\s+私聊对你说：\s*(.*?)$",  # 标准私聊格式
+                    r"\[.*?\]ta\s+私聊对你说：\s*(.*?)\s*\$.*$",  # 带分隔符的格式
+                    r"\[.*?\]ta.*?私聊.*?：\s*(.*?)$",  # 宽松私聊格式
+                    r"\[.*?\].*?在群聊里.*?：\s*(.*?)$",  # 群聊格式
+                ]
+                
+                for pattern in match_patterns:
+                    match = re.search(pattern, user_id)
+                    if match:
+                        extracted_id = match.group(1).strip()
+                        if extracted_id:
+                            clean_user_id = extracted_id
+                            logger.info(f"从消息格式中提取用户ID: '{user_id}' -> '{clean_user_id}'")
+                            break
+            
+            # 判断是否为主动消息
+            is_auto_message = False
+            if (("系统指令" in user_message and assistant_response) or 
+                (user_message.strip().startswith("(此时时间为") and "[系统指令]" in user_message)):
+                # 如果用户消息包含"系统指令"，则认为是主动消息
+                logger.info("检测到主动消息")
+                is_auto_message = True
+            
+            # 清理消息内容
             clean_user_msg, clean_assistant_msg = clean_memory_content(user_message, assistant_response)
             
-            # 过滤掉AI回复中的\字符，仅在保存记忆时
-            clean_assistant_msg = clean_assistant_msg.replace('\\', '')
+            # 额外清理：移除[memory_number:...]标记
+            clean_assistant_msg = re.sub(r'\s*\[memory_number:.*?\]$', '', clean_assistant_msg)
             
-            # 初始化用户的记忆列表（如果不存在）
-            if user_id not in self.memory_data:
-                self.memory_data[user_id] = []
-            
-            # 创建新的记忆条目
+            # 创建记忆条目
             memory_entry = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "human_message": clean_user_msg,
+                "human_message": "None" if is_auto_message else clean_user_msg,
                 "assistant_message": clean_assistant_msg
             }
             
-            # 添加到记忆列表
-            self.memory_data[user_id].append(memory_entry)
-            self.memory_count = sum(len(memories) for memories in self.memory_data.values())
+            # 确保用户ID存在于记忆数据中，并且是列表形式
+            if clean_user_id not in self.memory_data:
+                self.memory_data[clean_user_id] = []
+            elif not isinstance(self.memory_data[clean_user_id], list):
+                # 如果当前不是列表形式，转换为列表形式
+                old_data = self.memory_data[clean_user_id]
+                self.memory_data[clean_user_id] = []
+                if old_data and isinstance(old_data, dict):  # 如果有旧数据，添加为第一个元素
+                    for key, value in old_data.items():
+                        self.memory_data[clean_user_id].append({
+                            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                            "human_message": key,
+                            "assistant_message": value
+                        })
+            
+            # 添加到记忆数据 - 以数组形式存储
+            self.memory_data[clean_user_id].append(memory_entry)
+            self.memory_count = sum(len(memories) if isinstance(memories, list) else 1 for memories in self.memory_data.values())
             
             # 添加到RAG系统
-            if self.rag_manager:
-                # 获取当前角色名
-                avatar_name = "AI助手"
-                try:
-                    from src.config import config
-                    avatar_dir = config.behavior.context.avatar_dir
-                    avatar_name = os.path.basename(avatar_dir)
-                except Exception as e:
-                    logger.debug(f"获取角色名失败: {str(e)}")
-                
+            if self.rag_manager and not is_auto_message:  # 主动消息不添加到RAG
                 # 构建记忆文档
                 memory_doc = {
                     "id": f"memory_{int(time.time())}",
-                    "content": f"{user_id}: {clean_user_msg}\n{avatar_name}: {clean_assistant_msg}",
+                    "content": f"{clean_user_id}: {clean_user_msg}\n{avatar_name}: {clean_assistant_msg}",
                     "metadata": {
-                        "sender": user_id,
+                        "sender": clean_user_id,
                         "receiver": avatar_name,
                         "sender_text": clean_user_msg,
                         "receiver_text": clean_assistant_msg,
                         "timestamp": memory_entry["timestamp"],
-                        "type": "chat"
+                        "type": "chat",
+                        "user_id": avatar_name  # 使用角色名作为user_id，这样RAG系统可以根据角色名过滤记忆
                     }
                 }
                 
@@ -268,10 +451,11 @@ class MemoryProcessor:
                     )
                     rag_thread.daemon = True
                     rag_thread.start()
+                    logger.debug(f"启动线程添加记忆到RAG: {clean_user_msg[:30]}...，角色: {avatar_name}")
             
             # 调用钩子
             for hook in self.memory_hooks:
-                hook(user_id, memory_entry)
+                hook(clean_user_id, memory_entry)
             
             # 保存到文件
             self.save()
@@ -329,6 +513,23 @@ class MemoryProcessor:
         ]
         
         if sender_text.strip() in noise_patterns or receiver_text.strip() in noise_patterns:
+            return False
+            
+        # 检查是否为API错误消息
+        api_error_patterns = [
+            "无法连接到API服务器", 
+            "API请求失败", 
+            "连接超时", 
+            "无法访问API", 
+            "API返回错误",
+            "抱歉，我暂时无法连接",
+            "无法连接到服务器",
+            "网络连接问题",
+            "服务暂时不可用"
+        ]
+        
+        if any(pattern in receiver_text for pattern in api_error_patterns):
+            logger.info("检测到API错误消息，不适合添加到RAG")
             return False
             
         return True
@@ -612,4 +813,22 @@ class MemoryProcessor:
             return True
         except Exception as e:
             logger.error(f"添加记忆失败: {str(e)}")
-            return False 
+            return False
+
+    def clear_memory(self):
+        """
+        清理当前内存中的记忆数据
+        """
+        logger.info("清理内存中的记忆数据")
+        self.memory_data = {}
+        self.embedding_data = {}
+        self.memory_count = 0
+        self.embedding_count = 0
+        
+    def reload_memory(self):
+        """
+        重新加载记忆数据
+        """
+        logger.info("重新加载记忆数据")
+        self.clear_memory()
+        self._load_memory() 

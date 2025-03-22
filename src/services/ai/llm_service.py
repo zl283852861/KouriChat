@@ -114,6 +114,9 @@ class LLMService:
             # 清理响应内容
             clean_content = self._sanitize_response(response)
             
+            # 移除[memory_number:...]标记
+            clean_content = re.sub(r'\s*\[memory_number:.*?\]$', '', clean_content)
+            
             # 返回清理后的内容
             return clean_content or ""
         
@@ -180,3 +183,56 @@ class LLMService:
         except Exception as e:
             logger.error(f"Chat completion failed: {str(e)}")
             return ""
+
+    def generate(self, message: str, system_prompt: str = None, user_id: str = None) -> str:
+        """
+        生成AI回复内容
+
+        :param message: 用户消息
+        :param system_prompt: 可选的系统提示词，为空则使用默认提示词
+        :param user_id: 用户ID，用于上下文识别
+        :return: AI回复内容
+        """
+        try:
+            # 构建完整的系统提示词
+            full_system_prompt = ""
+            if self.llm.system_prompt:
+                full_system_prompt = self.llm.system_prompt
+            if system_prompt:
+                full_system_prompt = full_system_prompt + "\n" + system_prompt if full_system_prompt else system_prompt
+            
+            # 设置系统提示词
+            if self.llm.system_prompt != full_system_prompt:
+                # 重置上下文并设置新的系统提示词
+                self.llm.context = []
+                if full_system_prompt:
+                    self.llm.context.append({"role": "system", "content": full_system_prompt})
+                    self.llm.system_prompt = full_system_prompt
+            
+            # 使用OpenAILLM处理请求
+            response = self.llm.handel_prompt(message)
+            
+            # 清理响应内容
+            clean_content = self._sanitize_response(response)
+            
+            # 移除[memory_number:...]标记
+            clean_content = re.sub(r'\s*\[memory_number:.*?\]$', '', clean_content)
+            
+            # 返回清理后的内容
+            return clean_content or ""
+        
+        except APIError as e:
+            logger.error(f"API错误: {str(e)}, 请检查网络配置")
+            return "API服务暂时不可用，请稍后再试。"
+            
+        except APITimeoutError as e:
+            logger.error(f"API超时: {str(e)}, 请检查网络配置")
+            return "请求超时，请检查网络连接后重试。"
+            
+        except Exception as e:
+            logger.error("大语言模型服务调用失败: %s", str(e), exc_info=True)
+            return random.choice([
+                "好像有些小状况，请再试一次吧～",
+                "信号好像不太稳定呢（皱眉）",
+                "思考被打断了，请再说一次好吗？"
+            ])

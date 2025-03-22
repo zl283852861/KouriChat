@@ -1,4 +1,4 @@
-/data/avatars/*
+
 !data/avatars/ATRI/
 !data/avatars/MONO/
 !data/avatars/Nijiko/
@@ -195,4 +195,4 @@ cython_debug/
 .vscode/
 .cursor/
 .cursorrules
-/data
+

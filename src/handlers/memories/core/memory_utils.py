@@ -5,6 +5,7 @@ import os
 import re
 import functools
 import logging
+import json
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 
 # 设置日志
@@ -61,11 +62,28 @@ def get_memory_path(root_dir: str) -> str:
     """
     try:
         from src.config import config
-        # 构建角色目录路径
-        avatar_dir = os.path.join(root_dir, 'data', 'avatars', config.behavior.context.avatar_dir)
+        
+        # 获取当前角色目录
+        current_avatar = config.behavior.context.avatar_dir
+        if not current_avatar:
+            logger.error("未设置当前角色")
+            return os.path.join(root_dir, "data", "memory", "memory.json")
+            
+        # 构建角色专属目录路径
+        avatar_dir = os.path.join(root_dir, 'data', 'avatars', current_avatar)
+        
         # 确保目录存在
         os.makedirs(avatar_dir, exist_ok=True)
-        return os.path.join(avatar_dir, "memory.json")
+        
+        memory_path = os.path.join(avatar_dir, "memory.json")
+        
+        # 如果记忆文件不存在，创建空的记忆文件
+        if not os.path.exists(memory_path):
+            with open(memory_path, 'w', encoding='utf-8') as f:
+                json.dump({"memories": {}, "embeddings": {}}, f, ensure_ascii=False, indent=2)
+            logger.info(f"为角色 {current_avatar} 创建新的记忆文件")
+            
+        return memory_path
     except Exception as e:
         logger.error(f"获取记忆文件路径失败: {str(e)}")
         # 如果出错，返回默认路径
@@ -141,6 +159,9 @@ def clean_memory_content(key: str, value: str) -> Tuple[str, str]:
             r'请你回应用户的结束语',
             r'根据我的记忆，我们之前聊过这些内容：.*?(?=\n)',
             r'还有\d+条相关记忆',
+            
+            # 记忆编号标记
+            r'\s*\[memory_number:.*?\]$',  # 移除 [memory_number:...] 结尾标记
         ]
         
         # 应用所有过滤规则
@@ -152,9 +173,7 @@ def clean_memory_content(key: str, value: str) -> Tuple[str, str]:
         user_message = remove_special_instructions(user_message)
         ai_reply = remove_special_instructions(ai_reply)
         
-        # 移除转义字符和换行符
-        user_message = user_message.replace('\\n', ' ').replace('\\', '')
-        ai_reply = ai_reply.replace('\\n', ' ').replace('\\', '')
+        # 注意：不再将$分隔符替换为空格，保持原始格式
         
         # 移除多余的空白字符
         user_message = re.sub(r'\s+', ' ', user_message).strip()

@@ -681,7 +681,7 @@ def message_listener():
     
     wx = None
     last_window_check = 0
-    check_interval = 0  # 取消定时检查，避免在10分钟内导致消息遗漏问题（原为600秒/10分钟）
+    check_interval = 21600  # 定时检查更改为6小时一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 30  # 重连等待时间（秒）

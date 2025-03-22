@@ -2873,12 +2873,6 @@
             
             rerankerSelect.innerHTML = ''; // 清空现有选项
             
-            // 始终添加"使用当前LLM模型"选项
-            const defaultOption = document.createElement('option');
-            defaultOption.value = 'use_llm';
-            defaultOption.textContent = '使用当前LLM模型';
-            rerankerSelect.appendChild(defaultOption);
-            
             // 根据提供商添加特定选项
             let options = [];
             
@@ -2949,14 +2943,18 @@
                     }
                 }
                 
-                // 如果选择框的值在新选项中不存在，默认使用"使用当前LLM模型"
+                // 如果选择框的值在新选项中不存在，使用自定义
                 if (!exists) {
-                    valueToRestore = 'use_llm';
+                    valueToRestore = 'custom';
                 }
             } 
-            // 如果既没有隐藏值也没有选择框值，使用默认的"使用当前LLM模型"
+            // 如果既没有隐藏值也没有选择框值，使用第一个可用选项
             else {
-                valueToRestore = 'use_llm';
+                if (rerankerSelect.options.length > 0) {
+                    valueToRestore = rerankerSelect.options[0].value;
+                } else {
+                    valueToRestore = 'custom';
+                }
             }
             
             // 设置选择框的值
@@ -3051,13 +3049,10 @@
                 const customModel = document.getElementById('rag_custom_reranker').value;
                 if (customModel) {
                     rerankerModelInput.value = customModel;
-                } else if (rerankerModelInput.value && rerankerModelInput.value !== 'custom' && rerankerModelInput.value !== 'use_llm') {
+                } else if (rerankerModelInput.value && rerankerModelInput.value !== 'custom') {
                     // 如果隐藏字段有非自定义值，将其设置为自定义输入框的值
                     document.getElementById('rag_custom_reranker').value = rerankerModelInput.value;
                 }
-            } else if (model === 'use_llm') {
-                customRerankerInput.style.display = 'none';
-                rerankerModelInput.value = ''; // 空值表示使用当前LLM模型
             } else {
                 customRerankerInput.style.display = 'none';
                 if (model) {
@@ -3519,6 +3514,12 @@
                         // 更新所有表单字段
                         updateFormFields(data.config);
                         
+                        // 特别处理自动消息配置
+                        const autoMessageInput = document.getElementById('AUTO_MESSAGE');
+                        if (autoMessageInput && data.config.AUTO_MESSAGE) {
+                            autoMessageInput.value = data.config.AUTO_MESSAGE.value || "请你模拟系统设置的角色，在微信上找对方聊天";
+                        }
+                        
                         // 如果localStorage中有RAG配置，应用它
                         if (localRagConfig) {
                             // 特别处理重排序开关
@@ -3567,9 +3568,6 @@
                             ensureBooleanConfig('RAG_IS_RERANK');
                             ensureBooleanConfig('LOCAL_MODEL_ENABLED');
                             ensureBooleanConfig('AUTO_ADAPT_SILICONFLOW');
-                            
-                            // 其他选择框处理逻辑...
-                            // ... existing code ...
                         }, 500);
                     }
                 })
