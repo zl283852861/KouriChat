@@ -73,16 +73,16 @@ dictConfig({
         'console': {
             'class': 'logging.StreamHandler',
             'formatter': 'default',
-            'level': 'DEBUG'
+            'level': 'ERROR'  # 将控制台处理器的级别改为 ERROR
         }
     },
     'root': {
-        'level': 'DEBUG',
+        'level': 'ERROR',  # 将根日志记录器的级别改为 ERROR
         'handlers': ['console']
     },
     'loggers': {
         'werkzeug': {
-            'level': 'ERROR',  # 将 Werkzeug 的日志级别设置为 ERROR
+            'level': 'ERROR',
             'handlers': ['console'],
             'propagate': False
         }

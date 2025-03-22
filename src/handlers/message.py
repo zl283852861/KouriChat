@@ -471,8 +471,8 @@ class MessageHandler:
         # 如果我们有历史记录的打字速度，将其纳入考虑
         if hasattr(self, '_typing_speeds') and username in self._typing_speeds:
             prev_speed = self._typing_speeds[username]
-            # 使用加权平均，新速度权重0.3，历史速度权重0.7
-            typing_speed = 0.3 * typing_speed + 0.7 * prev_speed
+            # 使用加权平均，新速度权重0.4，历史速度权重0.6
+            typing_speed = 0.4 * typing_speed + 0.6 * prev_speed
         
         # 存储计算出的打字速度
         if not hasattr(self, '_typing_speeds'):
