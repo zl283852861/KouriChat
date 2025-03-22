@@ -328,8 +328,34 @@ def save_config():
 
         # 记录安静时间设置
         if 'QUIET_TIME_START' in form_data:
+            # 特殊处理：如果值为1320，自动转换为22:00
+            if form_data['QUIET_TIME_START'] == '1320':
+                form_data['QUIET_TIME_START'] = '22:00'
+                logger.info(f"安静时间开始值1320已自动转换为22:00")
+            # 如果格式不包含冒号，尝试转换
+            elif form_data['QUIET_TIME_START'] and ':' not in form_data['QUIET_TIME_START']:
+                try:
+                    hour = int(form_data['QUIET_TIME_START']) // 100
+                    minute = int(form_data['QUIET_TIME_START']) % 100
+                    form_data['QUIET_TIME_START'] = f"{hour:02d}:{minute:02d}"
+                    logger.info(f"转换安静时间开始格式: {form_data['QUIET_TIME_START']}")
+                except (ValueError, TypeError):
+                    logger.warning(f"无法转换安静时间开始格式: {form_data['QUIET_TIME_START']}")
             logger.info(f"接收到安静时间开始设置: {form_data['QUIET_TIME_START']}")
         if 'QUIET_TIME_END' in form_data:
+            # 特殊处理：如果值为1320，自动转换为08:00
+            if form_data['QUIET_TIME_END'] == '1320':
+                form_data['QUIET_TIME_END'] = '08:00'
+                logger.info(f"安静时间结束值1320已自动转换为08:00")
+            # 如果格式不包含冒号，尝试转换
+            elif form_data['QUIET_TIME_END'] and ':' not in form_data['QUIET_TIME_END']:
+                try:
+                    hour = int(form_data['QUIET_TIME_END']) // 100
+                    minute = int(form_data['QUIET_TIME_END']) % 100
+                    form_data['QUIET_TIME_END'] = f"{hour:02d}:{minute:02d}"
+                    logger.info(f"转换安静时间结束格式: {form_data['QUIET_TIME_END']}")
+                except (ValueError, TypeError):
+                    logger.warning(f"无法转换安静时间结束格式: {form_data['QUIET_TIME_END']}")
             logger.info(f"接收到安静时间结束设置: {form_data['QUIET_TIME_END']}")
         
         # 特殊处理LISTEN_LIST字段
@@ -1054,7 +1080,7 @@ type - 显示文件内容
         # 处理RAG相关命令
         elif command.lower() == 'download_model':
             # 执行模型下载
-            from src.memories.memory.core.rag import LocalEmbeddingModel
+            from src.handlers.memories.core.rag import LocalEmbeddingModel
             from src.config import config
             
             # 获取模型路径配置

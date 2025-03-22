@@ -3367,7 +3367,10 @@
                 if (startValue) {
                     // 确保值被正确格式化为时间字符串
                     let formattedValue = startValue;
-                    if (startValue && !startValue.includes(':')) {
+                    if (startValue === '1320') {
+                        // 特殊处理1320值为22:00
+                        formattedValue = '22:00';
+                    } else if (startValue && !startValue.includes(':')) {
                         // 尝试将数字格式转换为时间格式 (如 "2200" -> "22:00")
                         if (startValue.length === 4) {
                             formattedValue = `${startValue.substring(0, 2)}:${startValue.substring(2, 4)}`;

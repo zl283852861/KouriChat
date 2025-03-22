@@ -330,9 +330,45 @@ class SettingReader:
             
             # 安静时间
             quiet = behavior_data.get('quiet_time', {})
+            quiet_start = quiet.get('start', {}).get('value', '')
+            quiet_end = quiet.get('end', {}).get('value', '')
+            
+            # 处理开始时间格式
+            if quiet_start:
+                if quiet_start == '1320':
+                    quiet_start = '22:00'
+                elif ':' not in quiet_start:
+                    try:
+                        hour = int(quiet_start) // 100
+                        minute = int(quiet_start) % 100
+                        quiet_start = f"{hour:02d}:{minute:02d}"
+                    except (ValueError, TypeError):
+                        logger.warning(f"无法转换安静时间开始格式: {quiet_start}")
+                        quiet_start = '22:00'  # 使用默认值
+            
+            # 处理结束时间格式
+            if quiet_end:
+                if quiet_end == '1320':
+                    quiet_end = '08:00'
+                elif ':' not in quiet_end:
+                    try:
+                        hour = int(quiet_end) // 100
+                        minute = int(quiet_end) % 100
+                        quiet_end = f"{hour:02d}:{minute:02d}"
+                    except (ValueError, TypeError):
+                        logger.warning(f"无法转换安静时间结束格式: {quiet_end}")
+                        quiet_end = '08:00'  # 使用默认值
+            
+            # 更新配置数据
+            if 'quiet_time' in behavior_data:
+                if 'start' in behavior_data['quiet_time']:
+                    behavior_data['quiet_time']['start']['value'] = quiet_start
+                if 'end' in behavior_data['quiet_time']:
+                    behavior_data['quiet_time']['end']['value'] = quiet_end
+            
             quiet_time = QuietTimeSettings(
-                start=quiet.get('start', {}).get('value', ''),
-                end=quiet.get('end', {}).get('value', '')
+                start=quiet_start,
+                end=quiet_end
             )
             
             # 上下文设置
@@ -531,41 +567,46 @@ class SettingReader:
     def reload_from_file(self):
         """从配置文件重新加载配置"""
         try:
-            # 重新读取配置文件
+            # 重新加载配置文件
             with open(self.config_path, 'r', encoding='utf-8') as f:
-                config_data = yaml.safe_load(f) or {}
-            
-            # 更新内存中的配置
-            object.__setattr__(self, 'settings', config_data)
+                config_data = yaml.safe_load(f)
             
             # 重新解析配置
-            self._parse_config_data(config_data)
+            self.load_config()
             
-            # 重要：更新全局变量
-            global LISTEN_LIST, ROBOT_WX_NAME, DEEPSEEK_API_KEY, DEEPSEEK_BASE_URL, MODEL, MAX_TOKEN, TEMPERATURE
-            global MOONSHOT_API_KEY, MOONSHOT_BASE_URL, MOONSHOT_TEMPERATURE, IMAGE_MODEL, TEMP_IMAGE_DIR
-            global MAX_GROUPS, TTS_API_URL, VOICE_DIR, AUTO_MESSAGE, MIN_COUNTDOWN_HOURS, MAX_COUNTDOWN_HOURS
-            global QUIET_TIME_START, QUIET_TIME_END
+            # 特别处理安静时间格式
+            if hasattr(self, 'behavior') and hasattr(self.behavior, 'quiet_time'):
+                # 处理开始时间
+                if self.behavior.quiet_time.start:
+                    if self.behavior.quiet_time.start == '1320':
+                        self.behavior.quiet_time.start = '22:00'
+                    elif ':' not in self.behavior.quiet_time.start:
+                        try:
+                            hour = int(self.behavior.quiet_time.start) // 100
+                            minute = int(self.behavior.quiet_time.start) % 100
+                            self.behavior.quiet_time.start = f"{hour:02d}:{minute:02d}"
+                        except (ValueError, TypeError):
+                            logger.warning(f"无法转换安静时间开始格式: {self.behavior.quiet_time.start}")
+                
+                # 处理结束时间
+                if self.behavior.quiet_time.end:
+                    if self.behavior.quiet_time.end == '1320':
+                        self.behavior.quiet_time.end = '08:00'
+                    elif ':' not in self.behavior.quiet_time.end:
+                        try:
+                            hour = int(self.behavior.quiet_time.end) // 100
+                            minute = int(self.behavior.quiet_time.end) % 100
+                            self.behavior.quiet_time.end = f"{hour:02d}:{minute:02d}"
+                        except (ValueError, TypeError):
+                            logger.warning(f"无法转换安静时间结束格式: {self.behavior.quiet_time.end}")
             
-            # 更新用户设置
+            # 更新全局变量
             LISTEN_LIST = self.user.listen_list
-            
-            # 更新其他全局变量
-            ROBOT_WX_NAME = self.robot_wx_name
             DEEPSEEK_API_KEY = self.llm.api_key
             DEEPSEEK_BASE_URL = self.llm.base_url
             MODEL = self.llm.model
             MAX_TOKEN = self.llm.max_tokens
             TEMPERATURE = self.llm.temperature
-            MOONSHOT_API_KEY = self.media.image_recognition.api_key
-            MOONSHOT_BASE_URL = self.media.image_recognition.base_url
-            MOONSHOT_TEMPERATURE = self.media.image_recognition.temperature
-            IMAGE_MODEL = self.media.image_generation.model
-            TEMP_IMAGE_DIR = self.media.image_generation.temp_dir
-            MAX_GROUPS = self.behavior.context.max_groups
-            TTS_API_URL = self.media.text_to_speech.tts_api_url
-            VOICE_DIR = self.media.text_to_speech.voice_dir
-            AUTO_MESSAGE = self.behavior.auto_message.content
             MIN_COUNTDOWN_HOURS = self.behavior.auto_message.min_hours
             MAX_COUNTDOWN_HOURS = self.behavior.auto_message.max_hours
             QUIET_TIME_START = self.behavior.quiet_time.start
@@ -573,6 +614,7 @@ class SettingReader:
             
             logger.info(f"成功从文件重新加载配置: {self.config_path}")
             logger.info(f"已更新监听用户列表: {LISTEN_LIST}")
+            logger.info(f"已更新安静时间设置: 开始={self.behavior.quiet_time.start}, 结束={self.behavior.quiet_time.end}")
             return True
         except Exception as e:
             logger.error(f"从文件重新加载配置失败: {str(e)}")

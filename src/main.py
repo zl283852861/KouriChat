@@ -494,9 +494,9 @@ def is_quiet_time() -> bool:
             
         # 处理特殊格式
         if quiet_start_str == '1320':
-            quiet_start_str = '13:20'
+            quiet_start_str = '22:00'
         if quiet_end_str == '1320':
-            quiet_end_str = '13:20'
+            quiet_end_str = '08:00'
             
         # 如果格式不包含冒号，尝试转换
         if quiet_start_str and ':' not in quiet_start_str:
@@ -684,7 +684,7 @@ def message_listener():
     check_interval = 600  # 10分钟检查一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
-    reconnect_delay = 20  # 重连等待时间（秒）
+    reconnect_delay = 30  # 重连等待时间（秒）
     last_reconnect_time = 0
 
     while not stop_event.is_set():
