@@ -8,8 +8,20 @@ class ThemeManager:
         """应用主题"""
         if theme_name == "light":
             ctk.set_appearance_mode("light")
+            # 确保sidebar使用Windows蓝色
+            if hasattr(app_instance, 'sidebar_frame'):
+                app_instance.sidebar_frame.configure(fg_color="#0078D7")
+            # 如果是通过Sidebar类实例化的
+            elif hasattr(app_instance, 'sidebar') and hasattr(app_instance.sidebar, 'sidebar_frame'):
+                app_instance.sidebar.sidebar_frame.configure(fg_color="#0078D7")
         elif theme_name == "dark":
             ctk.set_appearance_mode("dark")
+            # 设置深色模式下侧边栏颜色
+            if hasattr(app_instance, 'sidebar_frame'):
+                app_instance.sidebar_frame.configure(fg_color="#1a1a1a")
+            # 如果是通过Sidebar类实例化的
+            elif hasattr(app_instance, 'sidebar') and hasattr(app_instance.sidebar, 'sidebar_frame'):
+                app_instance.sidebar.sidebar_frame.configure(fg_color="#1a1a1a")
         else:  # system
             ctk.set_appearance_mode("system")
         

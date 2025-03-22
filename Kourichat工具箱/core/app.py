@@ -9,6 +9,7 @@ from ui.pages.character_page import CharacterPage
 from ui.pages.api_config_page import APIConfigPage
 from ui.pages.image_page import ImagePage
 from ui.pages.help_page import HelpPage
+from ui.transition import PageTransition
 
 class KouriChatApp(ctk.CTk):
     """Kouri Chat 应用程序主类"""
@@ -17,7 +18,7 @@ class KouriChatApp(ctk.CTk):
         super().__init__()
         
         # 设置窗口属性
-        self.title("Kouri Chat 工具箱 V11.0")
+        self.title("Kouri Chat 工具箱 V12.0")
         self.geometry("1000x700")
         self.minsize(800, 600)  # 设置最小窗口大小
         
@@ -48,11 +49,21 @@ class KouriChatApp(ctk.CTk):
         self.image_page = ImagePage(self)
         self.help_page = HelpPage(self)
         
+        # 初始化页面切换过渡效果
+        self.transition = PageTransition(self)
+        
         # 默认显示人设页面
         self.show_character_page()
         
         # 初始化生成的人设内容
         self.generated_profile = None
+        
+        # 设置窗口最大化
+        self.after(100, self.maximize_window)
+    
+    def maximize_window(self):
+        """将窗口最大化"""
+        self.state("zoomed")
     
     def setup_main_layout(self):
         """设置主布局"""
@@ -92,7 +103,7 @@ class KouriChatApp(ctk.CTk):
         self.character_frame.pack(fill="both", expand=True)
         
         # 高亮当前选中的侧边栏按钮
-        self.sidebar.highlight_button(self.sidebar.character_button)
+        self.highlight_sidebar_button(self.sidebar.character_button)
     
     def show_api_config_page(self):
         """显示API配置页面"""
@@ -100,7 +111,7 @@ class KouriChatApp(ctk.CTk):
         self.api_config_frame.pack(fill="both", expand=True)
         
         # 高亮当前选中的侧边栏按钮
-        self.sidebar.highlight_button(self.sidebar.api_config_button)
+        self.highlight_sidebar_button(self.sidebar.api_config_button)
     
     def show_image_page(self):
         """显示图片页面"""
@@ -108,7 +119,7 @@ class KouriChatApp(ctk.CTk):
         self.image_frame.pack(fill="both", expand=True)
         
         # 高亮当前选中的侧边栏按钮
-        self.sidebar.highlight_button(self.sidebar.image_button)
+        self.highlight_sidebar_button(self.sidebar.image_button)
     
     def show_help_page(self):
         """显示帮助页面"""
@@ -116,13 +127,17 @@ class KouriChatApp(ctk.CTk):
         self.help_frame.pack(fill="both", expand=True)
         
         # 高亮当前选中的侧边栏按钮
-        self.sidebar.highlight_button(self.sidebar.help_button)
+        self.highlight_sidebar_button(self.sidebar.help_button)
     
     def clear_content_frame(self):
         """清除内容区域"""
         for frame in [self.character_frame, self.api_config_frame, 
                      self.image_frame, self.help_frame]:
             frame.pack_forget()
+    
+    def highlight_sidebar_button(self, active_button):
+        """高亮侧边栏按钮"""
+        self.sidebar.highlight_button(active_button)
     
     def save_all_configs(self):
         """保存所有API配置"""
