@@ -4,6 +4,7 @@ from typing import Callable, List, Dict, Optional, Tuple
 from logging import Logger
 from .llm import online_llm
 from datetime import datetime
+import re
 
 
 class BaseLLM(online_llm):
@@ -280,47 +281,156 @@ class BaseLLM(online_llm):
         
         self.logger.warning(f"[上下文管理详情] 用户 {context_key} 的上下文总消息数: {message_count}, 对话对数: {pair_count}, 最大限制: {self.max_context_messages}")
         
-        # 如果超出对话对数量限制，移除最早的对话对
+        # 如果超出对话对数量限制，进行智能上下文管理
         if pair_count > self.max_context_messages:
-            # 计算需要移除的对话对数量 - 移除更多对话对以防止上下文混乱，保留最近70%的对话
-            # 这样可以确保移除足够多的旧对话，避免记忆混乱
-            retain_ratio = 0.7  # 保留最近70%的对话对
-            target_pairs = int(self.max_context_messages * retain_ratio)
-            excess_pairs = pair_count - target_pairs
-            # 每对包含两条消息
-            excess_messages = excess_pairs * 2
+            # 1. 评分函数 - 计算每个对话对的重要性
+            def score_conversation_pair(user_msg, ai_msg):
+                score = 0
+                
+                # 关键词重要性
+                important_keywords = ['在实验室', '在家', '睡觉', '工作', '时间', '地点', 
+                                   '今天', '昨天', '明天', '早上', '下午', '晚上']
+                for keyword in important_keywords:
+                    if keyword in user_msg["content"] or keyword in ai_msg["content"]:
+                        score += 10
+                
+                # 时间相关性
+                time_patterns = [r'昨[天晚]', r'今[天晚]', r'(\d+)点', 
+                               r'早上|上午|中午|下午|晚上']
+                for pattern in time_patterns:
+                    if re.search(pattern, user_msg["content"]) or re.search(pattern, ai_msg["content"]):
+                        score += 15
+                
+                # 上下文转换标记
+                if "--- 场景转换 ---" in user_msg["content"]:
+                    score += 20
+                
+                # 问答对的完整性
+                if "?" in user_msg["content"] or "？" in user_msg["content"]:
+                    score += 5
+                
+                # 消息长度因素（较短的对话可能不太重要）
+                msg_length = len(user_msg["content"]) + len(ai_msg["content"])
+                if msg_length < 10:
+                    score -= 5
+                elif msg_length > 100:
+                    score += 5
+                
+                return score
             
-            self.logger.warning(f"[上下文优化] 超出限制，将保留最近 {target_pairs} 对对话，移除 {excess_pairs} 对对话（{excess_messages} 条消息）")
+            # 2. 对对话对进行评分和排序
+            conversation_pairs = []
+            for i in range(system_offset, len(context), 2):
+                if i + 1 < len(context):
+                    user_msg = context[i]
+                    ai_msg = context[i + 1]
+                    score = score_conversation_pair(user_msg, ai_msg)
+                    conversation_pairs.append({
+                        'user_msg': user_msg,
+                        'ai_msg': ai_msg,
+                        'score': score,
+                        'index': i
+                    })
             
-            # 保存被移除的消息用于处理
-            start_idx = system_offset
-            removed_messages = context[start_idx:start_idx+excess_messages]
+            # 按分数排序
+            conversation_pairs.sort(key=lambda x: x['score'], reverse=True)
             
-            # 记录被移除的消息
-            for idx, msg in enumerate(removed_messages):
-                content_preview = msg["content"][:50] + "..." if len(msg["content"]) > 50 else msg["content"]
-                self.logger.warning(f"[移除消息 {idx}] 角色: {msg['role']}, 内容: {content_preview}")
+            # 3. 保留最重要的对话对
+            retain_pairs = conversation_pairs[:self.max_context_messages]
+            retain_pairs.sort(key=lambda x: x['index'])  # 恢复原始顺序
             
-            # 更新上下文，保留system prompt
+            # 4. 构建新的上下文
+            new_context = []
             if system_offset > 0:
-                self.user_contexts[context_key] = [context[0]] + context[start_idx+excess_messages:]
-            else:
-                self.user_contexts[context_key] = context[excess_messages:]
+                new_context.append(context[0])  # 保留system prompt
             
-            self.logger.warning(f"[上下文截断后] 更新后的上下文消息数: {len(self.user_contexts[context_key])}")
+            for pair in retain_pairs:
+                new_context.append(pair['user_msg'])
+                new_context.append(pair['ai_msg'])
             
-            # 如果设置了上下文处理函数，处理被移除的消息
-            if self._context_handler and removed_messages:
-                # 成对处理被移除的用户输入和AI回复
-                for i in range(0, len(removed_messages), 2):
-                    if i+1 < len(removed_messages):
-                        user_msg = removed_messages[i]["content"]
-                        ai_msg = removed_messages[i+1]["content"]
-                        try:
-                            # 传入用户ID作为参数
-                            self._context_handler(context_key, user_msg, ai_msg)
-                        except Exception as e:
-                            self.logger.error(f"上下文处理函数执行失败: {str(e)}")
+            # 5. 处理被移除的对话对
+            removed_pairs = conversation_pairs[self.max_context_messages:]
+            if removed_pairs and self._context_handler:
+                for pair in removed_pairs:
+                    try:
+                        self._context_handler(
+                            context_key,
+                            pair['user_msg']['content'],
+                            pair['ai_msg']['content']
+                        )
+                    except Exception as e:
+                        self.logger.error(f"处理移除的上下文对话失败: {str(e)}")
+            
+            # 6. 更新上下文
+            self.user_contexts[context_key] = new_context
+            self.logger.warning(f"[上下文优化完成] 保留了 {len(retain_pairs)} 对最重要的对话")
+            
+            # 7. 添加上下文摘要
+            summary = self._generate_context_summary(new_context)
+            if summary:
+                self.user_contexts[context_key].insert(
+                    system_offset,
+                    {"role": "system", "content": f"当前对话要点：{summary}"}
+                )
+    
+    def _generate_context_summary(self, context):
+        """生成上下文摘要"""
+        try:
+            # 提取关键信息
+            key_info = {
+                'location': None,
+                'time': None,
+                'activity': None
+            }
+            
+            # 定义模式
+            patterns = {
+                'location': r'在(实验室|家|学校|公司|办公室)',
+                'time': r'([早中下晚][上午饭]|凌晨|\d+点)',
+                'activity': r'(工作|学习|睡觉|休息|实验|写代码|看书)'
+            }
+            
+            # 从最近的消息开始分析
+            for msg in reversed(context):
+                if msg['role'] != 'system':
+                    content = msg['content']
+                    
+                    # 提取位置信息
+                    if not key_info['location']:
+                        location_match = re.search(patterns['location'], content)
+                        if location_match:
+                            key_info['location'] = location_match.group()
+                    
+                    # 提取时间信息
+                    if not key_info['time']:
+                        time_match = re.search(patterns['time'], content)
+                        if time_match:
+                            key_info['time'] = time_match.group()
+                    
+                    # 提取活动信息
+                    if not key_info['activity']:
+                        activity_match = re.search(patterns['activity'], content)
+                        if activity_match:
+                            key_info['activity'] = activity_match.group()
+                    
+                    # 如果所有信息都已获取，退出循环
+                    if all(key_info.values()):
+                        break
+            
+            # 生成摘要
+            summary_parts = []
+            if key_info['time']:
+                summary_parts.append(f"时间：{key_info['time']}")
+            if key_info['location']:
+                summary_parts.append(f"地点：{key_info['location']}")
+            if key_info['activity']:
+                summary_parts.append(f"活动：{key_info['activity']}")
+            
+            return '，'.join(summary_parts) if summary_parts else None
+        
+        except Exception as e:
+            self.logger.error(f"生成上下文摘要失败: {str(e)}")
+            return None
     
     def generate_response(self, messages: List[Dict[str, str]]) -> str:
         """

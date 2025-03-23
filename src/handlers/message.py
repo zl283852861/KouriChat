@@ -36,7 +36,6 @@ class MessageHandler:
         self.last_message_time = {}  # 用户最后发送消息的时间
         self.message_timer = {}  # 用户消息处理定时器
         # 使用 DeepSeekAI 替换直接的 OpenAI 客户端
-        # 2025-03-15修改，把deepseek改为外部注入
         self.deepseek = llm
         # 消息队列相关
         self.user_queues = {}
@@ -45,7 +44,7 @@ class MessageHandler:
 
         # 微信实例
         self.wx = wx
-        self.is_debug = is_debug  # 添加调试模式标志
+        self.is_debug = is_debug
         self.is_qq = is_qq
 
         # 添加 handlers
@@ -53,14 +52,88 @@ class MessageHandler:
         self.emoji_handler = emoji_handler
         self.voice_handler = voice_handler
         self.memory_handler = memory_handler
+        
+        # 从配置文件获取角色名称
+        try:
+            # 导入所需的类
+            from src.handlers.memories.group_chat_memory import GroupChatMemory
+            from src.config import config
+            
+            # 从 AVATAR_DIR 获取角色名称
+            avatar_dir = config.behavior.context.avatar_dir
+            if not avatar_dir:
+                logger.warning("未找到角色目录配置，使用默认名称")
+                avatar_name = "default"
+            else:
+                # 获取目录的最后一部分作为角色名称
+                avatar_name = os.path.basename(avatar_dir)
+                
+            # 清理角色名称，只保留有效字符
+            safe_avatar_name = "".join(c for c in avatar_name if c.isalnum() or c in (' ', '-', '_'))
+            if not safe_avatar_name:
+                safe_avatar_name = "default"
+                
+            # 从配置文件中获取监听列表
+            try:
+                # 尝试通过属性方式访问
+                try:
+                    listen_list = config.categories.user_settings.settings.listen_list.value
+                except AttributeError:
+                    # 备选方案：当属性访问失败时，尝试字典方式访问
+                    listen_list = config.categories.get("user_settings", {}).get("settings", {}).get("listen_list", {}).get("value", [])
+                
+                if not listen_list:
+                    logger.warning("配置文件中的 listen_list 为空，使用空列表")
+                    listen_list = []
+                else:
+                    logger.info(f"从配置文件读取到监听列表: {listen_list}")
+            except Exception as e:
+                logger.warning(f"无法从配置文件读取 listen_list: {str(e)}，使用空列表")
+                listen_list = []
+            
+            group_chats = []
+            
+            # 如果有微信实例，检查每个监听对象是否为群聊
+            if wx and listen_list:
+                for chat_id in listen_list:
+                    try:
+                        # 使用微信API检查是否为群聊
+                        if wx.GetWeChatWindow(chat_id):
+                            is_group = wx.IsGroupChat(chat_id)
+                            if is_group:
+                                group_chats.append(chat_id)
+                                logger.info(f"识别到群聊: {chat_id}")
+                    except Exception as e:
+                        logger.error(f"检查群聊状态失败: {chat_id}, 错误: {str(e)}")
+            
+            # 添加群聊记忆处理器
+            self.group_chat_memory = GroupChatMemory(
+                root_dir=root_dir,
+                avatar_name=safe_avatar_name,
+                group_chats=group_chats,  # 传入已识别的群聊列表
+                api_wrapper=memory_handler.api_wrapper if hasattr(memory_handler, 'api_wrapper') and memory_handler is not None else None
+            )
+            
+        except Exception as e:
+            logger.error(f"初始化群聊记忆失败: {str(e)}")
+            # 导入 GroupChatMemory 类（确保在这里也能访问到）
+            from src.handlers.memories.group_chat_memory import GroupChatMemory
+            # 使用默认值初始化
+            self.group_chat_memory = GroupChatMemory(
+                root_dir=root_dir, 
+                avatar_name="default", 
+                group_chats=[],
+                api_wrapper=memory_handler.api_wrapper if hasattr(memory_handler, 'api_wrapper') else None
+            )
+        
+        # 添加群聊消息处理队列
+        self.group_message_queues = {}
+        self.group_queue_lock = threading.Lock()
+        self.at_message_timestamps = {}  # 存储@消息的时间戳
+        
         self.unanswered_counters = {}
-        self.unanswered_timers = {}  # 新增：存储每个用户的计时器
+        self.unanswered_timers = {}
         self.MAX_MESSAGE_LENGTH = 500
-
-        # 保存到记忆 - 移除这一行，避免重复保存
-        # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
-        # 修改(2025/3/15 by Elimir) 注释这一行，移除add_short_memory，改成在memory_handler中添加钩子
-        # self.memory_handler.add_short_memory(message, reply, sender_id)
 
     def get_api_response(self, message: str, user_id: str, group_id: str = None, sender_name: str = None) -> str:
         """获取API回复"""
@@ -148,7 +221,8 @@ class MessageHandler:
                 return f"服务暂时不可用，请稍后重试。"
 
     def handle_user_message(self, content: str, chat_id: str, sender_name: str,
-                            username: str, is_group: bool = False, is_image_recognition: bool = False, is_self_message: bool = False):
+                            username: str, is_group: bool = False, is_image_recognition: bool = False, 
+                            is_self_message: bool = False, is_at: bool = False):
         """统一的消息处理入口"""
         try:
             # 验证并修正用户ID
@@ -158,33 +232,213 @@ class MessageHandler:
                     username = "FileHelper"
                 sender_name = sender_name or username
 
-            # 简化日志输出 - 只记录实际消息内容
+            # 检查是否是群聊消息
+            if is_group:
+                logger.info(f"处理群聊消息: 群ID={chat_id}, 发送者={sender_name}, 内容={content[:30]}...")
+                # 传递is_at参数
+                return self._handle_group_message(content, chat_id, sender_name, username, is_at)
+
+            # 处理私聊消息的逻辑保持不变
             actual_content = self._clean_message_content(content)
-            logger.info(f"收到消息: {actual_content}")
+            logger.info(f"收到私聊消息: {actual_content}")
             
-            # 更新用户最后一次消息的时间
             if not hasattr(self, '_last_message_times'):
                 self._last_message_times = {}
             self._last_message_times[username] = datetime.now()
 
-            # 如果是AI自己发送的消息，直接处理而不进入缓存或队列
             if is_self_message:
                 self._send_self_message(content, chat_id)
                 return None
 
-            # 提取实际消息内容，去除时间戳和前缀
             content_length = len(actual_content)
             
-            # 启用消息缓存
             should_cache = True
             if should_cache:
                 return self._cache_message(content, chat_id, sender_name, username, is_group, is_image_recognition)
             
-            # 如果没有需要缓存的消息，直接处理
             return self._handle_uncached_message(content, chat_id, sender_name, username, is_group, is_image_recognition)
 
         except Exception as e:
             logger.error(f"处理消息失败: {str(e)}", exc_info=True)
+            return None
+
+    def _handle_group_message(self, content: str, group_id: str, sender_name: str, username: str, is_at: bool = False):
+        """处理群聊消息"""
+        try:
+            # 优先使用传入的is_at参数，如果main.py已经正确检测并传入
+            is_at_from_param = is_at
+            
+            # 检查是否包含引用消息
+            quoted_content = None
+            quoted_sender = None
+            # 微信引用消息格式通常是: "引用 xxx 的消息"或"回复 xxx 的消息"
+            quote_match = re.search(r'(?:引用|回复)\s+([^\s]+)\s+的(?:消息)?[:：]?\s*(.+?)(?=\n|$)', content)
+            if quote_match and is_at_from_param:
+                quoted_sender = quote_match.group(1)
+                quoted_content = quote_match.group(2).strip()
+                logger.info(f"检测到引用消息 - 引用者: {quoted_sender}, 内容: {quoted_content}")
+                # 从原始消息中移除引用部分
+                content = re.sub(r'(?:引用|回复)\s+[^\s]+\s+的(?:消息)?[:：]?\s*.+?(?=\n|$)', '', content).strip()
+            
+            # 备用检测：如果传入参数为False，再尝试本地检测
+            if not is_at_from_param:
+                # 检查是否@机器人 - 在消息清理前确定
+                # 常见的空格字符：普通空格、不间断空格、零宽空格、特殊的微信空格等
+                robot_at_patterns = [
+                    f"@{self.robot_name} ",  # 普通空格
+                    f"@{self.robot_name}\u2005",  # 特殊的微信空格
+                    f"@{self.robot_name}\u00A0",  # 不间断空格
+                    f"@{self.robot_name}\u200B",  # 零宽空格
+                    f"@{self.robot_name}\u3000"   # 全角空格
+                ]
+                
+                # 使用正则表达式进行更精确的匹配
+                at_pattern = re.compile(f"@{re.escape(self.robot_name)}[\\s\u2005\u00A0\u200B\u3000]")
+                is_at_local = bool(at_pattern.search(content)) or any(pattern in content for pattern in robot_at_patterns)
+                
+                # 提取原始@部分以供后续处理
+                at_match = re.search(f"(@{re.escape(self.robot_name)}[\\s\u2005\u00A0\u200B\u3000])", content)
+                at_content = at_match.group(1) if at_match else ''
+            else:
+                # 直接使用传入的参数
+                is_at_local = True
+                at_content = ""  # 不需要再提取，因为main.py已经处理过
+            
+            # 使用传入参数和本地检测的综合结果
+            is_at_final = is_at_from_param or is_at_local
+            
+            # 清理消息内容
+            actual_content = self._clean_message_content(content)
+            
+            # 使用最终的@状态进行日志记录和后续处理
+            logger.info(f"收到群聊消息 - 群: {group_id}, 发送者: {sender_name}, 内容: {actual_content}, 是否@: {is_at_final}")
+            
+            # 保存所有群聊消息到群聊记忆，不论是否@
+            timestamp = self.group_chat_memory.add_message(group_id, sender_name, actual_content, is_at_final)
+            logger.debug(f"消息已保存到群聊记忆: {group_id}, 时间戳: {timestamp}")
+            
+            # 如果是@消息，加入处理队列并进行回复
+            if is_at_final:
+                logger.info(f"检测到@消息: {actual_content}")
+                self.at_message_timestamps[f"{group_id}_{timestamp}"] = timestamp
+                
+                # 如果@被清理掉了，且有原始@内容
+                if at_content and at_content not in actual_content:
+                    at_stripped_content = actual_content.strip()
+                    return self._handle_at_message(at_stripped_content, group_id, sender_name, username, timestamp)
+                else:
+                    return self._handle_at_message(actual_content, group_id, sender_name, username, timestamp)
+            else:
+                logger.debug(f"非@消息，仅保存到记忆: {actual_content[:30]}...")
+                
+            return None
+            
+        except Exception as e:
+            logger.error(f"处理群聊消息失败: {str(e)}", exc_info=True)
+            return None
+
+    def _handle_at_message(self, content: str, group_id: str, sender_name: str, username: str, timestamp: str):
+        """处理@消息"""
+        try:
+            # 检查是否包含引用消息
+            quoted_content = None
+            quoted_sender = None
+            quote_match = re.search(r'(?:引用|回复)\s+([^\s]+)\s+的(?:消息)?[:：]?\s*(.+?)(?=\n|$)', content)
+            if quote_match:
+                quoted_sender = quote_match.group(1)
+                quoted_content = quote_match.group(2).strip()
+                logger.info(f"检测到引用消息 - 引用者: {quoted_sender}, 内容: {quoted_content}")
+                # 从原始消息中移除引用部分
+                content = re.sub(r'(?:引用|回复)\s+[^\s]+\s+的(?:消息)?[:：]?\s*.+?(?=\n|$)', '', content).strip()
+                
+                # 如果引用内容为空，尝试从群聊记忆中获取
+                if quoted_content and hasattr(self, 'group_chat_memory'):
+                    # 获取引用消息的上下文
+                    quoted_context = self.group_chat_memory.get_message_by_content(group_id, quoted_content)
+                    if quoted_context:
+                        logger.info(f"找到引用消息的上下文: {quoted_context}")
+                        # 将引用内容添加到当前消息的上下文中
+                        content = f"(引用消息: {quoted_sender} 说: {quoted_content})\n{content}"
+            
+            # 获取最近的群聊上下文消息，限制数量和时间范围
+            context_messages = self.group_chat_memory.get_context_messages(group_id, timestamp)
+            
+            # 过滤和清理上下文消息
+            filtered_context = []
+            current_time = datetime.now()
+            
+            if context_messages:
+                for msg in context_messages:
+                    if msg["timestamp"] == timestamp:  # 跳过当前消息
+                        continue
+                        
+                    # 检查消息时间（限制在6小时内）
+                    try:
+                        msg_time = datetime.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
+                        if (current_time - msg_time).total_seconds() > 21600:  # 6小时 = 21600秒
+                            continue
+                    except (ValueError, TypeError):
+                        continue
+                    
+                    # 清理消息内容
+                    human_message = self._clean_memory_content(msg["human_message"])
+                    assistant_message = self._clean_memory_content(msg["assistant_message"]) if msg["assistant_message"] else None
+                    
+                    if human_message:
+                        filtered_context.append({
+                            "sender_name": msg["sender_name"],
+                            "human_message": human_message,
+                            "assistant_message": assistant_message
+                        })
+            
+            # 限制上下文消息数量
+            filtered_context = filtered_context[-3:]  # 只保留最近3条消息
+            
+            # 构建上下文字符串
+            context = ""
+            if filtered_context:
+                context_parts = []
+                for msg in filtered_context:
+                    # 添加发送者消息
+                    context_parts.append(f"{msg['sender_name']}: {msg['human_message']}")
+                    # 如果有机器人回复，也添加进去
+                    if msg["assistant_message"]:
+                        context_parts.append(f"{self.robot_name}: {msg['assistant_message']}")
+                
+                if context_parts:
+                    context = "<context>" + "\n".join(context_parts) + "</context>\n\n"
+            
+            # 构建API请求内容
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            api_content = f"<time>{current_time}</time>\n<group>{group_id}</group>\n<sender>{sender_name}</sender>\n{context}<input>{content}</input>"
+            
+            # 获取AI回复
+            reply = self.get_api_response(api_content, username)
+            
+            # 如果成功获取回复
+            if reply:
+                # 清理回复内容
+                reply = self._clean_ai_response(reply)
+                
+                # 更新群聊记忆
+                self.group_chat_memory.update_assistant_response(group_id, timestamp, reply)
+                
+                # 过滤动作和表情
+                reply = self._filter_action_emotion(reply)
+                
+                # 分割消息
+                split_messages = self._split_message_for_sending(reply)
+                
+                # 发送消息
+                if not self.is_debug:
+                    self._send_split_messages(split_messages, group_id)
+                
+                return split_messages['parts']
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"处理@消息失败: {str(e)}")
             return None
 
     def _clean_message_content(self, content: str) -> str:
@@ -194,15 +448,26 @@ class MessageHandler:
             r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)?\s+ta私聊对你说\s*',
             r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]\s+ta私聊对你说\s*',
             r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)\s+ta(私聊|在群聊里)对你说\s*',
-            r'^.*?ta私聊对你说\s*'
+            r'^.*?ta私聊对你说\s*',
+            r'^.*?ta在群聊里对你说\s*'  # 添加群聊消息模式
         ]
         
         actual_content = content
+        
+        # 保存@信息
+        at_match = re.search(r'(@[^\s]+)', actual_content)
+        at_content = at_match.group(1) if at_match else ''
+        
+        # 清理时间戳和前缀
         for pattern in patterns:
             if re.search(pattern, actual_content):
                 actual_content = re.sub(pattern, '', actual_content)
                 break
-                
+        
+        # 如果有@信息且在清理过程中被移除，重新添加到开头
+        if at_content and at_content not in actual_content:
+            actual_content = f"{at_content} {actual_content}"
+        
         return actual_content.strip()
 
     def _cache_message(self, content: str, chat_id: str, sender_name: str, username: str, 
@@ -826,17 +1091,49 @@ class MessageHandler:
             memories = []
             if self.memory_handler:
                 try:
-                    # 获取相关记忆
+                    # 获取相关记忆，但限制数量和时间范围
+                    current_time = datetime.now()
                     memories = self.memory_handler.get_relevant_memories(
                         content, 
-                        username if not is_group else chat_id
+                        username if not is_group else chat_id,
+                        top_k=3  # 限制只获取最相关的3条记忆
                     )
+                    
+                    # 过滤和清理记忆
+                    filtered_memories = []
+                    for mem in memories:
+                        if not mem.get('message') or not mem.get('reply'):
+                            continue
+                            
+                        # 检查记忆时间（如果有）
+                        if 'timestamp' in mem:
+                            try:
+                                mem_time = datetime.strptime(mem['timestamp'], '%Y-%m-%d %H:%M:%S')
+                                # 只使用24小时内的记忆
+                                if (current_time - mem_time).days > 1:
+                                    continue
+                            except (ValueError, TypeError):
+                                pass
+                        
+                        # 清理记忆中的系统提示词
+                        message = self._clean_memory_content(mem['message'])
+                        reply = self._clean_memory_content(mem['reply'])
+                        
+                        if message and reply:
+                            filtered_memories.append({
+                                'message': message,
+                                'reply': reply,
+                                'timestamp': mem.get('timestamp', '')
+                            })
+                    
+                    memories = filtered_memories[:2]  # 最多使用2条过滤后的记忆
                     
                     # 只记录找到记忆的数量，不输出详细内容
                     if memories:
-                        logger.info(f"找到记忆: {len(memories)}条")
+                        logger.info(f"找到并过滤后的有效记忆: {len(memories)}条")
                 except Exception as mem_err:
                     logger.error(f"获取记忆失败: {str(mem_err)}")
+                    memories = []
             
             # 获取或初始化未回复计数器
             counter = self.unanswered_counters.get(username, 0)
@@ -849,68 +1146,53 @@ class MessageHandler:
             ]
             
             # 检查消息中是否包含结束关键词
-            is_end_of_conversation = any(keyword in content for keyword in end_keywords)
+            is_end_of_conversation = any(keyword in actual_user_input for keyword in end_keywords)
             raw_content = content
             
             # 构建API请求内容
             api_content = actual_user_input
             
-            # 计算用户输入的字符长度，用于动态调整回复长度
-            user_input_length = len(actual_user_input)
+            # 计算用户实际输入的字符长度，只计算 $ 分隔的实际消息内容
+            user_messages = [msg.strip() for msg in actual_user_input.split('$') if msg.strip()]
+            user_input_length = sum(len(msg) for msg in user_messages)
             target_length = int(user_input_length * self._calculate_response_length_ratio(user_input_length))
             target_sentences = max(1, min(4, int(target_length / 25)))  # 大约每25个字符一个句子
             
+            # 构建系统提示词（使用特殊标记包裹，确保不会出现在最终回复中）
+            system_prompts = []
+            
             # 添加长度限制提示词
-            length_prompt = f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_length+15}个字符和{target_sentences+2}个句子左右。"
+            system_prompts.append(f"<length>请将回复控制在{target_length}字符和{target_sentences}个句子左右</length>")
             
-            # 保存原始记忆上下文，避免将其作为用户ID
-            memory_context = ""
-            
+            # 如果检测到结束关键词，添加结束语提示
             if is_end_of_conversation:
-                # 如果检测到结束关键词，在消息末尾添加提示
-                api_content += "\n请以你的身份回应用户的结束语" + length_prompt
-                logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
-            elif memories:
-                # 如果有相关记忆，添加到API请求内容中
-                memory_parts = []
-                for mem in memories[:3]:  # 只使用最相关的3条记忆
-                    if mem.get('message') and mem.get('reply'):
-                        memory_parts.append(f"用户: {mem['message']}\nAI: {mem['reply']}")
+                system_prompts.append("<end>请以你的身份回应用户的结束语</end>")
+            
+            # 添加记忆上下文（如果有）
+            if memories:
+                memory_context = []
+                for i, mem in enumerate(memories, 1):
+                    memory_context.append(f"记忆{i}:\n用户: {mem['message']}\nAI: {mem['reply']}")
                 
-                if memory_parts:
-                    memory_context = "\n\n".join(memory_parts)
-                    api_content = f"以下是之前的对话记录：\n\n{memory_context}\n\n(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容)\n\n{actual_user_input}{length_prompt}"
-            else:
-                # 如果既不是结束对话也没有相关记忆，直接添加长度提示
-                api_content += length_prompt
+                if memory_context:
+                    memory_text = "\n\n".join(memory_context)
+                    system_prompts.append(f"<memory>参考以下历史对话：\n\n{memory_text}</memory>")
             
-            # 使用正确的方法获取API回复
-            reply = self.get_api_response(api_content, username)
+            # 组合所有提示词和用户输入
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            final_prompt = f"<system>{' '.join(system_prompts)}</system>\n\n<time>{current_time}</time>\n\n<input>{api_content}</input>"
             
-            # 处理思考过程
+            # 获取AI回复
+            reply = self.get_api_response(final_prompt, username)
+            
+            # 处理思考过程和清理回复内容
             if "</think>" in reply:
                 think_content, reply = reply.split("</think>", 1)
                 if not self.is_debug:
-                    # 思考过程不记录到普通日志，只在debug级别记录
                     logger.debug(f"思考过程: {think_content.strip()}")
             
-            # 清理AI回复中的时间戳和第三人称旁白
-            reply = re.sub(r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]', '', reply)  # 移除时间戳
-            reply = re.sub(r'^你：|^对方：|^AI：', '', reply)  # 移除第三人称旁白
-            
-            # 移除memory_number及其后续内容
-            reply = re.sub(r'\s*memory_number:.*?($|\n|\$)', '', reply, flags=re.DOTALL|re.IGNORECASE)
-            
-            # 如果一行中包含memory_number，直接移除该行
-            if "memory_number:" in reply:
-                lines = reply.split('\n')
-                clean_lines = [line for line in lines if "memory_number:" not in line]
-                reply = '\n'.join(clean_lines)
-            
-            # $符号后如果包含memory_number内容，移除整段
-            reply = re.sub(r'\$\s*memory_number:.*?($|\n|\$)', '$', reply, flags=re.DOTALL|re.IGNORECASE)
-            
-            reply = reply.strip()
+            # 清理AI回复中的所有系统标记和提示词
+            reply = self._clean_ai_response(reply)
             
             # 保存原始回复，用于记忆存储
             original_reply = reply
@@ -943,7 +1225,15 @@ class MessageHandler:
             
             # 添加群聊@
             if is_group:
-                reply_with_breaks = f"@{sender_name} {reply_with_breaks}"
+                # 检查原始消息中是否包含@信息，并提取原始@者的名字
+                at_match = re.search(r'@([^\s]+)', content)
+                if at_match:
+                    original_at_name = at_match.group(1)
+                    # 如果找到原始@者，使用原始@者的名字
+                    reply_with_breaks = f"@{original_at_name} {reply_with_breaks}"
+                else:
+                    # 如果没有找到原始@信息，使用发送者名字
+                    reply_with_breaks = f"@{sender_name} {reply_with_breaks}"
             
             try:
                 # 使用优化后的消息分割方法，只计算实际回复的长度
@@ -995,6 +1285,38 @@ class MessageHandler:
             
             return [error_msg]
             
+    def _clean_ai_response(self, response: str) -> str:
+        """清理AI回复中的所有系统标记和提示词"""
+        if not response:
+            return ""
+        
+        # 移除所有XML样式的标记
+        response = re.sub(r'<[^>]+>', '', response)
+        
+        # 清理其他系统标记和提示词
+        patterns_to_remove = [
+            r'\[系统提示\].*?\[/系统提示\]',
+            r'\[系统指令\].*?\[/系统指令\]',
+            r'记忆\d+:\s*\n用户:.*?\nAI:.*?(?=\n\n|$)',
+            r'以下是之前的对话记录：.*?(?=\n\n)',
+            r'\(以上是历史对话内容[^)]*\)',
+            r'memory_number:.*?(?=\n|$)',
+            r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]',
+            r'请注意：.*?(?=\n|$)',
+            r'请(?:简短|简洁)回复.*?(?=\n|$)',
+            r'请.*?控制在.*?(?=\n|$)',
+            r'请你回应用户的结束语',
+            r'^你：|^对方：|^AI：',
+            r'ta(?:私聊|在群聊里)对你说[：:]\s*'
+        ]
+        
+        for pattern in patterns_to_remove:
+            response = re.sub(pattern, '', response, flags=re.DOTALL|re.IGNORECASE)
+        
+        # 移除多余的空白字符
+        response = re.sub(r'\s+', ' ', response)
+        return response.strip()
+
     def _add_sentence_breaks(self, text):
         """在句子之间添加断句标记($)用于微信发送"""
         # 定义句子结束标点
@@ -1082,12 +1404,22 @@ class MessageHandler:
             else:
                 final_sentences.append(sentence)
         
-        # 使用$分隔符，不再添加括号
-        text_with_breaks = ' $ '.join(final_sentences)
+        # 使用$分隔符，并移除分隔符前的逗号
+        processed_sentences = []
+        for sentence in final_sentences:
+            # 移除句子末尾的逗号
+            cleaned_sentence = re.sub(r'[，,]+$', '', sentence.strip())
+            if cleaned_sentence:
+                processed_sentences.append(cleaned_sentence)
+        
+        text_with_breaks = ' $ '.join(processed_sentences)
         
         # 4. 恢复所有保护的内容
         for placeholder, content in protected_parts.items():
             text_with_breaks = text_with_breaks.replace(placeholder, content)
+        
+        # 5. 最后再次检查并移除$前的逗号
+        text_with_breaks = re.sub(r'[，,]+\s*\$', ' $', text_with_breaks)
         
         return text_with_breaks
 
@@ -1101,22 +1433,68 @@ class MessageHandler:
         Returns:
             str: 处理后的用户实际输入内容
         """
-        # 移除可能的历史对话记录
-        content = re.sub(r'以下是之前的对话记录：.*?(?=\(以上是历史对话内容)', '', content, flags=re.DOTALL)
-        content = re.sub(r'\(以上是历史对话内容，[^)]*\)\s*', '', content)
-        
-        # 移除系统提示和指令
-        content = re.sub(r'\[系统提示\].*?\[/系统提示\]', '', content, flags=re.DOTALL)
-        content = re.sub(r'\[系统指令\].*?\[/系统指令\]', '', content, flags=re.DOTALL)
-        
-        # 移除长度限制提示词
-        content = re.sub(r'请注意：你的回复应当与用户消息的长度相当，控制在约\d+个字符和\d+个句子左右。', '', content)
-        content = re.sub(r'请简短回复，控制在一两句话内。', '', content)
-        content = re.sub(r'请注意保持自然的回复长度，与用户消息风格协调。', '', content)
-        content = re.sub(r'请保持简洁明了的回复。', '', content)
-        content = re.sub(r'请你回应用户的结束语', '', content)
-        
-        return content.strip()
+        try:
+            # 1. 移除时间戳
+            time_patterns = [
+                r'^\[\d{2}:\d{2}:\d{2}\]',
+                r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]',
+                r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)',
+                r'^\(\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\)'
+            ]
+            
+            cleaned_content = content
+            for pattern in time_patterns:
+                cleaned_content = re.sub(pattern, '', cleaned_content)
+            
+            # 2. 移除对话标记
+            dialog_patterns = [
+                r'ta私聊对你说[：:]\s*',
+                r'ta在群聊里对你说[：:]\s*',
+                r'^你：|^对方：|^AI：'
+            ]
+            
+            for pattern in dialog_patterns:
+                cleaned_content = re.sub(pattern, '', cleaned_content)
+            
+            # 3. 移除历史对话记录
+            if "以下是之前的对话记录：" in cleaned_content:
+                parts = cleaned_content.split("(以上是历史对话内容")
+                if len(parts) > 1:
+                    # 获取最后一部分（实际用户输入）
+                    cleaned_content = parts[-1].split(")")[-1]
+            
+            # 4. 移除系统提示和指令
+            system_patterns = [
+                r'\[系统提示\].*?\[/系统提示\]',
+                r'\[系统指令\].*?\[/系统指令\]',
+                r'请注意：你的回复应当与用户消息的长度相当，控制在约\d+个字符和\d+个句子左右。',
+                r'请简短回复，控制在一两句话内。',
+                r'请注意保持自然的回复长度，与用户消息风格协调。',
+                r'请保持简洁明了的回复。',
+                r'请你回应用户的结束语'
+            ]
+            
+            for pattern in system_patterns:
+                cleaned_content = re.sub(pattern, '', cleaned_content, flags=re.DOTALL)
+            
+            # 5. 移除memory_number相关内容
+            cleaned_content = re.sub(r'\s*memory_number:.*?($|\n|\$)', '', cleaned_content, flags=re.DOTALL|re.IGNORECASE)
+            
+            # 6. 处理多余的空白字符
+            cleaned_content = re.sub(r'\s+', ' ', cleaned_content)
+            cleaned_content = cleaned_content.strip()
+            
+            # 7. 记录处理结果
+            if cleaned_content != content:
+                logger.debug(f"消息清理前: {len(content)}字符")
+                logger.debug(f"消息清理后: {len(cleaned_content)}字符")
+                logger.debug(f"清理后内容: {cleaned_content}")
+            
+            return cleaned_content
+            
+        except Exception as e:
+            logger.error(f"提取用户实际输入失败: {str(e)}")
+            return content.strip()  # 出错时返回原始内容
 
     def _check_time_query(self, content: str, username: str) -> tuple:
         """检查是否是时间查询请求"""
@@ -1473,23 +1851,12 @@ class MessageHandler:
         if sentence_count == 0 and parts:
             sentence_count = 1
         
-        # 仅在debug级别记录详细日志
-        logger.debug(f"消息分割: {len(parts)}部分, {total_length}字符, {sentence_count}句")
-        
-        # 记录分隔符处理情况
-        if len(parts) > 1:
-            logger.debug(f"已将消息按分隔符'$'分割为{len(parts)}部分，统一了不同的句子分隔符")
-        
         return {'parts': parts, 'total_length': total_length, 'sentence_count': sentence_count}
     
     def _split_by_sentences(self, text):
         """按自然句子分割文本，并返回分割信息"""
-        # 中文句子结束符
-        cn_sentence_ends = ['。', '！', '？']  # 移除 '…' 作为句子结束符
-        # 英文句子结束符
-        en_sentence_ends = ['.', '!', '?']
-        # 合并所有句子结束符
-        sentence_ends = cn_sentence_ends + en_sentence_ends
+        # 只使用句号作为句子结束符
+        sentence_ends = ['。']
         
         sentences = []
         total_length = 0
@@ -1501,22 +1868,7 @@ class MessageHandler:
             char = text[i]
             current_sentence += char
             
-            # 检查是否是省略号
-            if char == '…' or char == '.':
-                # 检查是否是连续的省略号
-                next_chars = text[i+1:i+3] if i+3 <= len(text) else ''
-                if (char == '…' and next_chars.startswith('…')) or (char == '.' and next_chars == '..'):
-                    # 这是一个省略号，继续添加到当前句子
-                    if char == '.':
-                        current_sentence += next_chars  # 添加剩余的点
-                        i += 2  # 跳过接下来的两个点
-                    else:
-                        current_sentence += next_chars[0] if next_chars else ''  # 添加第二个省略号
-                        i += 1  # 跳过下一个省略号
-                    i += 1
-                    continue
-                
-            # 检查是否遇到句子结束符
+            # 检查是否遇到句号
             if char in sentence_ends:
                 if current_sentence.strip():
                     # 如果单个句子超过长度限制，需要进一步分割
@@ -1527,24 +1879,33 @@ class MessageHandler:
                         total_length += sub_parts_info['total_length']
                         sentence_count += sub_parts_info['sentence_count']
                     else:
-                        sentences.append(current_sentence.strip())
-                        total_length += len(current_sentence.strip())
-                        sentence_count += 1
+                        # 移除句尾的句号
+                        clean_sentence = current_sentence[:-1].strip()
+                        if clean_sentence:
+                            sentences.append(clean_sentence)
+                            total_length += len(clean_sentence)
+                            sentence_count += 1
                 current_sentence = ''
             
             i += 1
         
         # 处理最后一个句子
         if current_sentence.strip():
+            # 检查最后一个字符是否是句号
+            if current_sentence[-1] in sentence_ends:
+                current_sentence = current_sentence[:-1]
+            
             if len(current_sentence) > self.MAX_MESSAGE_LENGTH:
                 sub_parts_info = self._split_long_sentence(current_sentence)
                 sentences.extend(sub_parts_info['parts'])
                 total_length += sub_parts_info['total_length']
                 sentence_count += sub_parts_info['sentence_count']
             else:
-                sentences.append(current_sentence.strip())
-                total_length += len(current_sentence.strip())
-                sentence_count += 1
+                clean_sentence = current_sentence.strip()
+                if clean_sentence:
+                    sentences.append(clean_sentence)
+                    total_length += len(clean_sentence)
+                    sentence_count += 1
         
         return {'parts': sentences, 'total_length': total_length, 'sentence_count': sentence_count}
     
@@ -1555,35 +1916,30 @@ class MessageHandler:
         sentence_count = 0
         current_part = ''
         
-        # 优先在这些标点符号处断句
-        break_chars = ['，', ',', '、', '；', ';', ' ']
+        # 使用句号、问号、感叹号作为主要断句点
+        primary_breaks = ['。', '！', '？','?','!']  # 主要断句点
         
         for char in sentence:
             current_part += char
+            current_length = len(current_part)
             
-            # 如果当前部分接近长度限制，尝试在标点处断开
-            if len(current_part) >= self.MAX_MESSAGE_LENGTH * 0.8:
-                # 找最后一个标点的位置
-                last_break_pos = -1
-                for break_char in break_chars:
-                    pos = current_part.rfind(break_char)
-                    if pos > last_break_pos:
-                        last_break_pos = pos
-                
-                # 如果找到合适的断句点
-                if last_break_pos > 0:
-                    parts.append(current_part[:last_break_pos + 1].strip())
-                    total_length += len(current_part[:last_break_pos + 1].strip())
-                    sentence_count += 1
-                    current_part = current_part[last_break_pos + 1:]
-                # 如果没找到合适的断句点且已达到长度限制
-                elif len(current_part) >= self.MAX_MESSAGE_LENGTH:
+            # 遇到主要断句点时断句
+            if char in primary_breaks:
+                if current_length >= 5:  # 确保最小句子长度
                     parts.append(current_part.strip())
                     total_length += len(current_part.strip())
                     sentence_count += 1
                     current_part = ''
+                continue
+            
+            # 如果当前部分超过长度限制，强制断句
+            if current_length >= self.MAX_MESSAGE_LENGTH:
+                parts.append(current_part.strip())
+                total_length += len(current_part.strip())
+                sentence_count += 1
+                current_part = ''
         
-        # 添加最后一部分
+        # 处理最后一部分
         if current_part.strip():
             parts.append(current_part.strip())
             total_length += len(current_part.strip())
@@ -1603,13 +1959,32 @@ class MessageHandler:
         # 计算自然的发送间隔
         base_interval = 0.5  # 基础间隔时间（秒）
         
+        # 检查是否是群聊消息（通过chat_id是否包含群聊标识）
+        is_group_chat = False
+        sender_name = None
+        
+        # 从chat_id中提取群聊信息
+        if hasattr(self, 'group_chat_memory'):
+            is_group_chat = chat_id in self.group_chat_memory.group_chats
+            if is_group_chat:
+                # 从最近的群聊消息中获取发送者名称
+                recent_messages = self.group_chat_memory.get_memory_from_file(chat_id, limit=1)
+                if recent_messages:
+                    sender_name = recent_messages[0].get('sender_name')
+        
         for i, part in enumerate(messages['parts']):
             if part not in sent_messages:
                 # 模拟真实用户输入行为
                 time.sleep(base_interval)  # 基础间隔
                 
+                # 如果是群聊消息且有发送者名称，在第一条消息前添加@
+                if is_group_chat and sender_name and i == 0:
+                    send_content = f"@{sender_name}\u2005{part}"
+                else:
+                    send_content = part
+                
                 # 发送消息，支持重试
-                success = self._safe_send_msg(part, chat_id)
+                success = self._safe_send_msg(send_content, chat_id)
                 
                 if success:
                     sent_messages.add(part)
@@ -1687,9 +2062,32 @@ class MessageHandler:
                     self.wx.ChatWith(target_user)
                     time.sleep(1)  # 等待窗口激活
                     
+                    # 获取最近的对话记忆作为上下文
+                    context = ""
+                    if self.memory_handler:
+                        try:
+                            # 获取相关记忆，增加到10轮
+                            memories = self.memory_handler.get_relevant_memories(
+                                f"与用户 {target_user} 相关的最近重要对话",
+                                target_user,
+                                top_k=10  # 增加到10轮
+                            )
+                            
+                            if memories:
+                                memory_parts = []
+                                for i, mem in enumerate(memories):
+                                    if mem.get('message') and mem.get('reply'):
+                                        memory_parts.append(f"对话{i+1}:\n用户: {mem['message']}\nAI: {mem['reply']}")
+                                
+                                if memory_parts:
+                                    context = "以下是之前的对话记录：\n\n" + "\n\n".join(memory_parts) + "\n\n(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容)\n\n"
+                                    logger.info(f"找到 {len(memory_parts)} 轮历史对话记录")
+                        except Exception as e:
+                            logger.error(f"获取历史对话记录失败: {str(e)}")
+                    
                     # 构建系统指令和上下文
                     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    system_instruction = f"(此时时间为{current_time}) [系统指令] {auto_message}"
+                    system_instruction = f"{context}(此时时间为{current_time}) [系统指令] {auto_message}"
                     
                     # 添加长度限制提示词 - 自动消息保持在50-100字符之间，2-3个句子
                     length_prompt = "\n\n请注意：你的回复应当简洁明了，控制在50-100个字符和2-3个句子左右。"
@@ -1918,3 +2316,32 @@ class MessageHandler:
                     logger.info(f"嵌入缓存统计: 大小={stats['cache_size']}, 命中率={stats['hit_rate_percent']:.1f}%")
             except Exception as e:
                 logger.debug(f"获取嵌入缓存统计失败: {str(e)}")
+
+    def _clean_memory_content(self, content: str) -> str:
+        """清理记忆内容中的系统提示词和特殊标记"""
+        if not content:
+            return ""
+            
+        # 清理系统提示词和标记
+        patterns_to_remove = [
+            r'\[系统提示\].*?\[/系统提示\]',
+            r'\[系统指令\].*?\[/系统指令\]',
+            r'请注意：.*?(?=\n|$)',
+            r'以下是之前的对话记录：.*?(?=\n\n)',
+            r'\(以上是历史对话内容[^)]*\)',
+            r'memory_number:.*?(?=\n|$)',
+            r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]',
+            r'ta(?:私聊|在群聊里)对你说[：:]\s*',
+            r'^你：|^对方：|^AI：',
+            r'请(?:简短|简洁)回复.*?(?=\n|$)',
+            r'请.*?控制在.*?(?=\n|$)',
+            r'请你回应用户的结束语'
+        ]
+        
+        cleaned = content
+        for pattern in patterns_to_remove:
+            cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL|re.IGNORECASE)
+        
+        # 移除多余的空白字符
+        cleaned = re.sub(r'\s+', ' ', cleaned)
+        return cleaned.strip()
