@@ -1,3 +1,5 @@
+"""主题模块，提供应用程序的颜色和字体统一管理"""
+
 import customtkinter as ctk
 
 class Theme:

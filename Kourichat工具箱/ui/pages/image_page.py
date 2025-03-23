@@ -92,19 +92,9 @@ class ImagePage:
     
     def setup_recognition_tab(self, parent_frame):
         """设置图片识别选项卡内容"""
-        # 创建滚动容器
-        main_frame = ctk.CTkScrollableFrame(
-            parent_frame, 
-            fg_color="transparent",
-            scrollbar_fg_color=Theme.SCROLLBAR_FG,
-            scrollbar_button_color=Theme.SCROLLBAR_BG,
-            scrollbar_button_hover_color=Theme.SCROLLBAR_HOVER
-        )
-        main_frame.pack(fill="both", expand=True, padx=30, pady=20)
-        
         # 创建左右分栏
-        content_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
-        content_frame.pack(fill="both", expand=True)
+        content_frame = ctk.CTkFrame(parent_frame, fg_color="transparent")
+        content_frame.pack(fill="both", expand=True, padx=30, pady=20)
         
         # 配置网格布局
         content_frame.grid_columnconfigure(0, weight=1)
@@ -113,7 +103,7 @@ class ImagePage:
         # 左侧图片区域
         image_frame = ctk.CTkFrame(
             content_frame, 
-            fg_color=Theme.BG_SECONDARY,
+            fg_color=Theme.CARD_BG,
             corner_radius=15
         )
         image_frame.grid(row=0, column=0, padx=15, pady=10, sticky="nsew")
@@ -121,7 +111,7 @@ class ImagePage:
         # 右侧结果区域
         result_frame = ctk.CTkFrame(
             content_frame, 
-            fg_color=Theme.BG_SECONDARY,
+            fg_color=Theme.CARD_BG,
             corner_radius=15
         )
         result_frame.grid(row=0, column=1, padx=15, pady=10, sticky="nsew")
@@ -147,36 +137,26 @@ class ImagePage:
         )
         image_title.pack(side="left")
         
-        # 图片显示区域
-        image_container = ctk.CTkFrame(
-            parent_frame,
-            fg_color=Theme.BG_TERTIARY,
-            corner_radius=10,
-            height=300
-        )
-        image_container.pack(fill="x", padx=20, pady=15)
-        image_container.pack_propagate(False)
-        
-        # 图片显示标签
+        # 图片显示区域 - 直接使用标签
         self.recognition_image_label = ctk.CTkLabel(
-            image_container, 
+            parent_frame, 
             text='点击"选择图片"上传待识别的图片',
             font=Theme.get_font(size=14),
+            fg_color=Theme.BG_TERTIARY,
+            corner_radius=10,
+            height=300,
             text_color=Theme.TEXT_SECONDARY
         )
-        self.recognition_image_label.pack(expand=True)
+        self.recognition_image_label.pack(fill="x", padx=20, pady=15)
         
         # 按钮区域
         button_frame = ctk.CTkFrame(parent_frame, fg_color="transparent", height=60)
-        button_frame.pack(fill="x", padx=20, pady=(10, 20))
+        button_frame.pack(fill="x", padx=20, pady=(0, 20))
         button_frame.pack_propagate(False)
-        
-        button_container = ctk.CTkFrame(button_frame, fg_color="transparent")
-        button_container.pack(expand=True)
         
         # 选择图片按钮
         select_button = ctk.CTkButton(
-            button_container, 
+            button_frame, 
             text="选择图片", 
             command=self.select_image_for_recognition,
             font=Theme.get_font(size=14, weight="bold"),
@@ -190,7 +170,7 @@ class ImagePage:
         
         # 识别图片按钮
         recognize_button = ctk.CTkButton(
-            button_container, 
+            button_frame, 
             text="开始识别", 
             command=self.recognize_image,
             font=Theme.get_font(size=14, weight="bold"),
@@ -204,7 +184,7 @@ class ImagePage:
         
         # 清空按钮
         clear_button = ctk.CTkButton(
-            button_container, 
+            button_frame, 
             text="清空", 
             command=self.clear_recognition,
             font=Theme.get_font(size=14, weight="bold"),
@@ -231,29 +211,20 @@ class ImagePage:
         )
         result_title.pack(side="left")
         
-        # 结果文本框容器
-        text_container = ctk.CTkFrame(
-            parent_frame,
-            fg_color=Theme.BG_TERTIARY,
-            corner_radius=10,
-            height=300
-        )
-        text_container.pack(fill="x", padx=20, pady=15)
-        text_container.pack_propagate(False)
-        
         # 结果文本框
         self.recognition_result_text = ScrollableTextBox(
-            text_container,
+            parent_frame,
             font=Theme.get_font(size=14),
-            fg_color=Theme.BG_SECONDARY,
+            fg_color=Theme.BG_TERTIARY,
             text_color=Theme.TEXT_PRIMARY,
-            border_color=None
+            border_color=None,
+            height=300
         )
-        self.recognition_result_text.pack(fill="both", expand=True, padx=10, pady=10)
+        self.recognition_result_text.pack(fill="both", expand=True, padx=20, pady=15)
         
         # 创建结果文本框的加载动画标签
         self.recognition_result_label = ctk.CTkLabel(
-            text_container,
+            self.recognition_result_text,
             text="",
             font=Theme.get_font(size=14),
             text_color=Theme.TEXT_SECONDARY
@@ -263,20 +234,14 @@ class ImagePage:
         # 创建加载动画实例
         self.recognition_result_loading = LoadingAnimation(self.recognition_result_label, self.app)
         
-        # 创建加载动画实例
-        self.recognition_result_loading = LoadingAnimation(self.recognition_result_label, self.app)
-        
         # 按钮区域
         button_frame = ctk.CTkFrame(parent_frame, fg_color="transparent", height=60)
-        button_frame.pack(fill="x", padx=20, pady=(10, 20))
+        button_frame.pack(fill="x", padx=20, pady=(0, 20))
         button_frame.pack_propagate(False)
-        
-        button_container = ctk.CTkFrame(button_frame, fg_color="transparent")
-        button_container.pack(expand=True)
         
         # 复制按钮
         copy_button = ctk.CTkButton(
-            button_container, 
+            button_frame, 
             text="复制结果", 
             command=self.copy_recognition_result,
             font=Theme.get_font(size=14, weight="bold"),
@@ -286,7 +251,7 @@ class ImagePage:
             width=120,
             corner_radius=8
         )
-        copy_button.pack(side="left", padx=5)
+        copy_button.pack(side="left", padx=20)
     
     def setup_generation_tab(self, parent_frame):
         """设置图片生成选项卡内容"""
@@ -303,7 +268,7 @@ class ImagePage:
         left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 15))
         
         # 创建提示词输入区域
-        prompt_frame = ctk.CTkFrame(left_panel, fg_color=Theme.BG_SECONDARY, corner_radius=10)
+        prompt_frame = ctk.CTkFrame(left_panel, fg_color=Theme.CARD_BG, corner_radius=10)
         prompt_frame.pack(fill="both", expand=True)
         
         # 提示词标题
@@ -327,7 +292,7 @@ class ImagePage:
         self.prompt_textbox.pack(fill="both", expand=True, padx=20, pady=(0, 20))
         
         # 创建参数设置区域
-        settings_frame = ctk.CTkFrame(left_panel, fg_color=Theme.BG_SECONDARY, corner_radius=10)
+        settings_frame = ctk.CTkFrame(left_panel, fg_color=Theme.CARD_BG, corner_radius=10)
         settings_frame.pack(fill="x", pady=20)
         
         # 参数设置标题
@@ -429,7 +394,7 @@ class ImagePage:
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(15, 0))
         
         # 创建生成结果区域
-        result_frame = ctk.CTkFrame(right_panel, fg_color=Theme.BG_SECONDARY, corner_radius=10)
+        result_frame = ctk.CTkFrame(right_panel, fg_color=Theme.CARD_BG, corner_radius=10)
         result_frame.pack(fill="both", expand=True)
         
         # 生成结果标题

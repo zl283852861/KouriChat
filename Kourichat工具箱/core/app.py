@@ -1,6 +1,9 @@
-import customtkinter as ctk
+"""
+主应用程序模块，提供应用程序的核心功能
+"""
+
 from tkinter import messagebox
-import webbrowser
+import customtkinter as ctk
 
 from core.config import APIConfig
 from core.theme_manager import ThemeManager
@@ -10,9 +13,10 @@ from ui.pages.api_config_page import APIConfigPage
 from ui.pages.image_page import ImagePage
 from ui.pages.help_page import HelpPage
 from ui.transition import PageTransition
+from ui.theme_transition import ThemeTransition
 
 class KouriChatApp(ctk.CTk):
-    """Kouri Chat 应用程序主类"""
+    """Kouri Chat 应用程序主类，管理UI和用户交互"""
     
     def __init__(self):
         super().__init__()
@@ -20,17 +24,17 @@ class KouriChatApp(ctk.CTk):
         # 设置窗口属性
         self.title("Kouri Chat 工具箱 V12.0")
         self.geometry("1000x700")
-        self.minsize(800, 600)  # 设置最小窗口大小
+        self.minsize(800, 600)
         
-        # 设置默认字体 - 使用Arial Unicode MS
+        # 设置默认字体
         self.default_font = ("Arial Unicode MS", 12)
         self.title_font = ("Arial Unicode MS", 16, "bold")
         
         # 设置默认按钮颜色
-        ctk.set_default_color_theme("blue")  # 先设置默认主题
+        ctk.set_default_color_theme("blue")
         self.button_color = "#eea2a4"  # 粉色按钮
         self.button_hover_color = "#e58a8c"  # 粉色按钮悬停颜色
-        self.purple_color = "#9370DB"  # 更浅的紫色 (Medium Purple)
+        self.purple_color = "#9370DB"  # 紫色
         self.purple_hover_color = "#8A5DC8"  # 紫色悬停颜色
         
         # 加载配置
@@ -49,8 +53,9 @@ class KouriChatApp(ctk.CTk):
         self.image_page = ImagePage(self)
         self.help_page = HelpPage(self)
         
-        # 初始化页面切换过渡效果
+        # 初始化过渡效果
         self.transition = PageTransition(self)
+        self.theme_transition = ThemeTransition(self)
         
         # 默认显示人设页面
         self.show_character_page()
@@ -101,32 +106,24 @@ class KouriChatApp(ctk.CTk):
         """显示人设页面"""
         self.clear_content_frame()
         self.character_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
         self.highlight_sidebar_button(self.sidebar.character_button)
     
     def show_api_config_page(self):
         """显示API配置页面"""
         self.clear_content_frame()
         self.api_config_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
         self.highlight_sidebar_button(self.sidebar.api_config_button)
     
     def show_image_page(self):
         """显示图片页面"""
         self.clear_content_frame()
         self.image_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
         self.highlight_sidebar_button(self.sidebar.image_button)
     
     def show_help_page(self):
         """显示帮助页面"""
         self.clear_content_frame()
         self.help_frame.pack(fill="both", expand=True)
-        
-        # 高亮当前选中的侧边栏按钮
         self.highlight_sidebar_button(self.sidebar.help_button)
     
     def clear_content_frame(self):

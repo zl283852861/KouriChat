@@ -3,20 +3,18 @@ import os
 from tkinter import messagebox
 
 class APIConfig:
-    """API配置管理类"""
+    """API配置管理类，负责读取和保存应用配置"""
     
     CONFIG_FILE = "api_config.json"
     
     @staticmethod
     def read_config():
-        """读取配置文件"""
+        """读取配置文件，如果不存在或格式错误则返回默认配置"""
         try:
             if os.path.exists(APIConfig.CONFIG_FILE):
                 with open(APIConfig.CONFIG_FILE, 'r', encoding='utf-8') as f:
                     return json.load(f)
-            else:
-                # 返回默认配置
-                return APIConfig.get_default_config()
+            return APIConfig.get_default_config()
         except json.JSONDecodeError:
             messagebox.showerror("配置文件错误", "配置格式错误，将使用默认配置。")
             return APIConfig.get_default_config()

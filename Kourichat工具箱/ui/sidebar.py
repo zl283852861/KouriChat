@@ -1,10 +1,12 @@
-import customtkinter as ctk
-import webbrowser
-from PIL import Image, ImageTk
+"""侧边栏模块，提供应用程序的导航功能"""
+
 import os
 import sys
 import math
 import tkinter as tk
+import webbrowser
+import customtkinter as ctk
+from PIL import Image, ImageTk
 
 class Sidebar:
     """侧边栏类"""
@@ -12,8 +14,8 @@ class Sidebar:
     def __init__(self, app):
         self.app = app
         
-        # 侧边栏宽度
-        self.width = 220
+        # 侧边栏宽度 - 统一深色和浅色模式的宽度
+        self.width = 240
         
         # 动画参数
         self.animation_duration = 300  # 动画持续时间(毫秒)
@@ -29,8 +31,12 @@ class Sidebar:
         # 设置侧边栏
         self.setup_sidebar()
         
-        # 创建蒙版框架 - 使用普通的tkinter Frame
-        self.mask_frame = tk.Frame(
+        # 创建两层蒙版框架 - 分别用于扩展和收缩动画
+        self.expand_mask_frame = tk.Frame(
+            self.app,
+            background=self.get_sidebar_color()
+        )
+        self.shrink_mask_frame = tk.Frame(
             self.app,
             background=self.get_sidebar_color()
         )
@@ -155,20 +161,41 @@ class Sidebar:
         )
         self.bottom_separator.grid(row=6, column=0, sticky="ew", padx=15, pady=(20, 15))
         
-        # 添加主题切换开关 - 更新样式
-        self.app.appearance_mode_switch = ctk.CTkSwitch(
+        # 创建主题切换框架 - 美化版本
+        self.theme_frame = ctk.CTkFrame(
             self.sidebar_frame,
-            text="暗色模式",
-            font=ctk.CTkFont(family="Arial Unicode MS", size=12),
-            command=self.app.toggle_theme,
+            fg_color="transparent"
+        )
+        self.theme_frame.grid(row=7, column=0, padx=20, pady=(10, 10), sticky="ew")
+        
+        # 主题文本（移除了图标）
+        mode_text = "深色模式" if self.app.current_theme == "dark" else "浅色模式"
+        
+        # 创建主题文本标签 - 使用更优雅的字体和排版
+        self.appearance_mode_label = ctk.CTkLabel(
+            self.theme_frame,
+            text=mode_text,
+            font=ctk.CTkFont(family="Microsoft YaHei UI", size=14, weight="bold"),
             text_color=("white", "white"),
-            progress_color=("#66B2FF", "#333333"),
+            anchor="w"
+        )
+        self.appearance_mode_label.grid(row=0, column=0, padx=0, pady=5, sticky="w")
+        
+        # 创建主题切换开关 - 改进样式
+        self.app.appearance_mode_switch = ctk.CTkSwitch(
+            self.theme_frame,
+            text="",
+            command=self.app.toggle_theme,
+            progress_color=("#66B2FF", "#505050"),
             button_color=("white", "white"),
             button_hover_color=("#e6e6e6", "#d9d9d9"),
-            switch_width=40,
-            switch_height=20
+            switch_width=46,
+            switch_height=24
         )
-        self.app.appearance_mode_switch.grid(row=7, column=0, padx=20, pady=(15, 10), sticky="w")
+        self.app.appearance_mode_switch.grid(row=0, column=1, padx=(5, 0), pady=5, sticky="e")
+        
+        # 配置主题框架列权重，使开关靠右对齐
+        self.theme_frame.grid_columnconfigure(0, weight=1)
         
         # 版权信息
         copyright_label = ctk.CTkLabel(
@@ -233,12 +260,13 @@ class Sidebar:
         content_width = content_frame.winfo_width()
         content_height = content_frame.winfo_height()
         
-        # 更新蒙版颜色，以确保它与当前主题匹配
-        self.mask_frame.configure(background=self.get_sidebar_color())
+        # 更新两个蒙版颜色，以确保它们与当前主题匹配
+        self.expand_mask_frame.configure(background=self.get_sidebar_color())
+        self.shrink_mask_frame.configure(background=self.get_sidebar_color())
         
-        # 放置蒙版在内容区域左侧边缘，确保不遮挡侧边栏
-        self.mask_frame.place(x=content_x, y=content_y, width=1, height=content_height)
-        self.mask_frame.lift()  # 确保蒙版在最上层
+        # 放置扩展蒙版在内容区域左侧边缘，确保不遮挡侧边栏
+        self.expand_mask_frame.place(x=content_x, y=content_y, width=1, height=content_height)
+        self.expand_mask_frame.lift()  # 确保蒙版在最上层
         
         # 开始扩展动画，使用缓动效果
         self.animate_mask_expand(0, content_width)
@@ -246,8 +274,8 @@ class Sidebar:
     def animate_mask_expand(self, step, max_width):
         """蒙版扩展动画，使用缓出效果"""
         if step >= self.animation_steps:
-            # 扩展完成，添加短暂延迟后再切换页面
-            self.app.after(80, lambda: self.delay_switch_page(max_width))
+            # 扩展完成，立即切换页面并准备收缩动画
+            self.prepare_page_switch(max_width)
             return
         
         # 使用缓出效果（ease-out）计算当前宽度：开始快，结束慢
@@ -257,17 +285,39 @@ class Sidebar:
         width = eased_progress * max_width
         
         # 更新蒙版宽度
-        self.mask_frame.place_configure(width=int(width))
+        self.expand_mask_frame.place_configure(width=int(width))
         
         # 下一步
         step_time = self.animation_duration / (self.animation_steps * 2)  # 分配一半时间给扩展
         self.app.after(int(step_time), lambda: self.animate_mask_expand(step + 1, max_width))
     
+    def prepare_page_switch(self, max_width):
+        """准备页面切换，设置全屏蒙版并切换页面"""
+        # 获取内容区域尺寸和位置
+        content_frame = self.app.content_frame
+        content_x = content_frame.winfo_x()
+        content_y = content_frame.winfo_y()
+        content_width = content_frame.winfo_width()
+        content_height = content_frame.winfo_height()
+        
+        # 设置全屏蒙版，覆盖整个内容区域
+        self.shrink_mask_frame.place(x=content_x, y=content_y, width=content_width, height=content_height)
+        self.shrink_mask_frame.lift()  # 确保蒙版在最上层
+        
+        # 隐藏扩展蒙版
+        self.expand_mask_frame.place_forget()
+        
+        # 切换页面
+        self.switch_page()
+        
+        # 短暂延迟后开始收缩动画
+        self.app.after(30, lambda: self.animate_mask_shrink(0, max_width))
+    
     def animate_mask_shrink(self, step, max_width):
         """蒙版收缩动画，使用缓入效果"""
         if step >= self.animation_steps:
             # 收缩完成，移除蒙版
-            self.mask_frame.place_forget()
+            self.shrink_mask_frame.place_forget()
             self.is_animating = False
             return
         
@@ -281,19 +331,11 @@ class Sidebar:
         
         # 更新蒙版宽度，x位置保持在内容区域左侧边缘
         content_x = self.app.content_frame.winfo_x()
-        self.mask_frame.place_configure(x=content_x, width=int(width))
+        self.shrink_mask_frame.place_configure(x=content_x, width=int(width))
         
         # 下一步
         step_time = self.animation_duration / (self.animation_steps * 2)  # 分配一半时间给收缩
         self.app.after(int(step_time), lambda: self.animate_mask_shrink(step + 1, max_width))
-    
-    def delay_switch_page(self, max_width):
-        """延迟切换页面并开始收缩动画"""
-        # 切换页面
-        self.switch_page()
-        
-        # 为了确保页面元素有时间更新，再添加短暂延迟后开始收缩动画
-        self.app.after(50, lambda: self.animate_mask_shrink(0, max_width))
     
     def switch_page(self):
         """切换到目标页面"""

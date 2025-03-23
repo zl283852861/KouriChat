@@ -1,6 +1,8 @@
-import customtkinter as ctk
-import webbrowser
+"""帮助页面模块，提供应用程序的使用指南和关于信息"""
+
 import tkinter as tk
+import webbrowser
+import customtkinter as ctk
 from ..theme import Theme
 
 class HelpPage:

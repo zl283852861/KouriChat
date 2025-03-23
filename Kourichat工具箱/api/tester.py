@@ -1,3 +1,5 @@
+"""API测试模块，提供统一的API测试接口"""
+
 import logging
 from api.character_api import CharacterAPI
 from api.recognition_api import RecognitionAPI
@@ -7,9 +9,18 @@ from api.generation_api import GenerationAPI
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 class APITester:
-    """API测试类"""
+    """API测试类，整合各类API的测试功能"""
     
     def __init__(self, base_url, api_key, model, image_config=None):
+        """
+        初始化API测试器
+        
+        Args:
+            base_url: API基础URL
+            api_key: API密钥
+            model: 使用的模型名称
+            image_config: 图像生成配置
+        """
         self.base_url = base_url
         self.api_key = api_key
         self.model = model
@@ -30,8 +41,7 @@ class APITester:
     
     def generate_image(self, prompt, size=None):
         """生成图片"""
-        if size is None:
-            size = self.image_config.get("generate_size", "512x512")
+        size = size or self.image_config.get("generate_size", "512x512")
         return self.generation_api.generate_image(prompt, size)
 
     def generate_character_profile(self, character_desc):

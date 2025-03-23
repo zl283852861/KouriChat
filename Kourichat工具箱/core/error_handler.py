@@ -5,15 +5,28 @@ import requests
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 
 def handle_api_error(e, server_type):
-    """处理API错误并返回友好的错误信息"""
+    """
+    处理API错误并返回用户友好的错误信息
+    
+    Args:
+        e: 异常对象
+        server_type: 服务器类型描述
+    
+    Returns:
+        str: 格式化的错误信息
+    """
     error_msg = f"警告：访问{server_type}遇到问题："
     
+    # 网络连接错误
     if isinstance(e, requests.exceptions.ConnectionError):
         error_msg += "网络连接失败\n🔧 请检查：1.服务器是否启动 2.地址端口是否正确 3.网络是否通畅 4.防火墙设置"
+    # 请求超时
     elif isinstance(e, requests.exceptions.Timeout):
         error_msg += "请求超时\n🔧 建议：1.稍后重试 2.检查网络速度 3.确认服务器负载情况"
+    # SSL证书错误
     elif isinstance(e, requests.exceptions.SSLError):
         error_msg += "SSL证书验证失败\n🔧 请尝试：1.更新根证书 2.临时关闭证书验证（测试环境）"
+    # HTTP状态码错误
     elif isinstance(e, requests.exceptions.HTTPError):
         status_code = e.response.status_code
         common_solution = "\n💡 解决方法：查看API文档，确认请求参数格式和权限设置"
@@ -29,8 +42,10 @@ def handle_api_error(e, server_type):
         }
         desc, solution = status_map.get(status_code, (f"HTTP {status_code}错误", "查看对应状态码文档"))
         error_msg += f"{desc}\n🔧 {solution}{common_solution}"
+    # API密钥格式错误
     elif isinstance(e, ValueError) and 'Incorrect padding' in str(e):
         error_msg += "API密钥格式错误\n🔧 请检查密钥是否完整（通常以'sk-'开头，共64字符）"
+    # 其他错误
     else:
         error_msg += f"未知错误：{type(e).__name__}\n🔧 建议：1.查看错误详情 2.联系技术支持"
     
