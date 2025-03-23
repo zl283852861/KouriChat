@@ -20,16 +20,18 @@ class RagManager:
     RAG管理器 - 管理检索增强生成相关功能
     """
     
-    def __init__(self, config_path: str, api_wrapper = None):
+    def __init__(self, config_path: str, api_wrapper = None, storage_dir = None):
         """
         初始化RAG管理器
         
         Args:
             config_path: 配置文件路径
             api_wrapper: API调用包装器
+            storage_dir: 存储目录，如果提供则覆盖默认存储路径
         """
         self.config_path = config_path
         self.api_wrapper = api_wrapper
+        self.storage_dir = storage_dir
         
         # 加载配置
         self.config = self._load_config()
@@ -131,6 +133,57 @@ class RagManager:
             except Exception as e:
                 logger.error(f"加载本地嵌入模型失败: {str(e)}，将使用API模型")
         
+        # 如果api_wrapper为None，尝试初始化一个
+        if self.api_wrapper is None:
+            try:
+                # # 导入APIWrapper
+                # try:
+                #     from src.utils.api_wrapper import APIWrapper
+                # except ImportError:
+                #     logger.error("无法导入APIWrapper，嵌入功能将不可用")
+                #     return ApiEmbeddingModel(None, model_name, model_type)
+                
+                # 尝试从配置文件获取RAG专用的API密钥和URL
+                try:
+                    from src.config import config
+                    
+                    # 使用字典方式访问配置
+                    categories = getattr(config, 'categories', {})
+                    rag_settings = {}
+                    
+                    # 尝试不同的访问方式
+                    if isinstance(categories, dict) and 'rag_settings' in categories:
+                        rag_settings = categories['rag_settings'].get('settings', {})
+                    elif hasattr(categories, 'rag_settings'):
+                        rag_settings = getattr(categories.rag_settings, 'settings', {})
+                    
+                    # 读取API密钥
+                    api_key = None
+                    if isinstance(rag_settings, dict) and 'api_key' in rag_settings:
+                        api_key = rag_settings['api_key'].get('value', '')
+                    elif hasattr(rag_settings, 'api_key'):
+                        api_key = getattr(rag_settings.api_key, 'value', '')
+                    
+                    # 读取base_url
+                    base_url = None
+                    if isinstance(rag_settings, dict) and 'base_url' in rag_settings:
+                        base_url = rag_settings['base_url'].get('value', '')
+                    elif hasattr(rag_settings, 'base_url'):
+                        base_url = getattr(rag_settings.base_url, 'value', '')
+                    
+                    # 如果找到了API密钥，创建API包装器
+                    if api_key:
+                        self.api_wrapper = APIWrapper(
+                            api_key=api_key,
+                            base_url=base_url if base_url else None
+                        )
+                        logger.info("成功从配置文件创建RAG专用API包装器")
+                except Exception as config_error:
+                    logger.error(f"从配置文件获取RAG API设置失败: {str(config_error)}")
+                    
+            except Exception as e:
+                logger.error(f"初始化API包装器失败: {str(e)}")
+        
         # 使用API模型
         logger.info(f"使用API嵌入模型: {model_name}")
         return ApiEmbeddingModel(self.api_wrapper, model_name, model_type)
@@ -145,7 +198,19 @@ class RagManager:
         storage_config = self.config.get("storage", {})
         storage_type = storage_config.get("type", "json")
         
-        # 使用角色专属的存储路径，确保与memory.json在同一文件夹
+        # 如果提供了storage_dir，使用该目录
+        if self.storage_dir:
+            # 使用提供的存储目录，文件名固定为rag_storage.json，确保与私聊一致
+            storage_filename = "rag_storage.json"
+            avatar_storage_path = os.path.join(self.storage_dir, storage_filename)
+            
+            # 确保路径有效
+            os.makedirs(self.storage_dir, exist_ok=True)
+            
+            logger.info(f"初始化RAG存储: {storage_type}, 使用自定义路径: {avatar_storage_path}")
+            return JsonStorage(avatar_storage_path)
+        
+        # 否则使用角色专属的存储路径，确保与memory.json在同一文件夹
         base_storage_path = storage_config.get("path", "./data/rag_storage.json")
         storage_filename = os.path.basename(base_storage_path)
         
@@ -248,6 +313,52 @@ class RagManager:
             return success
         except Exception as e:
             logger.error(f"添加文档失败: {str(e)}")
+            return False
+            
+    async def update_document(self, document: Dict) -> bool:
+        """
+        更新RAG系统中的文档
+        
+        Args:
+            document: 文档字典，包含id、content和metadata
+            
+        Returns:
+            bool: 是否成功更新
+        """
+        try:
+            # 检查文档格式
+            if not self._validate_document(document):
+                logger.warning(f"文档格式无效: {document}")
+                return False
+                
+            # 检查是否需要更新嵌入向量
+            if "embedding" not in document:
+                # 生成嵌入向量
+                content = document.get("content", "")
+                embedding = await self.embedding_model.get_embedding(content)
+                
+                if embedding is None:
+                    logger.warning("生成嵌入向量失败，跳过更新文档")
+                    return False
+                    
+                # 添加嵌入向量到文档
+                document["embedding"] = embedding
+            
+            # 保存到存储
+            # 这里假设storage有update_document方法，如果没有需要实现
+            if hasattr(self.storage, 'update_document'):
+                success = self.storage.update_document(document)
+            else:
+                # 如果storage没有update_document方法，使用add_document替代
+                # 这依赖于storage的add_document实现，它应该能处理现有文档的更新
+                success = self.storage.add_document(document)
+            
+            if success:
+                logger.info(f"成功更新文档")
+            
+            return success
+        except Exception as e:
+            logger.error(f"更新文档失败: {str(e)}")
             return False
             
     def _validate_document(self, document: Dict) -> bool:
@@ -466,6 +577,183 @@ class RagManager:
             return success
         except Exception as e:
             logger.error(f"清空存储失败: {str(e)}")
+            return False
+
+    # 在RagManager类中添加群聊上下文相关方法
+    async def group_chat_query(self, group_id: str, current_timestamp: str = None, top_k: int = 7) -> List[Dict]:
+        """
+        查询群聊最近的对话消息
+        
+        Args:
+            group_id: 群聊ID
+            current_timestamp: 当前消息时间戳，如果提供则会排除该消息
+            top_k: 返回的上下文消息数量，默认为7轮
+            
+        Returns:
+            List[Dict]: 最近的消息列表
+        """
+        try:
+            # 确保存储文件已加载
+            if hasattr(self.storage, 'data') and 'group_chats' not in self.storage.data:
+                self.storage.data['group_chats'] = {}
+            
+            # 如果群聊ID不存在于存储中，返回空列表
+            if 'group_chats' not in self.storage.data or group_id not in self.storage.data['group_chats']:
+                logger.warning(f"群聊 {group_id} 在RAG存储中不存在")
+                return []
+            
+            # 获取群聊消息列表
+            messages = self.storage.data['group_chats'][group_id]
+            
+            # 按时间戳倒序排序
+            messages.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+            
+            # 如果提供了当前消息时间戳，排除该消息
+            if current_timestamp:
+                messages = [msg for msg in messages if msg.get('timestamp') != current_timestamp]
+            
+            # 获取最近的top_k条消息
+            recent_messages = messages[:top_k]
+            
+            # 按时间正序排序返回
+            recent_messages.sort(key=lambda x: x.get('timestamp', ''))
+            
+            logger.info(f"获取到群聊 {group_id} 最近 {len(recent_messages)} 轮对话")
+            return recent_messages
+            
+        except Exception as e:
+            logger.error(f"查询群聊上下文失败: {str(e)}")
+            return []
+    
+    async def add_group_chat_message(self, group_id: str, message: Dict) -> bool:
+        """
+        添加群聊消息到RAG系统
+        
+        Args:
+            group_id: 群聊ID
+            message: 消息字典，包含timestamp、sender_name、human_message等字段
+            
+        Returns:
+            bool: 是否成功添加
+        """
+        try:
+            # 确保存储文件已加载
+            if hasattr(self.storage, 'data') and 'group_chats' not in self.storage.data:
+                self.storage.data['group_chats'] = {}
+            
+            # 确保群聊ID存在于存储中
+            if 'group_chats' not in self.storage.data:
+                self.storage.data['group_chats'] = {}
+            
+            if group_id not in self.storage.data['group_chats']:
+                self.storage.data['group_chats'][group_id] = []
+            
+            # 检查是否存在相同时间戳的消息
+            timestamp = message.get('timestamp', '')
+            existing_messages = [msg for msg in self.storage.data['group_chats'][group_id] 
+                               if msg.get('timestamp') == timestamp]
+            
+            if existing_messages:
+                # 更新已存在的消息
+                for existing_msg in existing_messages:
+                    existing_msg.update(message)
+            else:
+                # 添加新消息
+                self.storage.data['group_chats'][group_id].append(message)
+            
+            # 保存数据
+            self.storage._save_data()
+            
+            # 同时，也生成嵌入向量并添加到传统的document格式
+            # 这是为了保持与API兼容性，允许使用语义搜索
+            content = f"{message.get('sender_name', '')}: {message.get('human_message', '')}"
+            if message.get('assistant_message'):
+                content += f"\n{self.avatar_name}: {message.get('assistant_message')}"
+            
+            doc_id = f"group_chat_{group_id}_{int(time.time())}"
+            if 'id' in message:
+                doc_id = message['id']
+            
+            document = {
+                "id": doc_id,
+                "content": content,
+                "metadata": {
+                    "timestamp": message.get('timestamp', ''),
+                    "sender_name": message.get('sender_name', ''),
+                    "human_message": message.get('human_message', ''),
+                    "assistant_message": message.get('assistant_message'),
+                    "is_at": message.get('is_at', False),
+                    "group_id": group_id,
+                    "ai_name": message.get('ai_name', self.avatar_name)
+                }
+            }
+            
+            # 生成嵌入向量
+            embedding = await self.embedding_model.get_embedding(content)
+            if embedding:
+                document["embedding"] = embedding
+                self.storage.add_document(document)
+            
+            return True
+        except Exception as e:
+            logger.error(f"添加群聊消息到RAG系统失败: {str(e)}")
+            return False
+    
+    async def update_group_chat_response(self, group_id: str, timestamp: str, response: str) -> bool:
+        """
+        更新群聊助手回复
+        
+        Args:
+            group_id: 群聊ID
+            timestamp: 消息时间戳
+            response: 助手回复
+            
+        Returns:
+            bool: 是否成功更新
+        """
+        try:
+            # 确保存储文件已加载
+            if hasattr(self.storage, 'data') and 'group_chats' not in self.storage.data:
+                self.storage.data['group_chats'] = {}
+            
+            # 如果群聊ID不存在于存储中，返回失败
+            if 'group_chats' not in self.storage.data or group_id not in self.storage.data['group_chats']:
+                logger.warning(f"群聊 {group_id} 在RAG存储中不存在")
+                return False
+            
+            # 查找对应时间戳的消息
+            found = False
+            for message in self.storage.data['group_chats'][group_id]:
+                if message.get('timestamp') == timestamp:
+                    message['assistant_message'] = response
+                    found = True
+                    break
+            
+            if not found:
+                logger.warning(f"未找到时间戳为 {timestamp} 的群聊消息")
+                return False
+            
+            # 保存数据
+            self.storage._save_data()
+            
+            # 同时更新document格式中的数据
+            # 查询对应的文档
+            query = f"timestamp:{timestamp} AND group_id:{group_id}"
+            results = await self.query(query, top_k=1)
+            
+            if results:
+                doc = results[0]
+                doc["metadata"]["assistant_message"] = response
+                sender_name = doc["metadata"]["sender_name"]
+                human_message = doc["metadata"]["human_message"]
+                doc["content"] = f"{sender_name}: {human_message}\n{self.avatar_name}: {response}"
+                
+                # 更新文档
+                await self.update_document(doc)
+            
+            return True
+        except Exception as e:
+            logger.error(f"更新群聊助手回复失败: {str(e)}")
             return False
 
 # 嵌入模型实现
@@ -854,15 +1142,24 @@ class JsonStorage:
         try:
             if os.path.exists(self.file_path):
                 with open(self.file_path, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
+                    # 确保基本结构存在
+                    if "documents" not in data:
+                        data["documents"] = []
+                    if "group_chats" not in data:
+                        data["group_chats"] = {}
+                    return data
             else:
                 # 初始化空数据
-                data = {"documents": []}
+                data = {
+                    "documents": [],
+                    "group_chats": {}  # 添加群聊数据结构
+                }
                 self._save_data(data)
                 return data
         except Exception as e:
             logger.error(f"加载数据失败: {str(e)}")
-            return {"documents": []}
+            return {"documents": [], "group_chats": {}}
             
     def _save_data(self, data: Dict = None):
         """

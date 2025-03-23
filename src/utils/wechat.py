@@ -740,6 +740,16 @@ class WeChat:
             bool: 是否所有聊天都成功添加了监听
         """
         try:
+            # 清除所有现有监听，确保只监听指定的列表
+            current_listening = list(self._listen_chats)
+            for old_chat in current_listening:
+                if old_chat not in chat_list:
+                    self.RemoveListenChat(old_chat)
+                    logger.info(f"移除了不在监听列表中的聊天: {old_chat}")
+            
+            # 构建监听列表集合，用于快速查找
+            chat_set = set(chat_list)
+            
             success_count = 0
             for chat_name in chat_list:
                 try:
@@ -748,15 +758,56 @@ class WeChat:
                         logger.error(f"找不到会话 {chat_name}")
                         continue
                     
-                    # 尝试添加监听
-                    self.AddListenChat(who=chat_name, savepic=True, savefile=True)
-                    logger.info(f"成功添加监听: {chat_name}")
-                    success_count += 1
-                    time.sleep(0.5)  # 添加短暂延迟，避免操作过快
+                    # 添加到监听列表 - 确保这是一个有效的监听对象
+                    if chat_name not in self._listen_chats:
+                        # 尝试添加监听
+                        self.AddListenChat(who=chat_name, savepic=True, savefile=True)
+                        logger.info(f"成功添加监听: {chat_name}")
+                        success_count += 1
+                        time.sleep(0.5)  # 添加短暂延迟，避免操作过快
+                    else:
+                        logger.info(f"聊天 {chat_name} 已在监听列表中")
+                        success_count += 1
                     
                 except Exception as e:
                     logger.error(f"添加监听失败 {chat_name}: {str(e)}")
                     continue
+            
+            # 添加GetWeChatWindow方法，避免为不在监听列表中的用户创建新窗口
+            if not hasattr(self, 'GetWeChatWindow'):
+                def GetWeChatWindow(who: str) -> bool:
+                    """
+                    检查指定聊天是否应该被监听，防止监听不在列表中的用户
+                    
+                    Args:
+                        who: 聊天对象名称
+                        
+                    Returns:
+                        bool: 是否应该被监听
+                    """
+                    # 只有在监听列表中的聊天才会返回True
+                    if who in chat_set or who in self._listen_chats:
+                        # 存在于监听列表，尝试正常获取窗口
+                        try:
+                            return self._get_chat_window(who) is not None
+                        except:
+                            return False
+                    else:
+                        # 不在监听列表中，不获取窗口
+                        logger.info(f"忽略不在监听列表中的聊天: {who}")
+                        return False
+                
+                # 将方法添加到实例
+                self.GetWeChatWindow = GetWeChatWindow
+                logger.info("已添加防止监听非列表用户的保护方法")
+            
+            # 检查监听列表是否为空
+            if not self._listen_chats:
+                logger.warning("初始化后监听列表为空，可能存在问题")
+                return False
+                
+            # 记录监听列表完整内容
+            logger.info(f"当前监听的聊天列表: {list(self._listen_chats)}")
             
             # 如果所有聊天都成功添加了监听，返回True
             return success_count == len(chat_list)
