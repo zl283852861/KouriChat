@@ -56,14 +56,11 @@ class MessageHandler:
         self.unanswered_counters = {}
         self.unanswered_timers = {}  # 新增：存储每个用户的计时器
         self.MAX_MESSAGE_LENGTH = 500
-        
-        # 添加发送锁，防止并发发送
-        self.send_lock = threading.Lock()
-        # 添加最近发送的消息记录
-        self.recent_sent_messages = {}  # {chat_id: [{"msg": msg, "time": time}, ...]}
+
         # 保存到记忆 - 移除这一行，避免重复保存
         # 修改（2025/3/14 by Elimir) 打开了记忆这一行，进行测试
         # 修改(2025/3/15 by Elimir) 注释这一行，移除add_short_memory，改成在memory_handler中添加钩子
+        # self.memory_handler.add_short_memory(message, reply, sender_id)
 
     def get_api_response(self, message: str, user_id: str, group_id: str = None, sender_name: str = None) -> str:
         """获取API回复"""
@@ -781,22 +778,6 @@ class MessageHandler:
         if self.wx is None:
             logger.warning("WeChat对象为None，无法发送消息")
             return False
-            
-        # 检查是否是最近已发送的相似内容
-        current_time = time.time()
-        if who in self.recent_sent_messages:
-            # 遍历最近发送的消息，检查有无相似内容（10秒内）
-            for recent_msg in self.recent_sent_messages[who]:
-                # 只检查10秒内的消息
-                if current_time - recent_msg["time"] > 10:
-                    continue
-                    
-                # 如果消息完全相同或内容包含关系，跳过发送
-                if (msg == recent_msg["msg"] or 
-                    msg in recent_msg["msg"] or 
-                    recent_msg["msg"] in msg):
-                    logger.warning(f"跳过发送最近10秒内已发送的相似消息: {msg[:20]}...")
-                    return True  # 返回True以避免重试
         
         # 不再特殊处理消息末尾的反斜杠，因为所有反斜杠都已在分割阶段处理
         processed_msg = msg
@@ -805,45 +786,31 @@ class MessageHandler:
         if max_retries is None:
             max_retries = 3
             
-        # 使用锁保护发送过程
-        with self.send_lock:
-            # 尝试发送消息
-            for attempt in range(max_retries):
-                try:
-                    if self.is_qq:
-                        # QQ消息直接返回，不实际发送
-                        return True
-                    else:
-                        # 微信消息发送
-                        if char_by_char:
-                            # 逐字发送
-                            for char in processed_msg:
-                                self.wx.SendMsg(char, who)
-                                time.sleep(random.uniform(0.1, 0.3))
-                        else:
-                            # 整条发送
-                            self.wx.SendMsg(processed_msg, who)
-                            
-                        # 记录已发送的消息
-                        if who not in self.recent_sent_messages:
-                            self.recent_sent_messages[who] = []
-                        # 只保留最近10条消息
-                        if len(self.recent_sent_messages[who]) >= 10:
-                            self.recent_sent_messages[who].pop(0)
-                        self.recent_sent_messages[who].append({
-                            "msg": processed_msg,
-                            "time": current_time
-                        })
-                        
+        # 尝试发送消息
+        for attempt in range(max_retries):
+            try:
+                if self.is_qq:
+                    # QQ消息直接返回，不实际发送
                     return True
-                except Exception as e:
-                    # 只在最后一次重试失败时记录错误
-                    if attempt == max_retries - 1:
-                        logger.error(f"发送消息失败: {str(e)}")
+                else:
+                    # 微信消息发送
+                    if char_by_char:
+                        # 逐字发送
+                        for char in processed_msg:
+                            self.wx.SendMsg(char, who)
+                            time.sleep(random.uniform(0.1, 0.3))
+                    else:
+                        # 整条发送
+                        self.wx.SendMsg(processed_msg, who)
+                return True
+            except Exception as e:
+                # 只在最后一次重试失败时记录错误
+                if attempt == max_retries - 1:
+                    logger.error(f"发送消息失败: {str(e)}")
+                
+                if attempt < max_retries - 1:
+                    time.sleep(1)  # 等待一秒后重试
                     
-                    if attempt < max_retries - 1:
-                        time.sleep(1)  # 等待一秒后重试
-        
         return False
 
     def _handle_text_message(self, content, chat_id, sender_name, username, is_group, is_image_recognition=False):
@@ -1636,58 +1603,26 @@ class MessageHandler:
         # 计算自然的发送间隔
         base_interval = 0.5  # 基础间隔时间（秒）
         
-        # 如果最近10秒内已经发送过消息给该用户，不进行去重复检查
-        current_time = time.time()
-        # 清理过旧的消息记录（30秒前的）
-        if chat_id in self.recent_sent_messages:
-            self.recent_sent_messages[chat_id] = [
-                msg for msg in self.recent_sent_messages[chat_id]
-                if current_time - msg["time"] <= 30
-            ]
-        
-        # 重新整理消息片段，合并相似内容
-        filtered_parts = []
-        for part in messages['parts']:
-            part = part.strip()
-            if not part:  # 跳过空部分
-                continue
+        for i, part in enumerate(messages['parts']):
+            if part not in sent_messages:
+                # 模拟真实用户输入行为
+                time.sleep(base_interval)  # 基础间隔
                 
-            # 检查是否与之前的部分重复
-            is_duplicate = False
-            for existing_part in filtered_parts:
-                # 使用更严格的重复检测
-                if (part == existing_part or 
-                    (len(part) > 5 and len(existing_part) > 5 and 
-                     (part in existing_part or existing_part in part))):
-                    is_duplicate = True
-                    logger.debug(f"跳过重复内容: {part[:20]}...")
-                    break
-            
-            if not is_duplicate:
-                filtered_parts.append(part)
-        
-        # 使用锁保护整个发送过程
-        with self.send_lock:
-            for i, part in enumerate(filtered_parts):
-                if part not in sent_messages:
-                    # 模拟真实用户输入行为
-                    time.sleep(base_interval)  # 基础间隔
+                # 发送消息，支持重试
+                success = self._safe_send_msg(part, chat_id)
+                
+                if success:
+                    sent_messages.add(part)
+                    success_count += 1
                     
-                    # 发送消息，支持重试
-                    success = self._safe_send_msg(part, chat_id)
-                    
-                    if success:
-                        sent_messages.add(part)
-                        success_count += 1
-                        
-                        # 根据消息长度动态调整下一条消息的等待时间
-                        wait_time = base_interval + random.uniform(0.3, 0.7) * (len(part) / 50)
-                        time.sleep(wait_time)
-                    else:
-                        logger.error(f"发送片段失败: {part[:20]}...")
+                    # 根据消息长度动态调整下一条消息的等待时间
+                    wait_time = base_interval + random.uniform(0.3, 0.7) * (len(part) / 50)
+                    time.sleep(wait_time)
                 else:
-                    # 不再记录重复内容的日志
-                    pass
+                    logger.error(f"发送片段失败: {part[:20]}...")
+            else:
+                # 不再记录重复内容的日志
+                pass
         
         return success_count > 0
 

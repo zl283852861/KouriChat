@@ -196,5 +196,3 @@ cython_debug/
 .cursor/
 .cursorrules
 
-data/avatars/ATRI/memory.json
-data/avatars/ATRI/rag_storage.json
