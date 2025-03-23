@@ -39,8 +39,6 @@ class WeChat:
             self._listen_windows = {}  # 存储监听窗口的引用
             self._window_handles = {}  # 存储窗口句柄
             self._current_chat = None  # 当前活动的聊天
-            self._last_window_check = 0  # 上次检查窗口的时间
-            self._window_check_interval = 5  # 窗口检查间隔（秒）
             
             # 消息缓存
             self._last_messages = {}  # 存储每个聊天的最后一条消息
@@ -50,7 +48,6 @@ class WeChat:
             self._max_reconnect_attempts = 3
             self._reconnect_delay = 10  # 重连等待时间（秒）
             self._last_reconnect_time = 0
-            self._check_interval = 600  # 窗口检查间隔（秒）
             
             logger.info("微信接口初始化完成")
         except Exception as e:
@@ -98,16 +95,6 @@ class WeChat:
             Optional[Any]: 聊天窗口对象或None
         """
         try:
-            current_time = time.time()
-            
-            # 如果已经有缓存的窗口且距离上次检查时间不超过间隔，直接返回
-            if who in self._listen_windows:
-                if current_time - self._last_window_check < self._window_check_interval:
-                    return self._listen_windows[who]
-            
-            # 更新检查时间
-            self._last_window_check = current_time
-            
             # 如果当前聊天已经是目标聊天，直接获取窗口而不进行切换
             if self._current_chat != who:
                 # 切换到指定聊天
@@ -571,7 +558,6 @@ class WeChat:
             # 只有在成功添加至少一个监听时才算成功
             if added_count > 0:
                 # 更新相关时间戳
-                self._last_window_check = time.time()
                 self._last_reconnect_time = time.time()
                 return True
             else:
@@ -637,7 +623,7 @@ class WeChat:
                 self._last_reconnect_time = current_time
                 return False
             
-            # 只重新添加长时间未响应的监听
+            # 只重新添加未响应的监听
             listen_problem_chats = []
             for chat in self._listen_chats.copy():
                 # 检查聊天是否在会话列表中
@@ -645,12 +631,8 @@ class WeChat:
                     logger.warning(f"无法找到会话 {chat}，可能已被删除")
                     continue
                     
-                # 检查最近是否收到过该聊天的消息
-                chat_active = chat in self._last_messages and (
-                    current_time - self._last_window_check < 300)  # 5分钟内有活动
-                
-                if not chat_active:
-                    listen_problem_chats.append(chat)
+                # 所有聊天都添加到需要重新监听的列表中
+                listen_problem_chats.append(chat)
             
             # 如果有问题聊天，重新添加它们的监听
             if listen_problem_chats:
@@ -699,29 +681,22 @@ class WeChat:
         """
         current_time = time.time()
         
-        # 避免频繁检查，只有在_check_interval秒后才检查
+        # 避免频繁检查，只有在60秒后才检查
         if current_time - self._last_reconnect_time < 60:  # 至少间隔1分钟
             return False
             
         # 只有在以下情况才需要重连：
         # 1. wx对象为None
-        # 2. 长时间未检查 (超过_check_interval秒)
-        # 3. 无法获取会话列表
+        # 2. 无法获取会话列表
         try:
             if not self.wx:
                 return True
                 
-            # 长时间未检查才进行深度检查
-            if current_time - self._last_window_check > self._check_interval:
-                # 尝试获取会话列表，如果失败则需要重连
-                session_list = self.wx.GetSessionList()
-                if not session_list:
-                    logger.warning("无法获取会话列表，可能需要重连")
-                    return True
-                    
-                # 更新检查时间
-                self._last_window_check = current_time
-                return False
+            # 尝试获取会话列表，如果失败则需要重连
+            session_list = self.wx.GetSessionList()
+            if not session_list:
+                logger.warning("无法获取会话列表，可能需要重连")
+                return True
                 
             # 正常情况下不需要重连
             return False

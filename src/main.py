@@ -927,8 +927,6 @@ def message_listener():
     global wx_listening_chats  # 使用全局变量跟踪已添加的监听集合
     
     wx = None
-    last_window_check = 0
-    check_interval = 21600  # 定时检查更改为6小时一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 30  # 重连等待时间（秒）
@@ -938,7 +936,7 @@ def message_listener():
         try:
             current_time = time.time()
 
-            if wx is None or (current_time - last_window_check > check_interval):
+            if wx is None:
                 # 检查是否需要重置重连计数
                 if current_time - last_reconnect_time > 300:  # 5分钟无错误，重置计数
                     reconnect_attempts = 0
@@ -977,7 +975,7 @@ def message_listener():
 
                     # 成功初始化，重置计数
                     reconnect_attempts = 0
-                    last_window_check = current_time
+                    last_reconnect_time = current_time
                     logger.info("微信监听恢复正常")
                     
                     # 确保message_handler和chat_bot都有最新的wx对象
