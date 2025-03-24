@@ -12,8 +12,15 @@ import wxauto
 import pythoncom  # 添加pythoncom导入
 import random
 from typing import Dict, List, Any, Optional, Tuple, Union
+import win32gui
+import re
+import pyautogui
+import win32con
+import win32api
+from dataclasses import dataclass
+from datetime import datetime
 
-logger = logging.getLogger('main')
+logger = logging.getLogger('kourichat')
 
 class WeChat:
     """微信接口类，提供与微信交互的方法"""
@@ -39,8 +46,6 @@ class WeChat:
             self._listen_windows = {}  # 存储监听窗口的引用
             self._window_handles = {}  # 存储窗口句柄
             self._current_chat = None  # 当前活动的聊天
-            self._last_window_check = 0  # 上次检查窗口的时间
-            self._window_check_interval = 5  # 窗口检查间隔（秒）
             
             # 消息缓存
             self._last_messages = {}  # 存储每个聊天的最后一条消息
@@ -50,7 +55,6 @@ class WeChat:
             self._max_reconnect_attempts = 3
             self._reconnect_delay = 10  # 重连等待时间（秒）
             self._last_reconnect_time = 0
-            self._check_interval = 600  # 窗口检查间隔（秒）
             
             logger.info("微信接口初始化完成")
         except Exception as e:
@@ -98,16 +102,6 @@ class WeChat:
             Optional[Any]: 聊天窗口对象或None
         """
         try:
-            current_time = time.time()
-            
-            # 如果已经有缓存的窗口且距离上次检查时间不超过间隔，直接返回
-            if who in self._listen_windows:
-                if current_time - self._last_window_check < self._window_check_interval:
-                    return self._listen_windows[who]
-            
-            # 更新检查时间
-            self._last_window_check = current_time
-            
             # 如果当前聊天已经是目标聊天，直接获取窗口而不进行切换
             if self._current_chat != who:
                 # 切换到指定聊天
@@ -138,14 +132,19 @@ class WeChat:
             who: 聊天对象名称
             
         Returns:
-            bool: 是否成功激活窗口
+            bool: 是否成功
         """
         try:
-            # 如果当前聊天已经是目标聊天，无需切换
+            if not self.wx:
+                logger.error("微信接口未初始化")
+                return False
+            
+            # 检查当前聊天是否已经是目标聊天
             if self._current_chat == who:
+                logger.debug(f"当前聊天已经是 {who}，无需切换")
                 return True
-                
-            # 直接使用ChatWith切换到目标聊天，而不是先调用_get_chat_window
+            
+            # 尝试切换到目标聊天
             if not self.ChatWith(who):
                 logger.error(f"无法切换到聊天 {who}")
                 return False
@@ -161,15 +160,52 @@ class WeChat:
             self._listen_windows[who] = window
             self._window_handles[who] = window.handle
             
+            # 如果窗口最小化，将其恢复
+            try:
+                if win32gui.IsIconic(window.handle):
+                    win32gui.ShowWindow(window.handle, win32con.SW_RESTORE)
+                    time.sleep(0.3)
+                    logger.debug(f"已恢复窗口 {who} 的最小化状态")
+            except Exception as e:
+                logger.warning(f"恢复窗口状态失败: {str(e)}")
+            
             # 如果窗口未激活，则激活它
-            if not window.isActive:
-                window.activate()
-                time.sleep(0.2)  # 减少等待时间
+            try:
+                if not window.isActive:
+                    # 首先尝试使用wxauto的activate方法
+                    window.activate()
+                    time.sleep(0.2)
+                    
+                    # 如果上面的方法失败，尝试使用win32gui
+                    win32gui.SetForegroundWindow(window.handle)
+                    time.sleep(0.2)
+                    
+                    # 尝试使用win32gui的另一种方式
+                    win32gui.BringWindowToTop(window.handle)
+                    time.sleep(0.2)
+                    
+                    logger.debug(f"已激活窗口: {who}")
+            except Exception as e:
+                logger.warning(f"激活窗口失败: {str(e)}")
+                # 即使激活失败，我们依然认为切换成功了，因为ChatWith可能已经成功
+            
+            # 尝试模拟点击窗口以确保焦点
+            try:
+                # 获取窗口位置和大小
+                rect = win32gui.GetWindowRect(window.handle)
+                x = (rect[0] + rect[2]) // 2  # 窗口中心X坐标
+                y = (rect[1] + rect[3]) // 2  # 窗口中心Y坐标
+                
+                # 模拟点击窗口中心
+                pyautogui.click(x, y)
+                time.sleep(0.1)
+            except Exception as e:
+                logger.warning(f"模拟点击窗口失败: {str(e)}")
             
             self._current_chat = who
             return True
         except Exception as e:
-            logger.error(f"激活窗口失败 {who}: {str(e)}")
+            logger.error(f"确保窗口活动状态失败 {who}: {str(e)}", exc_info=True)
             return False
     
     def ChatWith(self, who: str) -> bool:
@@ -218,18 +254,121 @@ class WeChat:
                 logger.error("微信接口未初始化")
                 return False
             
+            # 确保消息不为空
+            if not msg or not msg.strip():
+                logger.warning("消息内容为空，跳过发送")
+                return False
+            
             if who:
-                # 确保窗口处于活动状态
-                if not self._ensure_window_active(who):
-                    logger.error(f"无法切换到聊天 {who}")
-                    return False
+                # 如果当前聊天已经是目标聊天，不需要切换
+                if self._current_chat != who:
+                    logger.info(f"尝试切换聊天到: {who}")
+                    # 重试三次切换聊天
+                    for attempt in range(3):
+                        # 确保窗口处于活动状态
+                        if not self._ensure_window_active(who):
+                            logger.warning(f"尝试 {attempt+1}: 使用_ensure_window_active切换到聊天 {who} 失败")
+                            # 使用基本的ChatWith方法再次尝试
+                            if not self.wx.ChatWith(who):
+                                logger.warning(f"尝试 {attempt+1}: 使用ChatWith切换到聊天 {who} 也失败了")
+                                if attempt == 2:  # 最后一次尝试
+                                    logger.error(f"切换到聊天 {who} 失败，无法发送消息")
+                                    return False
+                                time.sleep(0.5 * (attempt + 1))  # 逐渐增加等待时间
+                                continue
+                        else:
+                            logger.info(f"成功切换到聊天: {who}")
+                            break
+                    
+                    # 等待切换完成
+                    time.sleep(0.5)
+            
+            # 尝试激活微信主窗口
+            try:
+                # 查找微信主窗口
+                wx_windows = win32gui.FindWindow("WeChatMainWndForPC", None)
+                if wx_windows:
+                    # 如果窗口最小化，则恢复
+                    if win32gui.IsIconic(wx_windows):
+                        win32gui.ShowWindow(wx_windows, win32con.SW_RESTORE)
+                        time.sleep(0.3)
+                    
+                    # 将窗口设为前台
+                    win32gui.SetForegroundWindow(wx_windows)
+                    time.sleep(0.3)
+                    logger.info("已激活微信主窗口")
+                else:
+                    logger.warning("找不到微信主窗口")
+            except Exception as wx_err:
+                logger.warning(f"激活微信主窗口失败: {str(wx_err)}")
+            
+            # 在发送前再次确保微信聊天窗口是活动的
+            if who and hasattr(self, '_window_handles') and who in self._window_handles:
+                try:
+                    chat_handle = self._window_handles[who]
+                    # 如果窗口最小化，则恢复
+                    if win32gui.IsIconic(chat_handle):
+                        win32gui.ShowWindow(chat_handle, win32con.SW_RESTORE)
+                        time.sleep(0.2)
+                    
+                    # 将聊天窗口设为前台
+                    win32gui.SetForegroundWindow(chat_handle)
+                    time.sleep(0.2)
+                    logger.info(f"已激活聊天窗口: {who}")
+                except Exception as win_err:
+                    logger.warning(f"激活聊天窗口失败: {str(win_err)}")
+            
+            # 发送消息前模拟点击聊天窗口，确保焦点在输入框
+            try:
+                # 模拟点击输入区域
+                pyautogui.click(x=500, y=500)  # 尝试点击输入区域的一个大致位置
+                time.sleep(0.1)
+            except Exception as click_err:
+                logger.warning(f"模拟点击失败: {str(click_err)}")
+            
+            # 记录发送前的最后一条消息，用于后续验证
+            try:
+                last_messages_before = self.wx.GetAllMessage()
+                last_message_count = len(last_messages_before) if last_messages_before else 0
+                logger.debug(f"发送前消息数量: {last_message_count}")
+            except Exception as e:
+                logger.warning(f"获取发送前消息失败，将无法验证发送结果: {str(e)}")
+                last_message_count = None
             
             # 发送消息
-            self.wx.SendMsg(msg)
-            logger.info(f"发送消息到 {who if who else '当前聊天'}: {msg[:30]}...")
+            result = self.wx.SendMsg(msg)
+            if result:
+                logger.info(f"发送消息到 {who if who else '当前聊天'}: {msg[:30]}...")
+            else:
+                logger.warning(f"wxauto.SendMsg返回失败，消息可能未发送: {msg[:30]}...")
+            
+            # 等待一小段时间，让消息有机会发送
+            time.sleep(0.3)
+            
+            # 验证消息是否已发送
+            if last_message_count is not None:
+                try:
+                    # 检查消息数量是否增加
+                    current_messages = self.wx.GetAllMessage()
+                    current_count = len(current_messages) if current_messages else 0
+                    
+                    if current_count > last_message_count:
+                        logger.info(f"消息发送成功验证: 消息数增加 {last_message_count} -> {current_count}")
+                        return True
+                    else:
+                        # 这种情况可能是消息已发送但未刷新，或者真的失败了
+                        # 我们宁可信其有，因为重试可能会导致多条相同消息
+                        logger.info(f"消息可能已发送，但无法确认，假设成功")
+                        return True
+                except Exception as e:
+                    logger.warning(f"验证消息发送结果失败: {str(e)}")
+                    # 保守处理，假设成功
+                    return True
+            
+            # 如果无法验证，假设成功
             return True
         except Exception as e:
-            logger.error(f"发送消息失败 {msg[:20]}: {str(e)}")
+            logger.error(f"发送消息失败 {msg[:20]}: {str(e)}", exc_info=True)
             return False
     
     def SendFiles(self, file_path: str, who: str = None) -> bool:
@@ -248,18 +387,90 @@ class WeChat:
                 logger.error("微信接口未初始化")
                 return False
             
+            # 检查文件路径是否有效
+            if not file_path or not os.path.exists(file_path):
+                logger.error(f"文件不存在: {file_path}")
+                return False
+            
             if who:
-                # 确保窗口处于活动状态
-                if not self._ensure_window_active(who):
-                    logger.error(f"无法切换到聊天 {who}")
-                    return False
+                # 如果当前聊天已经是目标聊天，不需要切换
+                if self._current_chat != who:
+                    logger.info(f"尝试切换聊天到: {who}")
+                    # 重试三次切换聊天
+                    for attempt in range(3):
+                        # 确保窗口处于活动状态
+                        if not self._ensure_window_active(who):
+                            logger.warning(f"尝试 {attempt+1}: 使用_ensure_window_active切换到聊天 {who} 失败")
+                            # 使用基本的ChatWith方法再次尝试
+                            if not self.wx.ChatWith(who):
+                                logger.warning(f"尝试 {attempt+1}: 使用ChatWith切换到聊天 {who} 也失败了")
+                                if attempt == 2:  # 最后一次尝试
+                                    logger.error(f"切换到聊天 {who} 失败，无法发送文件")
+                                    return False
+                                time.sleep(0.5 * (attempt + 1))  # 逐渐增加等待时间
+                                continue
+                        else:
+                            logger.info(f"成功切换到聊天: {who}")
+                            break
+                    
+                    # 等待切换完成
+                    time.sleep(0.5)
+            
+            # 尝试激活微信主窗口
+            try:
+                # 查找微信主窗口
+                wx_windows = win32gui.FindWindow("WeChatMainWndForPC", None)
+                if wx_windows:
+                    # 如果窗口最小化，则恢复
+                    if win32gui.IsIconic(wx_windows):
+                        win32gui.ShowWindow(wx_windows, win32con.SW_RESTORE)
+                        time.sleep(0.3)
+                    
+                    # 将窗口设为前台
+                    win32gui.SetForegroundWindow(wx_windows)
+                    time.sleep(0.3)
+                    logger.info("已激活微信主窗口")
+                else:
+                    logger.warning("找不到微信主窗口")
+            except Exception as wx_err:
+                logger.warning(f"激活微信主窗口失败: {str(wx_err)}")
+            
+            # 在发送前再次确保微信聊天窗口是活动的
+            if who and hasattr(self, '_window_handles') and who in self._window_handles:
+                try:
+                    chat_handle = self._window_handles[who]
+                    # 如果窗口最小化，则恢复
+                    if win32gui.IsIconic(chat_handle):
+                        win32gui.ShowWindow(chat_handle, win32con.SW_RESTORE)
+                        time.sleep(0.2)
+                    
+                    # 将聊天窗口设为前台
+                    win32gui.SetForegroundWindow(chat_handle)
+                    time.sleep(0.2)
+                    logger.info(f"已激活聊天窗口: {who}")
+                except Exception as win_err:
+                    logger.warning(f"激活聊天窗口失败: {str(win_err)}")
+            
+            # 发送消息前模拟点击聊天窗口，确保焦点在输入框
+            try:
+                # 模拟点击输入区域
+                pyautogui.click(x=500, y=500)  # 尝试点击输入区域的一个大致位置
+                time.sleep(0.1)
+            except Exception as click_err:
+                logger.warning(f"模拟点击失败: {str(click_err)}")
             
             # 发送文件
-            self.wx.SendFiles(file_path)
-            logger.info(f"发送文件到 {who if who else '当前聊天'}: {file_path}")
-            return True
+            result = self.wx.SendFiles(file_path)
+            if result:
+                logger.info(f"发送文件到 {who if who else '当前聊天'}: {file_path}")
+            else:
+                logger.warning(f"wxauto.SendFiles返回失败，文件可能未发送: {file_path}")
+            
+            # 发送后等待一小段时间，确保文件被处理
+            time.sleep(0.8)  # 文件发送可能需要更长的处理时间
+            return result
         except Exception as e:
-            logger.error(f"发送文件失败 {file_path}: {str(e)}")
+            logger.error(f"发送文件失败 {file_path}: {str(e)}", exc_info=True)
             return False
     
     def AddListenChat(self, who: str, savepic: bool = False, savefile: bool = False) -> bool:
@@ -571,7 +782,6 @@ class WeChat:
             # 只有在成功添加至少一个监听时才算成功
             if added_count > 0:
                 # 更新相关时间戳
-                self._last_window_check = time.time()
                 self._last_reconnect_time = time.time()
                 return True
             else:
@@ -637,7 +847,7 @@ class WeChat:
                 self._last_reconnect_time = current_time
                 return False
             
-            # 只重新添加长时间未响应的监听
+            # 只重新添加未响应的监听
             listen_problem_chats = []
             for chat in self._listen_chats.copy():
                 # 检查聊天是否在会话列表中
@@ -645,12 +855,8 @@ class WeChat:
                     logger.warning(f"无法找到会话 {chat}，可能已被删除")
                     continue
                     
-                # 检查最近是否收到过该聊天的消息
-                chat_active = chat in self._last_messages and (
-                    current_time - self._last_window_check < 300)  # 5分钟内有活动
-                
-                if not chat_active:
-                    listen_problem_chats.append(chat)
+                # 所有聊天都添加到需要重新监听的列表中
+                listen_problem_chats.append(chat)
             
             # 如果有问题聊天，重新添加它们的监听
             if listen_problem_chats:
@@ -699,29 +905,22 @@ class WeChat:
         """
         current_time = time.time()
         
-        # 避免频繁检查，只有在_check_interval秒后才检查
+        # 避免频繁检查，只有在60秒后才检查
         if current_time - self._last_reconnect_time < 60:  # 至少间隔1分钟
             return False
             
         # 只有在以下情况才需要重连：
         # 1. wx对象为None
-        # 2. 长时间未检查 (超过_check_interval秒)
-        # 3. 无法获取会话列表
+        # 2. 无法获取会话列表
         try:
             if not self.wx:
                 return True
                 
-            # 长时间未检查才进行深度检查
-            if current_time - self._last_window_check > self._check_interval:
-                # 尝试获取会话列表，如果失败则需要重连
-                session_list = self.wx.GetSessionList()
-                if not session_list:
-                    logger.warning("无法获取会话列表，可能需要重连")
-                    return True
-                    
-                # 更新检查时间
-                self._last_window_check = current_time
-                return False
+            # 尝试获取会话列表，如果失败则需要重连
+            session_list = self.wx.GetSessionList()
+            if not session_list:
+                logger.warning("无法获取会话列表，可能需要重连")
+                return True
                 
             # 正常情况下不需要重连
             return False

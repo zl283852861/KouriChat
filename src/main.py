@@ -510,7 +510,7 @@ class ChatBot:
             if response and isinstance(response, str):
                 logger.info(f"对话记录 - 用户: {username}\n用户: {content}\nAI: {response}")
             else:
-                logger.warning(f"无有效响应内容 - 用户ID: {username}")
+                logger.debug(f"无有效响应内容 - 用户ID: {username}")
 
             # 记录 AI 最后回复的时间
             self.ai_last_reply_time[username] = time.time()
@@ -539,6 +539,14 @@ class ChatBot:
             # 添加详细日志
             logger.info(f"收到消息 - 来源: {chatName}, 发送者: {username}, 是否群聊: {is_group}")
             logger.info(f"原始消息内容: {content}")
+            
+            # 添加未回复计数器状态日志
+            if hasattr(self.message_handler, 'unanswered_counters'):
+                if chatName in self.message_handler.unanswered_counters:
+                    counter_value = self.message_handler.unanswered_counters.get(chatName, 0)
+                    logger.info(f"聊天 {chatName} 的当前未回复计数器值: {counter_value}")
+                else:
+                    logger.info(f"聊天 {chatName} 不在未回复计数器中")
 
             # 先判断是否是群聊@消息
             is_at_robot = False
@@ -704,7 +712,7 @@ class ChatBot:
                 # 30分钟后增加未回复计数
                 def increase_counter_after_delay(username):
                     with self.queue_lock:
-                        self.message_handler.increase_unanswered_counter(username)
+                        self.message_handler.increment_unanswered_counter(username)
 
                 timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
                 timer.start()
@@ -789,6 +797,12 @@ def is_quiet_time() -> bool:
 def get_random_countdown_time():
     """获取随机倒计时时长"""
     try:
+        # 检查是否在调试模式
+        debug_mode = getattr(config, 'debug', False)
+        if debug_mode:
+            logger.info("调试模式下使用短倒计时: 1-2分钟")
+            return random.uniform(60, 120)  # 1-2分钟
+            
         # 检查配置是否存在
         if not hasattr(config, 'behavior') or not hasattr(config.behavior, 'auto_message') or \
            not hasattr(config.behavior.auto_message, 'min_hours') or \
@@ -800,10 +814,21 @@ def get_random_countdown_time():
         min_hours = float(config.behavior.auto_message.min_hours)
         max_hours = float(config.behavior.auto_message.max_hours)
         
+        # 如果两个值都是0，设置为默认值
+        if min_hours == 0 and max_hours == 0:
+            logger.warning("配置的倒计时范围都为0，使用默认值1-3小时")
+            min_hours = 1.0
+            max_hours = 3.0
+        
         # 确保最小值不大于最大值
         if min_hours > max_hours:
             logger.warning(f"配置错误：min_hours({min_hours})大于max_hours({max_hours})，将交换它们")
             min_hours, max_hours = max_hours, min_hours
+        
+        # 确保有最小值
+        if min_hours < 0.01:  # 至少36秒
+            min_hours = 0.01
+            logger.warning(f"min_hours太小，已调整为{min_hours}小时")
             
         # 将小时转换为秒
         min_seconds = int(min_hours * 3600)
@@ -817,20 +842,31 @@ def get_random_countdown_time():
         return random.uniform(3600, 10800)
 
 
-def get_personality_summary(prompt_content: str) -> str:
+def get_personality_summary(prompt_content_param: str = None) -> str:
     """从完整人设中提取关键性格特点"""
     try:
+        # 如果未提供prompt_content参数，使用全局的prompt_content
+        if prompt_content_param is None:
+            # 使用全局变量
+            global prompt_content
+            prompt_content_to_use = prompt_content
+            if prompt_content_to_use is None or not prompt_content_to_use:
+                logger.warning("未提供prompt_content且全局变量为空，返回默认性格描述")
+                return "友好、耐心、善解人意的助手"
+        else:
+            prompt_content_to_use = prompt_content_param
+        
         # 查找核心人格部分
-        core_start = prompt_content.find("# 性格")
+        core_start = prompt_content_to_use.find("# 性格")
         if core_start == -1:
-            return prompt_content[:500]  # 如果找不到标记，返回500字符
+            return prompt_content_to_use[:500]  # 如果找不到标记，返回500字符
 
         # 找到下一个标题或文件结尾
-        next_title = prompt_content.find("#", core_start + 1)
+        next_title = prompt_content_to_use.find("#", core_start + 1)
         if next_title == -1:
-            core_content = prompt_content[core_start:]
+            core_content = prompt_content_to_use[core_start:]
         else:
-            core_content = prompt_content[core_start:next_title]
+            core_content = prompt_content_to_use[core_start:next_title]
 
         # 提取关键内容
         core_lines = [line.strip() for line in core_content.split('\n')
@@ -872,15 +908,42 @@ def is_already_listening(wx_instance, chat_name):
 
 def auto_send_message():
     """自动发送消息- 调用message_handler中的方法"""
-    # 调用message_handler中的auto_send_message方法
-    message_handler.auto_send_message(
-        listen_list=listen_list,
-        robot_wx_name=ROBOT_WX_NAME,
-        get_personality_summary=get_personality_summary,
-        is_quiet_time=is_quiet_time,
-        start_countdown=start_countdown
-    )
-    # 最后启动新的倒计时
+    try:
+        logger.info("开始执行auto_send_message函数")
+        logger.info(f"当前监听列表: {listen_list}")
+        
+        # 调用message_handler中的auto_send_message方法
+        # 如果是安静时间，不发送消息，但仍然需要启动新的倒计时
+        if is_quiet_time():
+            logger.info("当前是安静时间，跳过主动发送，但仍会继续倒计时")
+        else:
+            # 检查message_handler的状态
+            if not message_handler:
+                logger.error("message_handler未初始化")
+                return
+                
+            # 检查未回复计数器状态
+            unanswered_summary = {}
+            for chat_id in listen_list:
+                if chat_id in message_handler.unanswered_counters:
+                    unanswered_summary[chat_id] = message_handler.unanswered_counters[chat_id]
+            logger.info(f"未回复计数器状态: {unanswered_summary}")
+                
+            # 只有在非安静时间才执行发送消息
+            logger.info("开始调用message_handler.auto_send_message方法")
+            message_handler.auto_send_message(
+                listen_list=listen_list,
+                robot_wx_name=ROBOT_WX_NAME,
+                get_personality_summary=get_personality_summary,
+                is_quiet_time=is_quiet_time,
+                start_countdown=start_countdown
+            )
+            logger.info("自动消息发送完成，开始新的倒计时")
+    except Exception as e:
+        logger.error(f"自动发送消息执行失败: {str(e)}", exc_info=True)
+    
+    # 不管是否执行成功或是否在安静时间，都要启动新的倒计时
+    logger.info("启动新的倒计时")
     start_countdown()
 
 
@@ -890,9 +953,14 @@ def start_countdown():
 
     if countdown_timer:
         countdown_timer.cancel()
+        logger.info("已取消之前的倒计时")
 
     countdown_seconds = get_random_countdown_time()
     countdown_end_time = datetime.now() + timedelta(seconds=countdown_seconds)  # 设置结束时间
+    
+    # 输出预计的完成时间
+    end_time_str = countdown_end_time.strftime("%Y-%m-%d %H:%M:%S")
+    logger.info(f"倒计时将在 {end_time_str} 结束")
     
     # 计算小时和分钟，提供更详细的日志
     hours = int(countdown_seconds // 3600)
@@ -917,9 +985,11 @@ def start_countdown():
     except Exception as e:
         logger.warning(f"无法读取配置的倒计时范围: {str(e)}")
 
+    # 创建倒计时线程并确保超时回调确实被调用
     countdown_timer = threading.Timer(countdown_seconds, auto_send_message)
     countdown_timer.daemon = True
     countdown_timer.start()
+    logger.info(f"倒计时线程已启动，线程ID: {countdown_timer.ident}")
     is_countdown_running = True
 
 
@@ -927,8 +997,6 @@ def message_listener():
     global wx_listening_chats  # 使用全局变量跟踪已添加的监听集合
     
     wx = None
-    last_window_check = 0
-    check_interval = 21600  # 定时检查更改为6小时一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 30  # 重连等待时间（秒）
@@ -938,7 +1006,7 @@ def message_listener():
         try:
             current_time = time.time()
 
-            if wx is None or (current_time - last_window_check > check_interval):
+            if wx is None:
                 # 检查是否需要重置重连计数
                 if current_time - last_reconnect_time > 300:  # 5分钟无错误，重置计数
                     reconnect_attempts = 0
@@ -977,7 +1045,7 @@ def message_listener():
 
                     # 成功初始化，重置计数
                     reconnect_attempts = 0
-                    last_window_check = current_time
+                    last_reconnect_time = current_time
                     logger.info("微信监听恢复正常")
                     
                     # 确保message_handler和chat_bot都有最新的wx对象

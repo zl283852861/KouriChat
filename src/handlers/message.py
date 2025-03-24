@@ -133,6 +133,7 @@ class MessageHandler:
         
         self.unanswered_counters = {}
         self.unanswered_timers = {}
+        self.last_reply_time = {}  # 添加last_reply_time属性跟踪最后回复时间
         self.MAX_MESSAGE_LENGTH = 500
 
     def get_api_response(self, message: str, user_id: str, group_id: str = None, sender_name: str = None) -> str:
@@ -1016,6 +1017,10 @@ class MessageHandler:
             if self.unanswered_counters.get(username, 0) > 0:
                 self.unanswered_counters[username] = 0
                 logger.info(f"用户 {username} 的未回复计数器已重置")
+                
+            # 更新最后回复时间
+            self.last_reply_time[username] = time.time()
+            logger.info(f"更新用户 {username} 的最后回复时间")
 
             return reply
 
@@ -1027,8 +1032,29 @@ class MessageHandler:
             self.wx.SendMsg(msg=error_msg, who=chat_id)
             return None
 
+    def _clean_memory_content(self, content: str) -> str:
+        """清理可能包含在内存中的系统提示或格式标记"""
+        if not content:
+            return ""
+        
+        # 移除系统提示
+        content = re.sub(r"\[系统提示\].*?\[/系统提示\]", "", content, flags=re.DOTALL)
+        
+        # 移除可能的XML标记
+        content = re.sub(r"<[^>]+>", "", content)
+        
+        # 移除"用户:"和"AI:"标记
+        content = re.sub(r"(?:用户|AI)[:：]\s*", "", content)
+        
+        # 移除时间戳
+        content = re.sub(r"\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]", "", content)
+        
+        # 移除多余空白
+        cleaned = re.sub(r"\s+", " ", content)
+        return cleaned.strip()
+
     def _safe_send_msg(self, msg, who, max_retries=None, char_by_char=False):
-        """安全发送消息，带重试机制"""
+        """安全发送消息，不含重试机制"""
         if not msg or not who:
             logger.warning("消息或接收人为空，跳过发送")
             return False
@@ -1041,42 +1067,70 @@ class MessageHandler:
             
         # 检查wx对象是否可用
         if self.wx is None:
-            logger.warning("WeChat对象为None，无法发送消息")
+            logger.error("WeChat对象为None，无法发送消息")
             return False
         
-        # 不再特殊处理消息末尾的反斜杠，因为所有反斜杠都已在分割阶段处理
+        # 处理消息中的$分隔符和标点符号处理
         processed_msg = msg
+        # 替换 "，$" 或 "。$" 为 "$"
+        processed_msg = re.sub(r'[，。,\.]\s*\$ ', ' $ ', processed_msg)
+        # 确保$分隔符两侧有空格
+        processed_msg = re.sub(r'(?<!\s)\$', ' $', processed_msg)
+        processed_msg = re.sub(r'\$(?!\s)', '$ ', processed_msg)
+        
+        logger.debug(f"处理$分隔符后的消息: {processed_msg[:30]}...")
+        
+        # 检查wx实例的状态
+        try:
+            if not hasattr(self.wx, 'SendMsg'):
+                logger.error("WeChat对象缺少SendMsg方法，可能未正确初始化")
+                return False
+                
+            # 检查当前是否有活动的微信窗口
+            if hasattr(self.wx, 'GetActiveChatName'):
+                current_chat = self.wx.GetActiveChatName()
+                logger.info(f"当前活动聊天: {current_chat}, 目标聊天: {who}")
+                
+                # 如果当前不是目标聊天，需要切换
+                if current_chat != who:
+                    logger.info(f"切换聊天窗口从 {current_chat} 到 {who}")
+                    self.wx.ChatWith(who)
+                    time.sleep(0.5)  # 给窗口切换一些时间
+        except Exception as e:
+            logger.warning(f"检查WeChat状态时出错: {str(e)}")
+            # 继续尝试发送，而不是立即返回失败
             
-        # 设置重试次数
-        if max_retries is None:
-            max_retries = 3
-            
-        # 尝试发送消息
-        for attempt in range(max_retries):
-            try:
-                if self.is_qq:
-                    # QQ消息直接返回，不实际发送
+        # 处理超长消息
+        if len(processed_msg) > 2000:
+            logger.warning(f"消息过长({len(processed_msg)}字符)，截断为2000字符")
+            processed_msg = processed_msg[:1997] + "..."
+        
+        try:
+            if self.is_qq:
+                # QQ消息直接返回，不实际发送
+                return True
+            else:
+                # 微信消息发送
+                if char_by_char:
+                    # 逐字发送
+                    for char in processed_msg:
+                        self.wx.SendMsg(char, who)
+                        time.sleep(random.uniform(0.1, 0.3))
                     return True
                 else:
-                    # 微信消息发送
-                    if char_by_char:
-                        # 逐字发送
-                        for char in processed_msg:
-                            self.wx.SendMsg(char, who)
-                            time.sleep(random.uniform(0.1, 0.3))
-                    else:
-                        # 整条发送
-                        self.wx.SendMsg(processed_msg, who)
+                    # 整条发送，不检查结果，假设成功
+                    logger.info(f"发送消息到 {who}，长度: {len(processed_msg)}字符")
+                    self.wx.SendMsg(processed_msg, who)
+                    # 不关心返回结果，假设消息已发送成功
+                    logger.info(f"假设消息发送成功: {processed_msg[:30]}...")
+                    return True
+        except Exception as e:
+            logger.error(f"发送消息失败: {str(e)}")
+            # 即使发送失败，我们也假设成功，防止重试
+            if len(processed_msg) <= 100:
+                logger.warning(f"假设短消息可能已发送: {processed_msg}")
                 return True
-            except Exception as e:
-                # 只在最后一次重试失败时记录错误
-                if attempt == max_retries - 1:
-                    logger.error(f"发送消息失败: {str(e)}")
-                
-                if attempt < max_retries - 1:
-                    time.sleep(1)  # 等待一秒后重试
-                    
-        return False
+            return False
 
     def _handle_text_message(self, content, chat_id, sender_name, username, is_group, is_image_recognition=False):
         """处理文本消息"""
@@ -1180,7 +1234,7 @@ class MessageHandler:
             
             # 组合所有提示词和用户输入
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            final_prompt = f"<system>{' '.join(system_prompts)}</system>\n\n<time>{current_time}</time>\n\n<input>{api_content}</input>"
+            final_prompt = f"<s>{' '.join(system_prompts)}</s>\n\n<time>{current_time}</time>\n\n<input>{api_content}</input>"
             
             # 获取AI回复
             reply = self.get_api_response(final_prompt, username)
@@ -1199,6 +1253,9 @@ class MessageHandler:
             
             # 过滤括号内的动作和情感描述
             reply = self._filter_action_emotion(reply)
+            
+            # 在回复末尾添加￥符号作为结束标记
+            reply = reply.rstrip() + "￥"
             
             # 立即保存对话记忆
             try:
@@ -1273,6 +1330,10 @@ class MessageHandler:
             if self.unanswered_counters.get(username, 0) > 0:
                 self.unanswered_counters[username] = 0
             
+            # 更新最后回复时间
+            self.last_reply_time[username] = time.time()
+            logger.info(f"更新用户 {username} 的最后回复时间")
+            
             return delayed_reply
         except Exception as e:
             logger.error(f"处理文本消息失败: {str(e)}", exc_info=True)
@@ -1307,7 +1368,8 @@ class MessageHandler:
             r'请.*?控制在.*?(?=\n|$)',
             r'请你回应用户的结束语',
             r'^你：|^对方：|^AI：',
-            r'ta(?:私聊|在群聊里)对你说[：:]\s*'
+            r'ta(?:私聊|在群聊里)对你说[：:]\s*',
+            r'￥'  # 移除所有￥符号
         ]
         
         for pattern in patterns_to_remove:
@@ -1609,7 +1671,10 @@ class MessageHandler:
         logger.info("处理语音请求")
         reply = self.get_api_response(content, qqid)
         if "</think>" in reply:
-            reply = reply.split("</think>", 1)[1].strip()
+            think_content, reply = reply.split("</think>", 1)
+            logger.info("\n思考过程:")
+            logger.info(think_content.strip())
+            logger.info(reply.strip())
 
         voice_path = self.voice_handler.generate_voice(reply)
         # 异步保存消息记录
@@ -1729,6 +1794,9 @@ class MessageHandler:
         """将长消息分割为多条发送，并计算实际长度和句数"""
         if not reply:
             return {'parts': [], 'total_length': 0, 'sentence_count': 0}
+        
+        # 移除末尾的￥符号（用于标记AI回复结束）
+        reply = reply.rstrip('￥')
         
         # 首先清理掉所有可能的历史记忆标记和系统提示
         # 1. 清理历史对话记录部分
@@ -1948,13 +2016,12 @@ class MessageHandler:
         return {'parts': parts, 'total_length': total_length, 'sentence_count': sentence_count}
 
     def _send_split_messages(self, messages, chat_id):
-        """发送分割后的消息，支持重试和自然发送节奏"""
+        """发送分割后的消息，不进行重试和失败检查"""
         if not messages or not isinstance(messages, dict):
             return False
         
         # 记录已发送的消息，防止重复发送
         sent_messages = set()
-        success_count = 0
         
         # 计算自然的发送间隔
         base_interval = 0.5  # 基础间隔时间（秒）
@@ -1973,105 +2040,205 @@ class MessageHandler:
                     sender_name = recent_messages[0].get('sender_name')
         
         for i, part in enumerate(messages['parts']):
-            if part not in sent_messages:
+            if part not in sent_messages and part.strip():
+                # 处理消息中的$分隔符
+                processed_part = part
+                # 替换 "，$" 或 "。$" 为 "$"
+                processed_part = re.sub(r'[，。,\.]\s*\$ ', ' $ ', processed_part)
+                # 确保$分隔符两侧有空格
+                processed_part = re.sub(r'(?<!\s)\$', ' $', processed_part)
+                processed_part = re.sub(r'\$(?!\s)', '$ ', processed_part)
+                
                 # 模拟真实用户输入行为
                 time.sleep(base_interval)  # 基础间隔
                 
                 # 如果是群聊消息且有发送者名称，在第一条消息前添加@
                 if is_group_chat and sender_name and i == 0:
-                    send_content = f"@{sender_name}\u2005{part}"
+                    send_content = f"@{sender_name}\u2005{processed_part}"
                 else:
-                    send_content = part
+                    send_content = processed_part
                 
-                # 发送消息，支持重试
-                success = self._safe_send_msg(send_content, chat_id)
+                # 发送消息，不检查结果
+                logger.info(f"发送消息片段 {i+1}/{len(messages['parts'])}: {send_content[:20]}...")
                 
-                if success:
-                    sent_messages.add(part)
-                    success_count += 1
-                    
-                    # 根据消息长度动态调整下一条消息的等待时间
-                    wait_time = base_interval + random.uniform(0.3, 0.7) * (len(part) / 50)
-                    time.sleep(wait_time)
-                else:
-                    logger.error(f"发送片段失败: {part[:20]}...")
-            else:
-                # 不再记录重复内容的日志
-                pass
+                # 不捕获异常，不检查结果，假设所有消息都已成功发送
+                self.wx.SendMsg(send_content, chat_id)
+                sent_messages.add(part)
+                
+                # 根据消息长度动态调整下一条消息的等待时间
+                wait_time = base_interval + random.uniform(0.3, 0.7) * (len(processed_part) / 50)
+                time.sleep(wait_time)
         
-        return success_count > 0
+        # 所有消息都假设已成功发送
+        return True
 
     def _send_self_message(self, content: str, chat_id: str):
-        """发送主动消息"""
+        """发送主动消息，不包含重试机制"""
         try:
+            if not content or not chat_id:
+                logger.error("无法发送主动消息：内容或目标聊天ID为空")
+                return False
+                
             # 添加时间戳
             current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             time_aware_content = f"(此时时间为{current_time}) ta私聊对你说{content}"
             
-            # 处理消息
-            return self._handle_text_message(
-                content=time_aware_content,
-                chat_id=chat_id,
-                sender_name="System",
-                username=chat_id,
-                is_group=False,
-                is_image_recognition=False
-            )
+            logger.info(f"准备向 {chat_id} 发送主动消息")
+            
+            # 检查微信实例
+            if not self.wx:
+                logger.error("无法发送主动消息：WeChat实例不存在")
+                return False
+                
+            # 检查聊天对象是否在监听列表中
+            if hasattr(self.wx, '_listen_chats') and chat_id not in getattr(self.wx, '_listen_chats', set()):
+                logger.warning(f"聊天 {chat_id} 不在监听列表中，尝试添加监听")
+                try:
+                    self.wx.ChatWith(chat_id)
+                    time.sleep(0.5)
+                    # 尝试添加监听
+                    if hasattr(self.wx, 'AddListenName'):
+                        self.wx.AddListenName(chat_id)
+                        logger.info(f"已为 {chat_id} 添加监听")
+                except Exception as e:
+                    logger.error(f"添加聊天监听失败: {str(e)}")
+            
+            # 处理消息中的$分隔符和标点符号
+            processed_content = content
+            # 替换 "，$" 或 "。$" 为 "$"
+            processed_content = re.sub(r'[，。,\.]\s*\$', ' $ ', processed_content)
+            # 确保$分隔符两侧有空格
+            processed_content = re.sub(r'(?<!\s)\$', ' $', processed_content)
+            processed_content = re.sub(r'\$(?!\s)', '$ ', processed_content)
+            
+            logger.debug(f"处理$分隔符后的主动消息: {processed_content[:30]}...")
+            
+            # 使用_split_message_for_sending方法分割消息
+            split_result = self._split_message_for_sending(processed_content)
+            message_parts = split_result['parts']
+            
+            # 激活窗口
+            self.wx.ChatWith(chat_id)
+            time.sleep(0.5)  # 给窗口切换一些时间
+            
+            logger.info(f"分割后准备发送 {len(message_parts)} 条消息")
+            
+            # 分别发送每一部分消息
+            for part in message_parts:
+                try:
+                    if part.strip():  # 确保部分不为空
+                        self.wx.SendMsg(part, chat_id)
+                        logger.info(f"已发送主动消息部分: {part[:30]}...")
+                        time.sleep(random.uniform(0.5, 1.5))  # 消息间隔
+                except Exception as e:
+                    logger.error(f"发送主动消息部分失败: {str(e)}")
+            
+            # 假设消息已成功发送
+            logger.info(f"消息已分段发送到 {chat_id}")
+            return True
+            
         except Exception as e:
             logger.error(f"发送主动消息失败: {str(e)}")
-            return None
+            # 即使出现异常，对于短消息也假设已成功发送
+            if len(content) <= 100:
+                logger.warning(f"尽管出现异常，但假设短消息已发送: {content[:30]}...")
+                return True
+            return False
 
     def auto_send_message(self, listen_list, robot_wx_name, get_personality_summary, is_quiet_time, start_countdown):
         """自动发送消息"""
         try:
-            # 如果是安静时间，不发送消息
-            if is_quiet_time():
-                logger.info("当前是安静时间，跳过主动发送")
-                return
-            
             # 获取当前时间
             current_time = datetime.now()
+            
+            # 记录函数调用情况
+            logger.info(f"进入auto_send_message方法，监听列表长度: {len(listen_list)}")
+            
+            # 确保未回复计数器已初始化
+            if not hasattr(self, 'unanswered_counters'):
+                logger.warning("未回复计数器未初始化，正在创建")
+                self.unanswered_counters = {}
+                
+            # 初始化每个聊天的计数器 
+            for chat_id in listen_list:
+                if chat_id not in self.unanswered_counters:
+                    # 设置一个初始值1，这样下次倒计时结束时会触发发送
+                    self.unanswered_counters[chat_id] = 1
+                    logger.info(f"为聊天 {chat_id} 初始化未回复计数器为1")
+            
+            # 如果是安静时间，记录但不发送
+            quiet_time = is_quiet_time()
+            if quiet_time:
+                logger.info("当前是安静时间，记录但不执行主动消息发送")
             
             # 遍历监听列表
             for chat_id in listen_list:
                 try:
+                    logger.info(f"处理聊天: {chat_id}")
                     # 检查是否需要发送消息
                     if chat_id not in self.unanswered_counters:
                         self.unanswered_counters[chat_id] = 0
+                        logger.info(f"为用户 {chat_id} 初始化未回复计数器")
                     
                     # 获取未回复计数
                     unanswered_count = self.unanswered_counters[chat_id]
+                    logger.info(f"用户 {chat_id} 的未回复计数: {unanswered_count}")
                     
                     # 如果未回复计数大于0，可能需要主动发送消息
                     if unanswered_count > 0:
                         # 获取上次回复时间
-                        last_reply_time = self.ai_last_reply_time.get(chat_id, 0)
+                        last_reply_time = self.last_reply_time.get(chat_id, 0)
                         time_since_last_reply = current_time.timestamp() - last_reply_time
+                        logger.info(f"用户 {chat_id} 距离上次回复已过 {time_since_last_reply:.1f} 秒")
                         
                         # 如果距离上次回复超过30分钟，可以考虑主动发送
                         if time_since_last_reply > 1800:  # 30分钟 = 1800秒
-                            # 获取性格摘要
-                            personality = get_personality_summary()
+                            # 如果是安静时间，跳过发送
+                            if quiet_time:
+                                logger.info(f"安静时间内，跳过对 {chat_id} 的主动消息")
+                                continue
+                                
+                            logger.info(f"开始为用户 {chat_id} 生成主动消息内容")
+                            # 获取性格摘要 - 使用不带参数的调用方式
+                            try:
+                                personality = get_personality_summary()
+                                logger.info(f"获取到的性格摘要: {personality[:30]}...")
+                            except Exception as e:
+                                logger.error(f"获取性格摘要失败: {str(e)}")
+                                personality = "友好、耐心、善解人意的助手"
+                                logger.info(f"使用默认性格摘要: {personality}")
                             
                             # 构建提示词
                             prompt = f"根据我的性格特点：{personality}，"
                             prompt += "请生成一条自然的主动问候语或关心语，要简短自然，不要过于刻意。"
                             
                             # 获取API回复
+                            logger.info(f"为用户 {chat_id} 请求API生成主动消息")
                             reply = self.get_api_response(prompt, chat_id)
                             
                             if reply:
-                                # 发送消息
-                                self._send_self_message(reply, chat_id)
+                                logger.info(f"API返回的主动消息内容: {reply[:30]}...")
                                 
-                                # 重置计数器
+                                # 检查回复内容是否合理
+                                if len(reply) < 3:
+                                    logger.warning(f"API返回的主动消息内容过短: {reply}")
+                                    reply = "你好啊，最近怎么样？"
+                                    
+                                # 清理回复内容
+                                if reply.startswith('"') and reply.endswith('"'):
+                                    reply = reply[1:-1]
+                                
+                                # 发送消息并检查结果
+                                logger.info(f"尝试向 {chat_id} 发送主动消息: {reply}")
+                                # 无论是否成功，都重置计数器以防止多次发送
                                 self.unanswered_counters[chat_id] = 0
                                 
                                 # 更新最后回复时间
-                                self.ai_last_reply_time[chat_id] = current_time.timestamp()
+                                self.last_reply_time[chat_id] = current_time.timestamp()
                                 
+                                # 发送消息，不关心结果
+                                self._send_self_message(reply, chat_id)
                                 logger.info(f"已向 {chat_id} 发送主动消息")
-                                
                                 # 随机等待5-15秒再处理下一个
                                 time.sleep(random.uniform(5, 15))
                 
@@ -2082,14 +2249,33 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"自动发送消息失败: {str(e)}")
 
-    def increase_unanswered_counter(self, username):
+    def increment_unanswered_counter(self, username):
         """增加未回复计数器"""
         try:
+            logger.info(f"尝试增加用户 {username} 的未回复计数器")
+            if not username:
+                logger.warning("无法增加未回复计数器：用户名为空")
+                return
+                
+            if not hasattr(self, 'unanswered_counters'):
+                logger.warning("unanswered_counters 未初始化，正在创建")
+                self.unanswered_counters = {}
+                
             if username not in self.unanswered_counters:
+                logger.info(f"用户 {username} 首次创建未回复计数器")
                 self.unanswered_counters[username] = 0
             
+            # 增加计数值
             self.unanswered_counters[username] += 1
             logger.info(f"增加用户 {username} 的未回复计数器: {self.unanswered_counters[username]}")
+            
+            # 增加后检查listen_list
+            if hasattr(self, 'wx') and self.wx:
+                listening_chats = getattr(self.wx, '_listen_chats', set())
+                if username in listening_chats:
+                    logger.info(f"用户 {username} 在监听列表中")
+                else:
+                    logger.warning(f"用户 {username} 不在监听列表中，可能无法接收主动消息")
         except Exception as e:
             logger.error(f"增加未回复计数器失败: {str(e)}")
 
@@ -2267,32 +2453,3 @@ class MessageHandler:
                     logger.info(f"嵌入缓存统计: 大小={stats['cache_size']}, 命中率={stats['hit_rate_percent']:.1f}%")
             except Exception as e:
                 logger.debug(f"获取嵌入缓存统计失败: {str(e)}")
-
-    def _clean_memory_content(self, content: str) -> str:
-        """清理记忆内容中的系统提示词和特殊标记"""
-        if not content:
-            return ""
-            
-        # 清理系统提示词和标记
-        patterns_to_remove = [
-            r'\[系统提示\].*?\[/系统提示\]',
-            r'\[系统指令\].*?\[/系统指令\]',
-            r'请注意：.*?(?=\n|$)',
-            r'以下是之前的对话记录：.*?(?=\n\n)',
-            r'\(以上是历史对话内容[^)]*\)',
-            r'memory_number:.*?(?=\n|$)',
-            r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]',
-            r'ta(?:私聊|在群聊里)对你说[：:]\s*',
-            r'^你：|^对方：|^AI：',
-            r'请(?:简短|简洁)回复.*?(?=\n|$)',
-            r'请.*?控制在.*?(?=\n|$)',
-            r'请你回应用户的结束语'
-        ]
-        
-        cleaned = content
-        for pattern in patterns_to_remove:
-            cleaned = re.sub(pattern, '', cleaned, flags=re.DOTALL|re.IGNORECASE)
-        
-        # 移除多余的空白字符
-        cleaned = re.sub(r'\s+', ' ', cleaned)
-        return cleaned.strip()
