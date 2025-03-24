@@ -1419,7 +1419,7 @@ class MessageHandler:
             text_with_breaks = text_with_breaks.replace(placeholder, content)
         
         # 5. 最后再次检查并移除$前的逗号
-        text_with_breaks = re.sub(r'[，,]+\s*\$', ' $', text_with_breaks)
+        text_with_breaks = re.sub(r'[，,。]+\s*\$', ' $', text_with_breaks)
         
         return text_with_breaks
 
@@ -2002,134 +2002,85 @@ class MessageHandler:
         return success_count > 0
 
     def _send_self_message(self, content: str, chat_id: str):
-        """发送自己的消息"""
+        """发送主动消息"""
         try:
-            if self.wx:
-                self.wx.SendMsg(msg=content, who=chat_id)
-                logger.info(f"发送自己的消息: {content[:30]}...")
-            else:
-                logger.error("微信实例不存在，无法发送消息")
+            # 添加时间戳
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            time_aware_content = f"(此时时间为{current_time}) ta私聊对你说{content}"
+            
+            # 处理消息
+            return self._handle_text_message(
+                content=time_aware_content,
+                chat_id=chat_id,
+                sender_name="System",
+                username=chat_id,
+                is_group=False,
+                is_image_recognition=False
+            )
         except Exception as e:
-            logger.error(f"发送自己的消息失败: {str(e)}")
+            logger.error(f"发送主动消息失败: {str(e)}")
+            return None
 
     def auto_send_message(self, listen_list, robot_wx_name, get_personality_summary, is_quiet_time, start_countdown):
         """自动发送消息"""
         try:
-            # 检查是否在安静时间
+            # 如果是安静时间，不发送消息
             if is_quiet_time():
-                logger.info("当前是安静时间，不发送自动消息")
-                start_countdown()  # 重新开始倒计时
+                logger.info("当前是安静时间，跳过主动发送")
                 return
-                
-            # 获取人设摘要
-            prompt_content = get_personality_summary(self.prompt_content)
             
-            # 获取自动消息内容
-            from src.config.rag_config import config
+            # 获取当前时间
+            current_time = datetime.now()
             
-            # 检查配置是否存在
-            if not hasattr(config, 'behavior') or not hasattr(config.behavior, 'auto_message') or not hasattr(config.behavior.auto_message, 'content'):
-                logger.error("配置文件中缺少behavior.auto_message.content设置")
-                auto_message = "你好，我是AI助手，有什么可以帮助你的吗？"
-                logger.info(f"使用默认自动消息: {auto_message}")
-            else:
-                auto_message = config.behavior.auto_message.content
-                logger.info(f"从配置读取的自动消息: {auto_message}")
-            
-            # 随机选择一个用户
-            if not listen_list:
-                logger.warning("监听列表为空，无法发送自动消息")
-                start_countdown()  # 重新开始倒计时
-                return
-                
-            target_user = random.choice(listen_list)
-            logger.info(f"选择的目标用户: {target_user}")
-            
-            # 检查最近是否有聊天记录（30分钟内）
-            if recent_chat := self.deepseek.llm.user_recent_chat_time.get(target_user):
-                current_time = datetime.now()
-                time_diff = current_time - recent_chat
-                # 如果30分钟内有聊天，跳过本次主动消息
-                if time_diff.total_seconds() < 1800:  # 30分钟 = 1800秒
-                    logger.info(f"距离上次与 {target_user} 的聊天不到30分钟，跳过本次主动消息")
-                    start_countdown()  # 重新开始倒计时
-                    return
-            
-            # 发送消息
-            if self.wx:
-                # 确保微信窗口处于活动状态
+            # 遍历监听列表
+            for chat_id in listen_list:
                 try:
-                    self.wx.ChatWith(target_user)
-                    time.sleep(1)  # 等待窗口激活
+                    # 检查是否需要发送消息
+                    if chat_id not in self.unanswered_counters:
+                        self.unanswered_counters[chat_id] = 0
                     
-                    # 获取最近的对话记忆作为上下文
-                    context = ""
-                    if self.memory_handler:
-                        try:
-                            # 获取相关记忆，增加到10轮
-                            memories = self.memory_handler.get_relevant_memories(
-                                f"与用户 {target_user} 相关的最近重要对话",
-                                target_user,
-                                top_k=10  # 增加到10轮
-                            )
+                    # 获取未回复计数
+                    unanswered_count = self.unanswered_counters[chat_id]
+                    
+                    # 如果未回复计数大于0，可能需要主动发送消息
+                    if unanswered_count > 0:
+                        # 获取上次回复时间
+                        last_reply_time = self.ai_last_reply_time.get(chat_id, 0)
+                        time_since_last_reply = current_time.timestamp() - last_reply_time
+                        
+                        # 如果距离上次回复超过30分钟，可以考虑主动发送
+                        if time_since_last_reply > 1800:  # 30分钟 = 1800秒
+                            # 获取性格摘要
+                            personality = get_personality_summary()
                             
-                            if memories:
-                                memory_parts = []
-                                for i, mem in enumerate(memories):
-                                    if mem.get('message') and mem.get('reply'):
-                                        memory_parts.append(f"对话{i+1}:\n用户: {mem['message']}\nAI: {mem['reply']}")
+                            # 构建提示词
+                            prompt = f"根据我的性格特点：{personality}，"
+                            prompt += "请生成一条自然的主动问候语或关心语，要简短自然，不要过于刻意。"
+                            
+                            # 获取API回复
+                            reply = self.get_api_response(prompt, chat_id)
+                            
+                            if reply:
+                                # 发送消息
+                                self._send_self_message(reply, chat_id)
                                 
-                                if memory_parts:
-                                    context = "以下是之前的对话记录：\n\n" + "\n\n".join(memory_parts) + "\n\n(以上是历史对话内容，仅供参考，无需进行互动。请专注处理接下来的新内容)\n\n"
-                                    logger.info(f"找到 {len(memory_parts)} 轮历史对话记录")
-                        except Exception as e:
-                            logger.error(f"获取历史对话记录失败: {str(e)}")
-                    
-                    # 构建系统指令和上下文
-                    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    system_instruction = f"{context}(此时时间为{current_time}) [系统指令] {auto_message}"
-                    
-                    # 添加长度限制提示词 - 自动消息保持在50-100字符之间，2-3个句子
-                    length_prompt = "\n\n请注意：你的回复应当简洁明了，控制在50-100个字符和2-3个句子左右。"
-                    system_instruction += length_prompt
-                    
-                    # 获取AI回复
-                    ai_response = self.get_api_response(
-                        message=system_instruction,
-                        user_id=target_user,
-                        sender_name=robot_wx_name
-                    )
-                    
-                    if ai_response:
-                        # 将长消息分段发送
-                        message_parts = self._split_message_for_sending(ai_response)
-                        for part in message_parts['parts']:
-                            self._safe_send_msg(part, target_user)
-                            time.sleep(1)  # 添加短暂延迟避免发送过快
-                        
-                        logger.info(f"已发送主动消息到 {target_user}: {ai_response[:50]}...")
-                        
-                        # 记录主动消息到记忆
-                        if self.memory_handler:
-                            try:
-                                # 确保参数顺序正确：用户ID, 用户消息(系统指令), AI回复
-                                self.memory_handler.remember(target_user, system_instruction, ai_response)
-                                logger.info(f"成功记录主动消息到记忆")
-                            except Exception as e:
-                                logger.error(f"记录主动消息到记忆失败: {str(e)}")
-                    else:
-                        logger.warning(f"AI未生成有效回复，跳过发送")
-                    # 重新开始倒计时
-                    start_countdown()
+                                # 重置计数器
+                                self.unanswered_counters[chat_id] = 0
+                                
+                                # 更新最后回复时间
+                                self.ai_last_reply_time[chat_id] = current_time.timestamp()
+                                
+                                logger.info(f"已向 {chat_id} 发送主动消息")
+                                
+                                # 随机等待5-15秒再处理下一个
+                                time.sleep(random.uniform(5, 15))
+                
                 except Exception as e:
-                    logger.error(f"发送自动消息失败: {str(e)}")
-                    start_countdown()  # 出错也重新开始倒计时
-            else:
-                logger.error("WeChat对象为None，无法发送自动消息")
-                start_countdown()  # 重新开始倒计时
+                    logger.error(f"处理聊天 {chat_id} 的主动消息失败: {str(e)}")
+                    continue
+            
         except Exception as e:
             logger.error(f"自动发送消息失败: {str(e)}")
-            start_countdown()  # 出错也重新开始倒计时
 
     def increase_unanswered_counter(self, username):
         """增加未回复计数器"""
