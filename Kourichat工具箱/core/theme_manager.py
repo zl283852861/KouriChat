@@ -75,4 +75,8 @@ class ThemeManager:
         
         # 保存配置
         from core.config import APIConfig
-        APIConfig.save_config(app_instance.config) 
+        APIConfig.save_config(app_instance.config)
+        
+        # 在这里添加对 API 配置页面按钮颜色更新的调用
+        if hasattr(app_instance, 'api_config_page'):
+            app_instance.api_config_page.update_button_colors() 
