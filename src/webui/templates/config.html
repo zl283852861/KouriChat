@@ -2751,9 +2751,9 @@
             if (provider === 'siliconflow') {
                 // 检查当前模型是否是硅基流动支持的模型
                 const siliconflowModels = [
-                    'BAAI/bge-m3', 'BAAI/bge-reranker-v2-m3', 
+                    'BAAI/bge-m3', 
                     'BAAI/bge-large-zh-v1.5', 'BAAI/bge-large-en-v1.5',
-                    'Pro/BAAI/bge-m3', 'Pro/BAAI/bge-reranker-v2-m3'
+                    'Pro/BAAI/bge-m3'
                 ];
                 
                 if (!siliconflowModels.includes(currentEmbeddingModel)) {
@@ -2790,11 +2790,9 @@
             } else if (provider === 'siliconflow') {
                 options = [
                     { value: 'BAAI/bge-m3', text: 'BAAI/bge-m3 (推荐)' },
-                    { value: 'BAAI/bge-reranker-v2-m3', text: 'BAAI/bge-reranker-v2-m3' },
                     { value: 'BAAI/bge-large-zh-v1.5', text: 'BAAI/bge-large-zh-v1.5' },
                     { value: 'BAAI/bge-large-en-v1.5', text: 'BAAI/bge-large-en-v1.5' },
-                    { value: 'Pro/BAAI/bge-m3', text: 'Pro/BAAI/bge-m3' },
-                    { value: 'Pro/BAAI/bge-reranker-v2-m3', text: 'Pro/BAAI/bge-reranker-v2-m3' }
+                    { value: 'Pro/BAAI/bge-m3', text: 'Pro/BAAI/bge-m3' }
                 ];
                 console.log("加载硅基流动嵌入模型选项");
                 
@@ -3237,11 +3235,9 @@
             } else if (selectedProvider === 'siliconflow') {
                 embeddingOptions = [
                     { value: 'BAAI/bge-m3', text: 'BAAI/bge-m3 (推荐)' },
-                    { value: 'BAAI/bge-reranker-v2-m3', text: 'BAAI/bge-reranker-v2-m3' },
                     { value: 'BAAI/bge-large-zh-v1.5', text: 'BAAI/bge-large-zh-v1.5' },
                     { value: 'BAAI/bge-large-en-v1.5', text: 'BAAI/bge-large-en-v1.5' },
-                    { value: 'Pro/BAAI/bge-m3', text: 'Pro/BAAI/bge-m3' },
-                    { value: 'Pro/BAAI/bge-reranker-v2-m3', text: 'Pro/BAAI/bge-reranker-v2-m3' }
+                    { value: 'Pro/BAAI/bge-m3', text: 'Pro/BAAI/bge-m3' }
                 ];
             } else {
                 console.log("未知提供商，使用默认选项");
