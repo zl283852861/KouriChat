@@ -507,80 +507,18 @@ class MessageHandler:
         # 限制最大比例，确保不会过长
         return min(ratio, 1.5)
 
+# 保留处理类型接口 去掉实际功能
     def _handle_voice_request(self, content, chat_id, sender_name, username, is_group):
-        """处理语音请求"""
-        logger.info("处理语音请求")
-        reply = self.get_api_response(content, chat_id)
-        if "</think>" in reply:
-            reply = reply.split("</think>", 1)[1].strip()
-
-        voice_path = self.voice_handler.generate_voice(reply)
-        if voice_path:
-            try:
-                self.wx.SendFiles(filepath=voice_path, who=chat_id)
-            except Exception as e:
-                logger.error(f"发送语音失败: {str(e)}")
-                if is_group:
-                    reply = f"@{sender_name} {reply}"
-                self.wx.SendMsg(msg=reply, who=chat_id)
-            finally:
-                try:
-                    os.remove(voice_path)
-                except Exception as e:
-                    logger.error(f"删除临时语音文件失败: {str(e)}")
-        else:
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-            self.wx.SendMsg(msg=reply, who=chat_id)
-        return reply
+        # TTS功能类
+        return self._handle_text_message(content, chat_id, sender_name, username, is_group)
 
     def _handle_random_image_request(self, content, chat_id, sender_name, username, is_group):
-        """处理随机图片请求"""
-        logger.info("处理随机图片请求")
-        image_path = self.image_handler.get_random_image()
-        if image_path:
-            try:
-                self.wx.SendFiles(filepath=image_path, who=chat_id)
-                reply = "给主人你找了一张好看的图片哦~"
-            except Exception as e:
-                logger.error(f"发送图片失败: {str(e)}")
-                reply = "抱歉主人，图片发送失败了..."
-            finally:
-                try:
-                    if os.path.exists(image_path):
-                        os.remove(image_path)
-                except Exception as e:
-                    logger.error(f"删除临时图片失败: {str(e)}")
-
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-            self.wx.SendMsg(msg=reply, who=chat_id)
-            return reply
-        return None
+        # 随机图片功能类
+        return self._handle_text_message(content, chat_id, sender_name, username, is_group)
 
     def _handle_image_generation_request(self, content, chat_id, sender_name, username, is_group):
-        """处理图像生成请求"""
-        logger.info("处理画图请求")
-        image_path = self.image_handler.generate_image(content)
-        if image_path:
-            try:
-                self.wx.SendFiles(filepath=image_path, who=chat_id)
-                reply = "这是按照主人您的要求生成的图片\\(^o^)/~"
-            except Exception as e:
-                logger.error(f"发送生成图片失败: {str(e)}")
-                reply = "抱歉主人，图片生成失败了..."
-            finally:
-                try:
-                    if os.path.exists(image_path):
-                        os.remove(image_path)
-                except Exception as e:
-                    logger.error(f"删除临时图片失败: {str(e)}")
-
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-            self.wx.SendMsg(msg=reply, who=chat_id)
-            return reply
-        return None
+        #图像生成功能类
+        return self._handle_text_message(content, chat_id, sender_name, username, is_group)
 
     def _filter_action_emotion(self, text):
         """处理动作描写和颜文字，确保格式一致"""
@@ -1227,39 +1165,19 @@ class MessageHandler:
         )
 
     def QQ_handle_voice_request(self, content, qqid, sender_name):
-        """处理QQ来源的语音请求"""
-        logger.info("处理语音请求")
-        reply = self.get_api_response(content, qqid)
-        if "</think>" in reply:
-            reply = reply.split("</think>", 1)[1].strip()
-
-        voice_path = self.voice_handler.generate_voice(reply)
-        # 异步保存消息记录
-        if voice_path:
-            return voice_path
-        else:
-            return reply
+        """处理普通文本回复（语音功能已移除）"""
+        # 直接使用文本处理方式
+        return self.QQ_handle_text_message(content, qqid, sender_name)
 
     def QQ_handle_random_image_request(self, content, qqid, sender_name):
-        """处理随机图片请求"""
-        logger.info("处理随机图片请求")
-        image_path = self.image_handler.get_random_image()
-        if image_path:
-
-            return image_path
-            # 异步保存消息记录
-        return None
+        """处理普通文本回复（随机图片功能已移除）"""
+        # 直接使用文本处理方式
+        return self.QQ_handle_text_message(content, qqid, sender_name)
 
     def QQ_handle_image_generation_request(self, content, qqid, sender_name):
-        """处理图像生成请求"""
-        logger.info("处理画图请求")
-        try:
-            image_path = self.image_handler.generate_image(content)
-            if image_path:
-                return image_path
-            return None
-        except:
-            return None
+        """处理普通文本回复（图像生成功能已移除）"""
+        # 直接使用文本处理方式
+        return self.QQ_handle_text_message(content, qqid, sender_name)
 
     def QQ_handle_text_message(self, content, qqid, sender_name):
         """处理普通文本消息"""

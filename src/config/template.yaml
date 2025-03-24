@@ -17,17 +17,23 @@ categories:
         description: DeepSeek API密钥
         is_secret: true
       base_url:
-        value: "https://api.siliconflow.cn/v1"
+        value: "https://api.ciallo.ac.cn/v1"
         type: string
         description: DeepSeek API基础URL
       model:
-        value: "deepseek-ai/DeepSeek-V3"
+        value: "kourichat-v3"
         type: string
         description: 使用的AI模型名称
         options:
-          - "deepseek-ai/DeepSeek-V3"
-          - "Pro/deepseek-ai/DeepSeek-V3"
-          - "Pro/deepseek-ai/DeepSeek-R1"
+          - "kourichat-v3"
+          - "grok-2-latest"
+          - "grok-3-latest"
+          - "deepseek-v3"
+          - "deepseek-r1"
+          - "gemini-1.5-pro"
+          - "gemini-2.0-pro"
+          - "gemini-2.0-flash"
+          
       max_tokens:
         value: 1000
         type: number
@@ -61,10 +67,13 @@ categories:
          description: 嵌入API基础URL（留空使用LLM模块配置）
       
       eembedding_model:
-         value: BAAI/bge-m3
+         value: text-embedding-3-large
          type: string
          description: 嵌入模型名称
          options:
+         - text-embedding-3-large
+         - bge-m3
+         - bge-reranker-v2-m3
          - BAAI/bge-m3
          - BAAI/bge-reranker-v2-m3
          - BAAI/bge-large-zh-v1.5
@@ -118,7 +127,7 @@ categories:
           description: Moonshot AI API密钥（用于图片和表情包识别）
           is_secret: true
         base_url:
-          value: "https://api.moonshot.cn/v1"
+          value: "https://api.ciallo.ac.cn/v1"
           type: string
           description: Moonshot API基础URL
         temperature:
@@ -128,27 +137,9 @@ categories:
           min: 0
           max: 2
         model:
-          value: "moonshot-v1-8k-vision-preview"
+          value: "kourichat-vision"
           type: string
           description: 图像识别 AI 模型
-      image_generation:
-        model:
-          value: "deepseek-ai/Janus-Pro-7B"
-          type: string
-          description: 图像生成模型
-        temp_dir:
-          value: "data/images/temp"
-          type: string
-          description: 临时图片存储目录
-      text_to_speech:
-        tts_api_url:
-          value: "http://127.0.0.1:5000/tts"
-          type: string
-          description: TTS服务API地址
-        voice_dir:
-          value: "data/voices"
-          type: string
-          description: 语音文件存储目录
   
   behavior_settings:
     title: 行为设置

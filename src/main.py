@@ -12,9 +12,7 @@ from src.config.rag_config import config as rag_config
 from wxauto import WeChat
 import re
 from src.handlers.emoji import EmojiHandler
-from src.handlers.image import ImageHandler
 from src.handlers.message import MessageHandler
-from src.handlers.voice import VoiceHandler
 from src.handlers.file import FileHandler
 from src.services.ai.llm_service import LLMService
 from src.services.ai.image_recognition_service import ImageRecognitionService
@@ -962,16 +960,9 @@ def main(debug_mode=True):
         sentiment_analyzer=sentiment_analyzer
     )
     
-    image_handler = ImageHandler(
-        root_dir=root_dir,
-        api_key=config.llm.api_key,
-        base_url=config.llm.base_url,
-        image_model=config.media.image_generation.model
-    )
-    voice_handler = VoiceHandler(
-        root_dir=root_dir,
-        tts_api_url=config.media.text_to_speech.tts_api_url
-    )
+    # 图像和语音功能已移除
+    image_handler = None
+    voice_handler = None
     with open(prompt_path, "r", encoding="utf-8") as f:
         # 添加更多API配置日志
         logger.info("============ LLM服务初始化 ============")
