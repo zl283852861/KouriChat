@@ -66,12 +66,14 @@ categories:
          description: 嵌入模型名称
          options:
          - BAAI/bge-m3
-         - BAAI/bge-reranker-v2-m3
          - BAAI/bge-large-zh-v1.5
          - BAAI/bge-large-en-v1.5
-         - BAAI/bge-reranker-v2-m3  
-         - Pro/BAAI/bge-reranker-v2-m3
-          
+         - Pro/BAAI/bge-m3
+         - bge-m3
+         - text-embedding-3-large
+         - text-embedding-ada-002
+         - text-embedding-v1
+        
       reranker_model:
         value: ""
         type: string

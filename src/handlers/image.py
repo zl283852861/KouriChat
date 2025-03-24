@@ -11,10 +11,12 @@ import os
 import logging
 import requests
 from datetime import datetime
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Callable
 import re
 import time
 import enum
+import threading
+import queue
 # 移除直接导入，通过延迟导入方式在需要时导入
 # from src.services.ai.llm_service import LLMService
 
@@ -35,6 +37,12 @@ class ImageHandler:
         self.base_url = base_url
         self.image_model = image_model
         self.temp_dir = os.path.join(root_dir, "data", "images", "temp")
+        
+        # 使用任务队列替代处理锁
+        self.task_queue = queue.Queue()
+        self.is_replying = False
+        self.worker_thread = threading.Thread(target=self._process_image_queue, daemon=True)
+        self.worker_thread.start()
         
         # 复用消息模块的AI实例(使用正确的模型名称)
         # 延迟导入LLMService以避免循环导入
@@ -106,6 +114,82 @@ class ImageHandler:
 
         os.makedirs(self.temp_dir, exist_ok=True)
 
+    def _process_image_queue(self):
+        """后台线程处理图片生成/获取队列"""
+        while True:
+            try:
+                # 等待队列中的任务
+                task = self.task_queue.get()
+                if task is None:
+                    continue
+                    
+                # 如果正在回复，等待回复结束
+                while self.is_replying:
+                    time.sleep(0.5)
+                    
+                # 解析任务
+                task_type, params, callback = task
+                
+                result = None
+                # 根据任务类型执行不同操作
+                if task_type == "random":
+                    result = self._get_random_image_impl()
+                elif task_type == "generate":
+                    prompt = params.get("prompt", "")
+                    result = self._generate_image_impl(prompt)
+                
+                # 执行回调
+                if callback and result:
+                    callback(result)
+                    
+            except Exception as e:
+                logger.error(f"处理图片任务队列时出错: {str(e)}")
+            finally:
+                # 标记任务完成
+                try:
+                    self.task_queue.task_done()
+                except:
+                    pass
+                time.sleep(0.1)
+
+    def set_replying_status(self, is_replying: bool):
+        """设置当前是否在进行回复"""
+        self.is_replying = is_replying
+        logger.debug(f"图片处理回复状态已更新: {'正在回复' if is_replying else '回复结束'}")
+        
+    def _get_random_image_impl(self) -> Optional[str]:
+        """实际执行随机图片获取的内部方法"""
+        try:
+            if not os.path.exists(self.temp_dir):
+                os.makedirs(self.temp_dir)
+                
+            # 获取图片链接
+            response = requests.get('https://t.mwm.moe/pc')
+            if response.status_code == 200:
+                # 生成唯一文件名
+                timestamp = int(time.time())
+                image_path = os.path.join(self.temp_dir, f'image_{timestamp}.jpg')
+                
+                # 保存图片
+                with open(image_path, 'wb') as f:
+                    f.write(response.content)
+                
+                return image_path
+        except Exception as e:
+            logger.error(f"获取图片失败: {str(e)}")
+        return None
+
+    def get_random_image(self, callback: Callable = None) -> Optional[str]:
+        """将随机图片获取任务添加到队列"""
+        try:
+            # 添加到任务队列
+            self.task_queue.put(("random", {}, callback))
+            logger.info("已添加随机图片获取任务到队列")
+            return "图片获取请求已添加到队列，将在消息回复后处理"
+        except Exception as e:
+            logger.error(f"添加随机图片获取任务失败: {str(e)}")
+            return None
+
     def is_random_image_request(self, message: str) -> bool:
         """检查消息是否为请求图片的模式"""
         # 基础词组
@@ -134,28 +218,6 @@ class ImageHandler:
             return True
             
         return False
-
-    def get_random_image(self) -> Optional[str]:
-        """从API获取随机图片并保存"""
-        try:
-            if not os.path.exists(self.temp_dir):
-                os.makedirs(self.temp_dir)
-                
-            # 获取图片链接
-            response = requests.get('https://t.mwm.moe/pc')
-            if response.status_code == 200:
-                # 生成唯一文件名
-                timestamp = int(time.time())
-                image_path = os.path.join(self.temp_dir, f'image_{timestamp}.jpg')
-                
-                # 保存图片
-                with open(image_path, 'wb') as f:
-                    f.write(response.content)
-                
-                return image_path
-        except Exception as e:
-            logger.error(f"获取图片失败: {str(e)}")
-        return None
 
     def is_image_generation_request(self, text: str) -> bool:
         """判断是否为图像生成请求"""
@@ -308,8 +370,8 @@ class ImageHandler:
             return self.quality_profiles['standard']
         return self.quality_profiles['fast']
 
-    def generate_image(self, prompt: str) -> Optional[str]:
-        """整合版图像生成方法"""
+    def _generate_image_impl(self, prompt: str) -> Optional[str]:
+        """实际执行图片生成的内部方法"""
         try:
             # 自动扩展短提示词
             if len(prompt) <= self.prompt_extend_threshold:
@@ -370,6 +432,17 @@ class ImageHandler:
             
         except Exception as e:
             logger.error(f"图像生成失败: {str(e)}")
+            return None
+
+    def generate_image(self, prompt: str, callback: Callable = None) -> Optional[str]:
+        """将图片生成任务添加到队列"""
+        try:
+            # 添加到任务队列
+            self.task_queue.put(("generate", {"prompt": prompt}, callback))
+            logger.info(f"已添加图片生成任务到队列，提示词: {prompt}")
+            return "图片生成请求已添加到队列，将在消息回复后处理"
+        except Exception as e:
+            logger.error(f"添加图片生成任务失败: {str(e)}")
             return None
 
     def cleanup_temp_dir(self):
