@@ -629,10 +629,9 @@ class ChatBot:
 
             if content and "[动画表情]" in content:
                 logger.info("检测到动画表情")
-                img_path = emoji_handler.capture_emoji_screenshot(username)
-                logger.info(f"表情截图保存路径: {img_path}")
+                # 不再使用截图功能，直接将动画表情标记为特定类型的文本消息
                 is_emoji = True
-                content = None
+                content = "发送了一个动画表情"
 
             if img_path:
                 logger.info(f"开始处理图片/表情 - 路径: {img_path}, 是否表情: {is_emoji}")
