@@ -55,13 +55,13 @@ categories:
          type: string
          description: 嵌入API密钥（硅基流动）
          is_secret: true
-      bbase_url:
+      base_url:
          value: ''
          type: string
          description: 嵌入API基础URL（留空使用LLM模块配置）
       
-      eembedding_model:
-         value: BAAI/bge-m3
+      embedding_model:
+         value: bge-m3
          type: string
          description: 嵌入模型名称
          options:

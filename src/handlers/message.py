@@ -20,6 +20,8 @@ from src.config import config
 import re
 import jieba
 import asyncio
+import math
+import difflib
 
 # 修改logger获取方式，确保与main模块一致
 logger = logging.getLogger('main')
@@ -52,6 +54,44 @@ class MessageHandler:
         self.emoji_handler = emoji_handler
         self.voice_handler = voice_handler
         self.memory_handler = memory_handler
+        
+        # 检查是否有RAG管理器
+        self.rag_manager = None
+        if self.memory_handler and hasattr(self.memory_handler, 'rag_manager'):
+            self.rag_manager = self.memory_handler.rag_manager
+            logger.info(f"检测到RAG管理器，将用于增强上下文检索")
+        
+        # 从配置获取上下文轮数配置
+        try:
+            # 统一使用config.yaml中的max_groups作为上下文轮数配置
+            max_context_turns = self._get_max_context_turns()
+            self.group_context_turns = max_context_turns
+            self.private_context_turns = max_context_turns
+            logger.info(f"已从配置加载统一上下文轮数设置: {max_context_turns}轮")
+            
+            # 添加时间衰减权重参数
+            self.use_time_decay = self._get_config_value('use_time_decay', True)
+            self.decay_method = self._get_config_value('decay_method', 'exponential')  # 'exponential' 或 'linear'
+            self.decay_rate = self._get_config_value('decay_rate', 0.1)  # 衰减率λ
+            self.weight_threshold = self._get_config_value('weight_threshold', 0.1)  # 权重阈值，低于此值的消息会被过滤
+            
+            # 添加RAG语义检索相关参数
+            self.use_semantic_search = self._get_config_value('use_semantic_search', True)  # 是否启用语义搜索
+            self.semantic_weight = self._get_config_value('semantic_weight', 0.4)  # 语义相关性权重
+            self.time_weight = self._get_config_value('time_weight', 0.3)  # 时间权重
+            self.user_weight = self._get_config_value('user_weight', 0.3)  # 用户关联权重
+            
+            logger.info(f"时间衰减设置: 启用={self.use_time_decay}, 方法={self.decay_method}, 衰减率={self.decay_rate}, 阈值={self.weight_threshold}")
+            if self.use_semantic_search:
+                logger.info(f"语义检索设置: 语义权重={self.semantic_weight}, 时间权重={self.time_weight}, 用户权重={self.user_weight}")
+        except Exception as e:
+            logger.warning(f"加载上下文轮数配置失败，使用默认值: {str(e)}")
+            self.group_context_turns = 10
+            self.private_context_turns = 10
+            self.use_time_decay = True
+            self.decay_method = 'exponential'
+            self.decay_rate = 0.1
+            self.weight_threshold = 0.1
         
         # 从配置文件获取角色名称
         try:
@@ -141,6 +181,36 @@ class MessageHandler:
         self.group_at_timer = {}  # 群聊@消息定时器
 
         logger.info(f"消息处理器初始化完成，机器人名称：{self.robot_name}")
+
+    def _get_config_value(self, key, default_value):
+        """从配置文件获取特定值，如果不存在则返回默认值"""
+        try:
+            # 尝试从config.behavior.context中获取
+            if hasattr(config, 'behavior') and hasattr(config.behavior, 'context'):
+                if hasattr(config.behavior.context, key):
+                    return getattr(config.behavior.context, key)
+            
+            # 尝试从config.categories.advanced_settings.settings中获取
+            try:
+                advanced_settings = config.categories.advanced_settings.settings
+                if hasattr(advanced_settings, key):
+                    return getattr(advanced_settings, key).value
+            except AttributeError:
+                pass
+                
+            # 尝试从config.categories.user_settings.settings中获取
+            try:
+                user_settings = config.categories.user_settings.settings
+                if hasattr(user_settings, key):
+                    return getattr(user_settings, key).value
+            except AttributeError:
+                pass
+                
+            # 如果都不存在，返回默认值
+            return default_value
+        except Exception as e:
+            logger.error(f"获取配置值{key}失败: {str(e)}")
+            return default_value
 
     def get_api_response(self, message: str, user_id: str, group_id: str = None, sender_name: str = None) -> str:
         """获取API回复"""
@@ -294,23 +364,45 @@ class MessageHandler:
             
             # 备用检测：如果传入参数为False，再尝试本地检测
             if not is_at_from_param:
-                # 检查是否@机器人 - 在消息清理前确定
+                # 改进@机器人检测逻辑 - 使用更全面的模式匹配
                 # 常见的空格字符：普通空格、不间断空格、零宽空格、特殊的微信空格等
-                robot_at_patterns = [
-                    f"@{self.robot_name} ",  # 普通空格
-                    f"@{self.robot_name}\u2005",  # 特殊的微信空格
-                    f"@{self.robot_name}\u00A0",  # 不间断空格
-                    f"@{self.robot_name}\u200B",  # 零宽空格
-                    f"@{self.robot_name}\u3000"   # 全角空格
-                ]
                 
-                # 使用正则表达式进行更精确的匹配
-                at_pattern = re.compile(f"@{re.escape(self.robot_name)}[\\s\u2005\u00A0\u200B\u3000]")
-                is_at_local = bool(at_pattern.search(content)) or any(pattern in content for pattern in robot_at_patterns)
+                # 检查完整的正则模式
+                # 允许@后面的名称部分有一些小的变化（比如有些空格字符可能会被替换）
+                robot_name_pattern = re.escape(self.robot_name).replace('\\ ', '[ \u2005\u00A0\u200B\u3000]*')
+                at_pattern = re.compile(f"@{robot_name_pattern}[\\s\u2005\u00A0\u200B\u3000]?")
+                is_at_local = bool(at_pattern.search(content))
+                
+                # 检查完整的模式列表
+                if not is_at_local:
+                    robot_at_patterns = [
+                        f"@{self.robot_name}",  # 基本@模式
+                        f"@{self.robot_name} ",  # 普通空格
+                        f"@{self.robot_name}\u2005",  # 特殊的微信空格
+                        f"@{self.robot_name}\u00A0",  # 不间断空格
+                        f"@{self.robot_name}\u200B",  # 零宽空格
+                        f"@{self.robot_name}\u3000"   # 全角空格
+                    ]
+                    is_at_local = any(pattern in content for pattern in robot_at_patterns)
+                    
+                # 额外检查@开头的消息
+                if not is_at_local and content.startswith('@'):
+                    # 提取@后面的第一个词，检查是否接近机器人名称
+                    at_name_match = re.match(r'@([^ \u2005\u00A0\u200B\u3000]+)', content)
+                    if at_name_match:
+                        at_name = at_name_match.group(1)
+                        # 检查名称相似度（允许一些小的变化）
+                        similarity_ratio = difflib.SequenceMatcher(None, at_name, self.robot_name).ratio()
+                        if similarity_ratio > 0.8:  # 80%相似度作为阈值
+                            is_at_local = True
+                            logger.info(f"基于名称相似度检测到@机器人: {at_name} vs {self.robot_name}, 相似度: {similarity_ratio:.2f}")
                 
                 # 提取原始@部分以供后续处理
-                at_match = re.search(f"(@{re.escape(self.robot_name)}[\\s\u2005\u00A0\u200B\u3000])", content)
+                at_match = re.search(f"(@{re.escape(self.robot_name)}[\\s\u2005\u00A0\u200B\u3000]?)", content)
                 at_content = at_match.group(1) if at_match else ''
+                
+                # 记录检测结果
+                logger.debug(f"本地@检测结果: {is_at_local}, 提取的@内容: {at_content}")
             else:
                 # 直接使用传入的参数
                 is_at_local = True
@@ -347,6 +439,23 @@ class MessageHandler:
             
         except Exception as e:
             logger.error(f"处理群聊消息失败: {str(e)}", exc_info=True)
+            return None
+
+    def _handle_uncached_message(self, content: str, chat_id: str, sender_name: str, username: str, is_group: bool, is_image_recognition: bool):
+        """处理未缓存的消息，直接调用API获取回复"""
+        try:
+            # 获取API回复
+            response = self.get_api_response(content, username)
+            
+            if response and not self.is_debug:
+                # 分割消息并发送
+                split_messages = self._split_message_for_sending(response)
+                self._send_split_messages(split_messages, chat_id)
+                
+            return response
+            
+        except Exception as e:
+            logger.error(f"处理未缓存消息失败: {str(e)}", exc_info=True)
             return None
 
     def _cache_group_at_message(self, content: str, group_id: str, sender_name: str, username: str, timestamp: str):
@@ -392,7 +501,10 @@ class MessageHandler:
             # 如果只有一条消息，直接处理
             if len(at_messages) == 1:
                 msg = at_messages[0]
-                return self._handle_at_message(msg['content'], group_id, msg['sender_name'], msg['username'], msg['timestamp'])
+                result = self._handle_at_message(msg['content'], group_id, msg['sender_name'], msg['username'], msg['timestamp'])
+                # 清除缓存
+                self.group_at_cache[group_id] = []
+                return result
             
             # 处理多条消息情况
             # 按时间排序
@@ -404,6 +516,7 @@ class MessageHandler:
             # 使用最后一条消息的时间戳和用户名
             last_timestamp = at_messages[-1]['timestamp']
             last_username = at_messages[-1]['username']
+            last_sender = at_messages[-1]['sender_name']
             
             for msg in at_messages:
                 senders.append(msg['sender_name'])
@@ -419,48 +532,106 @@ class MessageHandler:
                     merged_content += "\n---\n"
                 merged_content += f"{senders[i]}说: {content}"
             
-            # 构建上下文，获取最近的群聊对话记录
-            context_messages = self.group_chat_memory.get_context_messages(group_id, last_timestamp)
-            
-            # 过滤和清理上下文消息
-            filtered_context = []
+            # 获取当前时间
             current_time = datetime.now()
             
-            if context_messages:
-                for msg in context_messages:
-                    # 跳过缓存中的消息
-                    if any(cached_msg['timestamp'] == msg["timestamp"] for cached_msg in at_messages):
-                        continue
-                        
-                    # 检查消息时间（限制在6小时内）
+            # 使用两种方式获取上下文消息，然后合并
+            context_messages = []
+            semantic_messages = []
+            time_based_messages = []
+            
+            # 1. 获取基于时间顺序的上下文消息
+            if hasattr(self, 'group_chat_memory'):
+                # 获取群聊消息上下文
+                time_based_messages = self.group_chat_memory.get_context_messages(group_id, last_timestamp)
+                
+                # 过滤掉当前at消息
+                time_based_messages = [
+                    msg for msg in time_based_messages if 
+                    not any(cached_msg['timestamp'] == msg["timestamp"] for cached_msg in at_messages)
+                ]
+                
+                # 预过滤消息（移除过旧的消息）
+                time_based_messages = [
+                    msg for msg in time_based_messages if 
+                    (current_time - datetime.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")).total_seconds() <= 21600  # 6小时
+                ]
+            
+            # 2. 如果有RAG管理器，获取语义相似的消息
+            if self.use_semantic_search and self.rag_manager:
+                # 使用合并后的内容作为查询
+                try:
+                    # 调用异步方法获取语义相似消息
                     try:
-                        msg_time = datetime.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-                        if (current_time - msg_time).total_seconds() > 21600:  # 6小时 = 21600秒
-                            continue
-                    except (ValueError, TypeError):
-                        continue
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        # 如果当前线程没有事件循环，创建一个新的
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
                     
-                    # 清理消息内容
-                    human_message = self._clean_memory_content(msg["human_message"])
-                    assistant_message = self._clean_memory_content(msg["assistant_message"]) if msg["assistant_message"] else None
-                    
-                    if human_message:
-                        filtered_context.append({
-                            "sender_name": msg["sender_name"],
-                            "human_message": human_message,
-                            "assistant_message": assistant_message
-                        })
+                    semantic_messages = loop.run_until_complete(
+                        self._get_semantic_similar_messages(merged_content, group_id=group_id, top_k=self.group_context_turns * 2)
+                    )
+                    # 过滤掉当前缓存中的消息
+                    semantic_messages = [
+                        msg for msg in semantic_messages if 
+                        not any(cached_msg['timestamp'] == msg.get("timestamp") for cached_msg in at_messages)
+                    ]
+                except Exception as e:
+                    logger.error(f"获取语义相似消息失败: {str(e)}")
+                    semantic_messages = []
             
-            # 限制上下文消息数量
-            filtered_context = filtered_context[-3:]  # 只保留最近3条消息
+            # 3. 合并两种消息源并移除重复项
+            seen_timestamps = set()
+            for msg in time_based_messages:
+                msg_timestamp = msg.get("timestamp")
+                if msg_timestamp and msg_timestamp not in seen_timestamps:
+                    seen_timestamps.add(msg_timestamp)
+                    context_messages.append(msg)
             
-            # 构建上下文字符串
+            # 添加语义相似的消息，避免重复
+            for msg in semantic_messages:
+                msg_timestamp = msg.get("timestamp")
+                if msg_timestamp and msg_timestamp not in seen_timestamps:
+                    seen_timestamps.add(msg_timestamp)
+                    # 添加语义分数
+                    msg["semantic_score"] = msg.get("score", 0.5)
+                    context_messages.append(msg)
+            
+            # 应用权重并筛选上下文，传入多个发送者作为当前用户
+            filtered_msgs = self._apply_weights_and_filter_context(
+                context_messages, 
+                current_time,
+                current_user=last_sender  # 使用最后一个发送者作为主要关联用户
+            )
+            
+            # 创建过滤后的上下文
+            filtered_context = []
+            for msg in filtered_msgs:
+                # 清理消息内容
+                human_message = self._clean_memory_content(msg["human_message"])
+                assistant_message = self._clean_memory_content(msg["assistant_message"]) if msg["assistant_message"] else None
+                
+                if human_message:
+                    filtered_context.append({
+                        "sender_name": msg["sender_name"],
+                        "human_message": human_message,
+                        "assistant_message": assistant_message
+                    })
+            
+            # 构建上下文字符串，确保清晰显示用户名
             context = ""
             if filtered_context:
                 context_parts = []
                 for msg in filtered_context:
-                    # 添加发送者消息
-                    context_parts.append(f"{msg['sender_name']}: {msg['human_message']}")
+                    # 添加发送者消息，确保用户名清晰可见
+                    sender_display = msg['sender_name']
+                    # 标记当前@消息的发送者，提高关联性
+                    if any(sender.lower() == sender_display.lower() for sender in unique_senders):
+                        context_parts.append(f"{sender_display} [当前交互用户]: {msg['human_message']}")
+                    else:
+                        context_parts.append(f"{sender_display}: {msg['human_message']}")
+                    
                     # 如果有机器人回复，也添加进去
                     if msg["assistant_message"]:
                         context_parts.append(f"{self.robot_name}: {msg['assistant_message']}")
@@ -469,8 +640,8 @@ class MessageHandler:
                     context = "<context>" + "\n".join(context_parts) + "</context>\n\n"
             
             # 构建API请求内容，明确标识这是多用户@的合并消息
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            api_content = f"<time>{current_time}</time>\n<group>{group_id}</group>\n<multiple_senders>{', '.join(unique_senders)}</multiple_senders>\n{context}<input>{merged_content}</input>"
+            current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+            api_content = f"<time>{current_time_str}</time>\n<group>{group_id}</group>\n<multiple_senders>{', '.join(unique_senders)}</multiple_senders>\n{context}<input>{merged_content}</input>"
             
             # 在日志中明确记录群聊多人@情况
             logger.info(f"多人@消息请求AI响应 - 群: {group_id}, 发送者们: {', '.join(unique_senders)}, 内容长度: {len(merged_content)}")
@@ -478,21 +649,20 @@ class MessageHandler:
             # 获取AI回复
             reply = self.get_api_response(api_content, last_username)
             
-            # 如果成功获取回复
+            # 如果成功获取回复，处理并发送
             if reply:
                 # 清理回复内容
                 reply = self._clean_ai_response(reply)
                 
-                # 在回复中@所有发送消息的用户
-                at_prefix = " ".join([f"@{sender}\u2005" for sender in unique_senders])
-                if not reply.startswith(at_prefix):
-                    reply = f"{at_prefix} {reply}"
+                # 确保回复中明确提及主要发送者
+                if len(unique_senders) == 1 and not reply.startswith(f"@{unique_senders[0]}"):
+                    reply = f"@{unique_senders[0]} {reply}"
                 
-                # 分割消息并获取过滤后的内容
+                # 分割消息并发送
                 split_messages = self._split_message_for_sending(reply)
                 
-                # 使用memory_content更新群聊记忆
-                if 'memory_content' in split_messages:
+                # 更新群聊记忆
+                if isinstance(split_messages, dict) and split_messages.get('memory_content'):
                     memory_content = split_messages['memory_content']
                     self.group_chat_memory.update_assistant_response(group_id, last_timestamp, memory_content)
                 else:
@@ -507,14 +677,16 @@ class MessageHandler:
                 # 清除缓存
                 self.group_at_cache[group_id] = []
                 
-                return split_messages['parts']
+                if isinstance(split_messages, dict):
+                    return split_messages.get('parts', reply)
+                return reply
             
             # 清除缓存
             self.group_at_cache[group_id] = []
             return None
             
         except Exception as e:
-            logger.error(f"处理群聊缓存@消息失败: {str(e)}", exc_info=True)
+            logger.error(f"处理缓存的群聊@消息失败: {str(e)}")
             # 清除缓存，防止错误消息卡在缓存中
             if group_id in self.group_at_cache:
                 self.group_at_cache[group_id] = []
@@ -546,47 +718,102 @@ class MessageHandler:
                         # 将引用内容添加到当前消息的上下文中
                         content = f"(引用消息: {quoted_sender} 说: {quoted_content})\n{content}"
             
-            # 获取最近的群聊上下文消息，限制数量和时间范围
-            context_messages = self.group_chat_memory.get_context_messages(group_id, timestamp)
-            
-            # 过滤和清理上下文消息
-            filtered_context = []
+            # 获取当前时间
             current_time = datetime.now()
             
-            if context_messages:
-                for msg in context_messages:
-                    if msg["timestamp"] == timestamp:  # 跳过当前消息
-                        continue
-                        
-                    # 检查消息时间（限制在6小时内）
+            # 使用两种方式获取上下文消息，然后合并
+            context_messages = []
+            semantic_messages = []
+            time_based_messages = []
+            
+            # 定义at_messages变量，避免未定义错误
+            at_messages = []
+            if hasattr(self, 'group_at_cache') and group_id in self.group_at_cache:
+                at_messages = self.group_at_cache[group_id]
+            
+            # 1. 获取基于时间顺序的上下文消息
+            if hasattr(self, 'group_chat_memory'):
+                # 获取群聊消息上下文
+                time_based_messages = self.group_chat_memory.get_context_messages(group_id, timestamp)
+                
+                # 过滤掉当前at消息
+                time_based_messages = [
+                    msg for msg in time_based_messages if 
+                    not any(cached_msg['timestamp'] == msg["timestamp"] for cached_msg in at_messages)
+                ]
+                
+                # 预过滤消息（移除过旧的消息）
+                time_based_messages = [
+                    msg for msg in time_based_messages if 
+                    (current_time - datetime.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")).total_seconds() <= 21600  # 6小时
+                ]
+            
+            # 2. 如果有RAG管理器，获取语义相似的消息
+            if self.use_semantic_search and self.rag_manager:
+                # 调用异步方法获取语义相似消息
+                try:
                     try:
-                        msg_time = datetime.strptime(msg["timestamp"], "%Y-%m-%d %H:%M:%S")
-                        if (current_time - msg_time).total_seconds() > 21600:  # 6小时 = 21600秒
-                            continue
-                    except (ValueError, TypeError):
-                        continue
-                    
-                    # 清理消息内容
-                    human_message = self._clean_memory_content(msg["human_message"])
-                    assistant_message = self._clean_memory_content(msg["assistant_message"]) if msg["assistant_message"] else None
-                    
-                    if human_message:
-                        filtered_context.append({
-                            "sender_name": msg["sender_name"],
-                            "human_message": human_message,
-                            "assistant_message": assistant_message
-                        })
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        # 如果当前线程没有事件循环，创建一个新的
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                    semantic_messages = loop.run_until_complete(
+                        self._get_semantic_similar_messages(content, group_id=group_id, top_k=self.group_context_turns * 2)
+                    )
+                    # 过滤掉当前消息
+                    semantic_messages = [msg for msg in semantic_messages if msg.get("timestamp") != timestamp]
+                except Exception as e:
+                    logger.error(f"获取语义相似消息失败: {str(e)}")
+                    semantic_messages = []
             
-            # 限制上下文消息数量
-            filtered_context = filtered_context[-3:]  # 只保留最近3条消息
+            # 3. 合并两种消息源并移除重复项
+            seen_timestamps = set()
+            for msg in time_based_messages:
+                msg_timestamp = msg.get("timestamp")
+                if msg_timestamp and msg_timestamp not in seen_timestamps:
+                    seen_timestamps.add(msg_timestamp)
+                    context_messages.append(msg)
             
-            # 构建上下文字符串
+            # 添加语义相似的消息，避免重复
+            for msg in semantic_messages:
+                msg_timestamp = msg.get("timestamp")
+                if msg_timestamp and msg_timestamp not in seen_timestamps:
+                    seen_timestamps.add(msg_timestamp)
+                    # 添加语义分数
+                    msg["semantic_score"] = msg.get("score", 0.5)
+                    context_messages.append(msg)
+            
+            # 应用权重并筛选上下文，传入当前用户名
+            filtered_msgs = self._apply_weights_and_filter_context(
+                context_messages, 
+                current_time, 
+                current_user=sender_name  # 传递当前@消息的发送者
+            )
+            
+            # 创建过滤后的上下文
+            filtered_context = []
+            for msg in filtered_msgs:
+                # 清理消息内容
+                human_message = self._clean_memory_content(msg["human_message"])
+                assistant_message = self._clean_memory_content(msg["assistant_message"]) if msg["assistant_message"] else None
+                
+                if human_message:
+                    filtered_context.append({
+                        "sender_name": msg["sender_name"],
+                        "human_message": human_message,
+                        "assistant_message": assistant_message
+                    })
+            
+            # 构建上下文字符串，确保包含用户名
             context = ""
             if filtered_context:
                 context_parts = []
                 for msg in filtered_context:
-                    # 添加发送者消息
-                    context_parts.append(f"{msg['sender_name']}: {msg['human_message']}")
+                    # 添加发送者消息，确保用户名清晰可见
+                    sender_display = msg['sender_name']
+                    context_parts.append(f"{sender_display}: {msg['human_message']}")
                     # 如果有机器人回复，也添加进去
                     if msg["assistant_message"]:
                         context_parts.append(f"{self.robot_name}: {msg['assistant_message']}")
@@ -595,8 +822,8 @@ class MessageHandler:
                     context = "<context>" + "\n".join(context_parts) + "</context>\n\n"
             
             # 构建API请求内容，明确标识当前@发送者
-            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            api_content = f"<time>{current_time}</time>\n<group>{group_id}</group>\n<sender>{sender_name}</sender>\n{context}<input>{content}</input>"
+            current_time_str = current_time.strftime("%Y-%m-%d %H:%M:%S")
+            api_content = f"<time>{current_time_str}</time>\n<group>{group_id}</group>\n<sender>{sender_name}</sender>\n{context}<input>{content}</input>"
             
             # 在日志中明确记录谁@了机器人
             logger.info(f"@消息请求AI响应 - 发送者: {sender_name}, 用户ID: {username}, 内容: {content[:30]}...")
@@ -617,7 +844,7 @@ class MessageHandler:
                 split_messages = self._split_message_for_sending(reply)
                 
                 # 使用memory_content更新群聊记忆
-                if 'memory_content' in split_messages:
+                if isinstance(split_messages, dict) and split_messages.get('memory_content'):
                     memory_content = split_messages['memory_content']
                     self.group_chat_memory.update_assistant_response(group_id, timestamp, memory_content)
                 else:
@@ -629,7 +856,9 @@ class MessageHandler:
                 if not self.is_debug:
                     self._send_split_messages(split_messages, group_id)
                 
-                return split_messages['parts']
+                if isinstance(split_messages, dict):
+                    return split_messages.get('parts', reply)
+                return reply
             
             return None
             
@@ -760,7 +989,7 @@ class MessageHandler:
             
             # 处理合并后的消息
             last_message = messages[-1]
-            result = self._handle_text_message(
+            result = self._handle_uncached_message(
                 merged_content,
                 last_message['chat_id'],
                 last_message['sender_name'],
@@ -788,54 +1017,124 @@ class MessageHandler:
             current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             query = f"与用户 {username} 相关的最近重要对话 {current_time}"
             
-            # 获取相关记忆
+            # 结合语义检索和传统检索
+            memories = []
+            semantic_memories = []
+            
+            # 1. 使用基于向量的语义检索
+            if self.use_semantic_search and self.rag_manager:
+                try:
+                    # 异步调用需要在协程中或通过事件循环执行
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        # 如果当前线程没有事件循环，创建一个新的
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                    
+                    semantic_results = loop.run_until_complete(
+                        self._get_semantic_similar_messages(query, user_id=username, top_k=self.private_context_turns * 2)
+                    )
+                    
+                    # 转换格式
+                    for result in semantic_results:
+                        if "human_message" in result and "assistant_message" in result:
+                            semantic_memories.append({
+                                'message': result.get('human_message', ''),
+                                'reply': result.get('assistant_message', ''),
+                                'timestamp': result.get('timestamp', ''),
+                                'score': result.get('score', 0.5),
+                                'source': 'semantic'
+                            })
+                except Exception as e:
+                    logger.error(f"获取语义相似消息失败: {str(e)}")
+                    semantic_memories = []
+            
+            # 2. 使用传统的记忆检索
+            # 获取相关记忆，使用从配置获取的私聊轮数值
             recent_history = self.memory_handler.get_relevant_memories(
                 query, 
                 username,
-                top_k=10  # 增加获取的记忆数量，后续会基于质量筛选
+                top_k=self.private_context_turns * 2  # 检索更多记忆，后续会基于权重筛选
             )
             
-            if recent_history and len(recent_history) > 0:
-                # 根据记忆质量排序和筛选
-                # 筛选标准：
-                # 1. 尽量选择长度适中的对话（不太短也不太长）
-                # 2. 优先选择更复杂的对话（含有特定信息的）
+            # 3. 合并两种来源的记忆，避免重复
+            seen_messages = set()
+            
+            # 先添加传统检索结果
+            for memory in recent_history:
+                msg_key = (memory.get('message', '')[:50], memory.get('reply', '')[:50])
+                if msg_key not in seen_messages:
+                    seen_messages.add(msg_key)
+                    memory['source'] = 'traditional'
+                    memories.append(memory)
+            
+            # 再添加语义检索结果，避免重复
+            for memory in semantic_memories:
+                msg_key = (memory.get('message', '')[:50], memory.get('reply', '')[:50])
+                if msg_key not in seen_messages:
+                    seen_messages.add(msg_key)
+                    memories.append(memory)
+            
+            if memories:
+                # 为记忆计算权重
+                weighted_memories = []
+                for memory in memories:
+                    # 尝试从记忆中提取时间戳
+                    timestamp = memory.get('timestamp', '')
+                    if not timestamp:
+                        # 尝试从消息内容中提取时间戳
+                        timestamp_match = re.search(r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?', memory.get('message', ''))
+                        if timestamp_match:
+                            timestamp = timestamp_match.group()
+                    
+                    # 计算时间权重
+                    if not timestamp:
+                        time_weight = 0.5  # 默认中等权重
+                    else:
+                        # 计算时间衰减权重
+                        time_weight = self._calculate_time_decay_weight(timestamp)
+                    
+                    # 计算质量权重
+                    quality_score = self._memory_quality_score(memory, username)
+                    
+                    # 计算语义权重
+                    semantic_score = memory.get('score', 0.5)
+                    
+                    # 组合权重 - 使用配置的权重分配
+                    if self.use_semantic_search and memory.get('source') == 'semantic':
+                        # 语义检索结果给予更高的语义权重比例
+                        final_weight = (
+                            self.time_weight * time_weight + 
+                            (1.0 - self.time_weight) * semantic_score
+                        ) * (quality_score / 100)
+                    else:
+                        # 传统检索结果
+                        final_weight = time_weight * (quality_score / 100)
+                    
+                    weighted_memories.append({
+                        'memory': memory,
+                        'weight': final_weight,
+                        'time_weight': time_weight,
+                        'quality_score': quality_score,
+                        'semantic_score': semantic_score
+                    })
                 
-                # 简单评分函数
-                def memory_quality_score(mem):
-                    if not mem.get('message') or not mem.get('reply'):
-                        return 0
-                    
-                    msg_len = len(mem['message'])
-                    reply_len = len(mem['reply'])
-                    
-                    # 太短的对话质量低
-                    if msg_len < 5 or reply_len < 10:
-                        return 0
-                    
-                    # 太长的对话也不理想
-                    if msg_len > 500 or reply_len > 1000:
-                        return 10
-                    
-                    # 基础分数
-                    score = min(100, (msg_len + reply_len) / 10)
-                    
-                    # 包含特定用户名或对话元素的加分
-                    if username.lower() in mem['message'].lower() or username.lower() in mem['reply'].lower():
-                        score += 15
-                    
-                    # 包含问答格式的加分
-                    if "?" in mem['message'] or "？" in mem['message']:
-                        score += 10
-                        
-                    return score
+                # 按权重从高到低排序
+                weighted_memories.sort(key=lambda x: x['weight'], reverse=True)
                 
-                # 按质量排序
-                sorted_memories = sorted(recent_history, key=memory_quality_score, reverse=True)
+                # 过滤掉权重低于阈值的记忆
+                filtered_memories = [item['memory'] for item in weighted_memories if item['weight'] >= self.weight_threshold]
                 
-                # 选取最高质量的记忆（最多5条）
-                quality_memories = sorted_memories[:5]
-                logger.info(f"从 {len(recent_history)} 条记忆中筛选出 {len(quality_memories)} 条高质量记忆")
+                # 如果过滤后记忆数量少于私聊轮数，增加更多记忆
+                if len(filtered_memories) < self.private_context_turns:
+                    remaining_memories = [item['memory'] for item in weighted_memories if item['memory'] not in filtered_memories]
+                    filtered_memories.extend(remaining_memories[:self.private_context_turns - len(filtered_memories)])
+                
+                # 限制最大记忆数量
+                quality_memories = filtered_memories[:self.private_context_turns]
+                
+                logger.info(f"基于权重筛选：从 {len(memories)} 条记忆中筛选出 {len(quality_memories)} 条高质量记忆")
                 
                 # 构建上下文
                 context_parts = []
@@ -1242,14 +1541,72 @@ class MessageHandler:
         if not content:
             return {"parts": [], "memory_content": "", "total_length": 0, "sentence_count": 0}
         
-        # 检查是否包含表情符号或特殊字符
-        has_emoji = bool(re.search(r'[\U00010000-\U0010ffff\u2600-\u26FF\u2700-\u27BF]', content))
+        # 首先按照$符号分割消息，但保留连续的多个$只当作一个分隔符
+        # 替换连续的多个$为一个特殊标记
+        content_with_markers = re.sub(r'\${2,}', '###MULTI_DOLLAR###', content)
         
-        # 对于包含表情符号的内容，使用不同的处理策略
-        if has_emoji:
-            # 直接使用句子作为分割单位，不再使用标点符号分割
-            # 可能包含表情符号的句子，按照换行符或者句号分割
-            sentences = re.split(r'([。！？\.\!\?\n])', content)
+        # 然后按照单个$分割
+        dollar_parts = re.split(r'\$', content_with_markers)
+        
+        # 如果没有找到$分隔符，或者只有一部分，则使用原始分段逻辑
+        if len(dollar_parts) <= 1:
+            # 检查是否包含表情符号或特殊字符
+            has_emoji = bool(re.search(r'[\U00010000-\U0010ffff\u2600-\u26FF\u2700-\u27BF]', content))
+            
+            # 对于包含表情符号的内容，使用不同的处理策略
+            if has_emoji:
+                # 直接使用句子作为分割单位，不再使用标点符号分割
+                # 可能包含表情符号的句子，按照换行符或者句号分割
+                sentences = re.split(r'([。！？\.\!\?\n])', content)
+                
+                # 重组句子
+                complete_sentences = []
+                for i in range(0, len(sentences)-1, 2):
+                    if i+1 < len(sentences):
+                        # 将句子和标点符号重新组合
+                        sentence = sentences[i] + sentences[i+1]
+                        complete_sentences.append(sentence)
+                
+                # 处理最后一个可能没有标点的片段
+                if len(sentences) % 2 == 1 and sentences[-1].strip():
+                    complete_sentences.append(sentences[-1])
+                    
+                # 如果没有成功分割，则将整个内容作为一句话处理
+                if not complete_sentences:
+                    complete_sentences = [content]
+                    
+                # 直接将每个句子作为一部分，不进行标点过滤
+                processed_parts = []
+                memory_parts = []
+                
+                for i, sentence in enumerate(complete_sentences):
+                    clean_sentence = sentence.strip()
+                    if clean_sentence:
+                        # 恢复特殊标记为连续的$
+                        clean_sentence = clean_sentence.replace('###MULTI_DOLLAR###', '$$')
+                        
+                        # 添加到处理结果
+                        processed_parts.append(clean_sentence)
+                        
+                        # 为记忆内容准备，最后一句添加￥
+                        if i == len(complete_sentences) - 1:
+                            memory_parts.append(clean_sentence + "￥")
+                        else:
+                            memory_parts.append(clean_sentence)
+                
+                # 为记忆内容添加$分隔符
+                memory_content = " $ ".join(memory_parts)
+                
+                return {
+                    "parts": processed_parts,
+                    "memory_content": memory_content,
+                    "total_length": sum(len(part) for part in processed_parts),
+                    "sentence_count": len(processed_parts)
+                }
+            
+            # 没有表情符号的情况，使用原来的处理逻辑
+            # 使用正则表达式识别句子
+            sentences = re.split(r'([。！？\.\!\?])', content)
             
             # 重组句子
             complete_sentences = []
@@ -1262,29 +1619,33 @@ class MessageHandler:
             # 处理最后一个可能没有标点的片段
             if len(sentences) % 2 == 1 and sentences[-1].strip():
                 complete_sentences.append(sentences[-1])
-                
-            # 如果没有成功分割，则将整个内容作为一句话处理
-            if not complete_sentences:
+            
+            # 如果没有分离出句子，则视为一个完整句子
+            if not complete_sentences and content.strip():
                 complete_sentences = [content]
-                
-            # 直接将每个句子作为一部分，不进行标点过滤
+            
+            # 处理每个句子，添加分隔符，过滤标点
             processed_parts = []
             memory_parts = []
             
+            # 将每个句子作为单独的部分处理
             for i, sentence in enumerate(complete_sentences):
-                clean_sentence = sentence.strip()
-                if clean_sentence:
-                    # 清理句子内部的分隔符
-                    clean_sentence = clean_sentence.replace(' $ ', ' ').replace('$ ', ' ').replace(' $', ' ')
+                is_last = i == len(complete_sentences) - 1
+                # 过滤标点符号
+                filtered_sentence = self._filter_punctuation(sentence, is_last)
+                
+                # 如果句子不为空，添加到处理结果中
+                if filtered_sentence.strip():
+                    # 恢复特殊标记为连续的$
+                    filtered_sentence = filtered_sentence.replace('###MULTI_DOLLAR###', '$$')
                     
-                    # 添加到处理结果
-                    processed_parts.append(clean_sentence)
+                    # 处理记忆内容，给最后一句添加￥
+                    memory_sentence = filtered_sentence
+                    if is_last:
+                        memory_sentence = memory_sentence + "￥"
                     
-                    # 为记忆内容准备，最后一句添加￥
-                    if i == len(complete_sentences) - 1:
-                        memory_parts.append(clean_sentence + "￥")
-                    else:
-                        memory_parts.append(clean_sentence)
+                    processed_parts.append(filtered_sentence)
+                    memory_parts.append(memory_sentence)
             
             # 为记忆内容添加$分隔符
             memory_content = " $ ".join(memory_parts)
@@ -1296,45 +1657,24 @@ class MessageHandler:
                 "sentence_count": len(processed_parts)
             }
         
-        # 没有表情符号的情况，使用原来的处理逻辑
-        # 使用正则表达式识别句子
-        sentences = re.split(r'([。！？\.\!\?])', content)
-        
-        # 重组句子
-        complete_sentences = []
-        for i in range(0, len(sentences)-1, 2):
-            if i+1 < len(sentences):
-                # 将句子和标点符号重新组合
-                sentence = sentences[i] + sentences[i+1]
-                complete_sentences.append(sentence)
-        
-        # 处理最后一个可能没有标点的片段
-        if len(sentences) % 2 == 1 and sentences[-1].strip():
-            complete_sentences.append(sentences[-1])
-        
-        # 如果没有分离出句子，则视为一个完整句子
-        if not complete_sentences and content.strip():
-            complete_sentences = [content]
-        
-        # 处理每个句子，添加分隔符，过滤标点
+        # 现在处理$分隔的部分
         processed_parts = []
         memory_parts = []
         
-        # 将每个句子作为单独的部分处理
-        for i, sentence in enumerate(complete_sentences):
-            is_last = i == len(complete_sentences) - 1
-            # 过滤标点符号
-            filtered_sentence = self._filter_punctuation(sentence, is_last)
+        for i, part in enumerate(dollar_parts):
+            # 恢复特殊标记为连续的$
+            part = part.replace('###MULTI_DOLLAR###', '$$')
             
-            # 如果句子不为空，添加到处理结果中
-            if filtered_sentence.strip():
-                # 处理记忆内容，给最后一句添加￥
-                memory_sentence = filtered_sentence
-                if is_last:
-                    memory_sentence = memory_sentence + "￥"
+            # 清理和准备部分
+            clean_part = part.strip()
+            if clean_part:
+                processed_parts.append(clean_part)
                 
-                processed_parts.append(filtered_sentence)
-                memory_parts.append(memory_sentence)
+                # 为记忆内容准备，最后一部分添加￥
+                if i == len(dollar_parts) - 1:
+                    memory_parts.append(clean_part + "￥")
+                else:
+                    memory_parts.append(clean_part)
         
         # 为记忆内容添加$分隔符
         memory_content = " $ ".join(memory_parts)
@@ -1410,8 +1750,8 @@ class MessageHandler:
                 if processed_part.startswith('$'):
                     processed_part = processed_part[1:].strip()
                 
-                # 移除消息中间的$ 符号
-                processed_part = processed_part.replace(' $ ', ' ').replace('$ ', ' ').replace(' $', ' ')
+                # 不再移除消息中的$符号，因为它们已经被用作分隔符
+                # processed_part = processed_part.replace(' $ ', ' ').replace('$ ', ' ').replace(' $', ' ')
                 
                 # 模拟真实用户输入行为
                 time.sleep(base_interval)  # 基础间隔
@@ -1653,3 +1993,292 @@ class MessageHandler:
         except Exception as e:
             logger.error(f"处理文本消息失败: {str(e)}", exc_info=True)
             return "抱歉，处理您的消息时出现错误"
+
+    # 添加新的获取最大上下文轮数的方法
+    def _get_max_context_turns(self):
+        """从配置文件获取最大上下文轮数"""
+        try:
+            # 优先尝试从config.categories.user_settings.settings.max_groups获取
+            try:
+                if hasattr(config, 'categories') and hasattr(config.categories, 'user_settings'):
+                    user_settings = config.categories.user_settings.settings
+                    if hasattr(user_settings, 'max_groups'):
+                        max_turns = user_settings.max_groups.value
+                        if isinstance(max_turns, (int, float)) and max_turns > 0:
+                            return int(max_turns)
+                        logger.warning(f"配置中的max_groups值无效: {max_turns}，使用默认值")
+            except AttributeError as e:
+                logger.warning(f"通过user_settings获取max_groups失败: {str(e)}")
+                
+            # 尝试从config.behavior.context中获取
+            if hasattr(config, 'behavior') and hasattr(config.behavior, 'context'):
+                if hasattr(config.behavior.context, 'max_groups'):
+                    max_turns = config.behavior.context.max_groups
+                    if isinstance(max_turns, (int, float)) and max_turns > 0:
+                        return int(max_turns)
+                    logger.warning(f"behavior.context中的max_groups值无效: {max_turns}，使用默认值")
+                    
+            # 尝试现有的配置项名称
+            group_turns = self._get_config_value('group_context_turns', None)
+            if group_turns is not None and isinstance(group_turns, (int, float)) and group_turns > 0:
+                return int(group_turns)
+                
+            # 使用默认值
+            return 7
+        except Exception as e:
+            logger.error(f"获取最大上下文轮数失败: {str(e)}")
+            return 7
+
+    def _calculate_time_decay_weight(self, timestamp, current_time=None, time_format="%Y-%m-%d %H:%M:%S"):
+        """
+        计算基于时间衰减的权重
+        
+        Args:
+            timestamp: 消息时间戳字符串
+            current_time: 当前时间，如果为None则使用当前系统时间
+            time_format: 时间格式
+            
+        Returns:
+            float: 时间衰减权重，范围[0, 1]
+        """
+        try:
+            if not timestamp:
+                return 0.0
+                
+            # 如果未提供当前时间，使用当前系统时间
+            if current_time is None:
+                current_time = datetime.now()
+            elif isinstance(current_time, str):
+                current_time = datetime.strptime(current_time, time_format)
+                
+            # 将时间戳转换为datetime对象
+            msg_time = datetime.strptime(timestamp, time_format)
+            
+            # 计算时间差（秒）
+            time_diff_seconds = (current_time - msg_time).total_seconds()
+            
+            # 确保时间差非负
+            time_diff_seconds = max(0, time_diff_seconds)
+            
+            # 将时间差转换为小时
+            time_diff_hours = time_diff_seconds / 3600.0
+            
+            # 根据配置的衰减方法计算权重
+            if self.decay_method == 'exponential':
+                # 指数衰减: weight = exp(-λ * t)
+                weight = math.exp(-self.decay_rate * time_diff_hours)
+            else:
+                # 线性衰减: weight = max(0, 1 - λ * t)
+                weight = max(0.0, 1.0 - self.decay_rate * time_diff_hours)
+                
+            # 确保权重在[0, 1]范围内
+            weight = max(0.0, min(1.0, weight))
+            
+            return weight
+            
+        except Exception as e:
+            logger.error(f"计算时间衰减权重失败: {str(e)}")
+            return 0.5  # 出错时返回中等权重作为默认值
+
+    def _apply_weights_and_filter_context(self, context_messages, current_time=None, max_turns=None, current_user=None):
+        """
+        应用权重并筛选上下文消息
+        
+        Args:
+            context_messages: 上下文消息列表
+            current_time: 当前时间，如果为None则使用当前系统时间
+            max_turns: 最大保留的上下文轮数，如果为None则使用配置值
+            current_user: 当前交互的用户名，用于增强相关消息的权重
+            
+        Returns:
+            list: 经过权重排序和筛选后的上下文消息
+        """
+        if not context_messages:
+            return []
+            
+        # 如果未指定max_turns，使用配置的值
+        if max_turns is None:
+            max_turns = self.group_context_turns
+            
+        # 如果未启用时间衰减和语义搜索，按时间排序并截取最近的max_turns条
+        if not self.use_time_decay and not self.use_semantic_search:
+            # 按时间戳排序（从旧到新）
+            sorted_msgs = sorted(context_messages, key=lambda x: x.get("timestamp", ""))
+            # 返回最新的max_turns条消息
+            return sorted_msgs[-max_turns:]
+        
+        # 当前时间
+        if current_time is None:
+            current_time = datetime.now()
+            
+        # 为每条消息计算权重
+        weighted_msgs = []
+        for msg in context_messages:
+            # 1. 基础权重 - 时间衰减
+            time_weight = self._calculate_time_decay_weight(msg.get("timestamp", ""), current_time)
+            
+            # 2. 用户相关性权重
+            user_weight = 1.0  # 默认权重
+            if current_user:
+                # 如果消息的发送者与当前用户匹配，增加权重
+                msg_sender = msg.get("sender_name", "").lower()
+                current_user_lower = current_user.lower()
+                
+                # 完全匹配给予最高权重
+                if msg_sender == current_user_lower:
+                    user_weight = 2.0
+                # 部分匹配（如昵称包含用户名）也提高权重
+                elif current_user_lower in msg_sender or msg_sender in current_user_lower:
+                    user_weight = 1.5
+                # 如果是机器人回复当前用户的消息，也提高权重
+                elif msg.get("human_message", "") and msg.get("assistant_message", "") and current_user_lower in msg.get("human_message", "").lower():
+                    user_weight = 1.3
+            
+            # 3. 语义相关性权重
+            semantic_weight = 0.5  # 默认中等语义相关性
+            if self.use_semantic_search and "semantic_score" in msg:
+                semantic_weight = msg["semantic_score"]
+            
+            # 组合权重 - 使用配置的权重比例
+            if self.use_semantic_search:
+                # 组合三种权重
+                final_weight = (
+                    self.time_weight * time_weight + 
+                    self.user_weight * user_weight + 
+                    self.semantic_weight * semantic_weight
+                )
+            else:
+                # 只使用时间和用户权重
+                final_weight = time_weight * user_weight
+            
+            weighted_msgs.append({
+                "message": msg,
+                "weight": final_weight,
+                "is_relevant_user": user_weight > 1.0,
+                "time_weight": time_weight,
+                "user_weight": user_weight,
+                "semantic_weight": semantic_weight
+            })
+            
+        # 按权重从高到低排序
+        weighted_msgs.sort(key=lambda x: x["weight"], reverse=True)
+        
+        # 记录权重计算情况（仅记录top 3用于调试）
+        for i, item in enumerate(weighted_msgs[:3]):
+            msg = item["message"]
+            logger.debug(f"消息权重 #{i+1}: 权重={item['weight']:.2f}, 时间={item['time_weight']:.2f}, 用户={item['user_weight']:.2f}, 语义={item['semantic_weight']:.2f}, 内容={msg.get('human_message', '')[:30]}...")
+        
+        # 过滤掉权重低于阈值的消息
+        filtered_msgs = [item["message"] for item in weighted_msgs if item["weight"] >= self.weight_threshold]
+        
+        # 确保消息的多样性：保留一定数量的相关用户消息和其他用户消息
+        if current_user and len(filtered_msgs) < max_turns:
+            # 分离相关用户和其他用户的消息
+            relevant_msgs = [m for m in weighted_msgs if m["is_relevant_user"] and m["message"] not in filtered_msgs]
+            other_msgs = [m for m in weighted_msgs if not m["is_relevant_user"] and m["message"] not in filtered_msgs]
+            
+            # 计算需要补充的消息数量
+            remaining_slots = max_turns - len(filtered_msgs)
+            
+            # 预留至少30%的槽位给其他用户的消息，确保对话的多样性
+            min_other_slots = max(1, int(remaining_slots * 0.3))
+            max_relevant_slots = remaining_slots - min_other_slots
+            
+            # 添加相关用户消息
+            filtered_msgs.extend([m["message"] for m in relevant_msgs[:max_relevant_slots]])
+            
+            # 再添加其他用户消息
+            filtered_msgs.extend([m["message"] for m in other_msgs[:min_other_slots]])
+        
+        # 如果仍然不足max_turns，继续添加剩余消息
+        if len(filtered_msgs) < max_turns:
+            remaining_msgs = [item["message"] for item in weighted_msgs if item["message"] not in filtered_msgs]
+            filtered_msgs.extend(remaining_msgs[:max_turns - len(filtered_msgs)])
+        
+        # 最后再按时间排序，确保上下文时间顺序正确
+        filtered_msgs.sort(key=lambda x: x.get("timestamp", ""))
+        
+        # 限制最大消息数量
+        return filtered_msgs[-max_turns:]
+
+    def _memory_quality_score(self, mem, username):
+        """评估记忆质量分数，返回0-100之间的值"""
+        if not mem.get('message') or not mem.get('reply'):
+            return 0
+        
+        msg_len = len(mem['message'])
+        reply_len = len(mem['reply'])
+        
+        # 太短的对话质量低
+        if msg_len < 5 or reply_len < 10:
+            return 0
+        
+        # 太长的对话也不理想
+        if msg_len > 500 or reply_len > 1000:
+            return 10
+        
+        # 基础分数
+        score = min(100, (msg_len + reply_len) / 10)
+        
+        # 包含特定用户名或对话元素的加分
+        if username.lower() in mem['message'].lower() or username.lower() in mem['reply'].lower():
+            score += 15
+        
+        # 包含问答格式的加分
+        if "?" in mem['message'] or "？" in mem['message']:
+            score += 10
+            
+        return min(100, score)  # 确保分数不超过100
+
+    # 添加RAG语义查询方法
+    async def _get_semantic_similar_messages(self, query_text, group_id=None, user_id=None, top_k=None):
+        """
+        通过RAG系统获取语义相似的消息
+        
+        Args:
+            query_text: 查询文本
+            group_id: 群组ID，如果是群聊消息
+            user_id: 用户ID，如果是私聊消息
+            top_k: 检索数量
+            
+        Returns:
+            List[Dict]: 相似消息列表
+        """
+        if not self.rag_manager or not self.use_semantic_search:
+            return []
+            
+        try:
+            if not top_k:
+                top_k = self.group_context_turns * 2  # 获取更多结果以便后续筛选
+                
+            # 如果是群聊消息，使用群聊专用API
+            if group_id:
+                return await self.rag_manager.group_chat_query(group_id, top_k=top_k)
+                
+            # 私聊消息使用通用查询API
+            # 构造有效的查询
+            # 使用用户ID作为过滤条件增强相关性
+            enhanced_query = f"与用户 {user_id} 的近期对话 {query_text}"
+            
+            # 通过RAG进行查询
+            results = await self.rag_manager.query(enhanced_query, top_k=top_k)
+            
+            # 转换为标准消息格式
+            messages = []
+            for result in results:
+                content = result.get("content", "")
+                metadata = result.get("metadata", {})
+                
+                # 解析对话内容（可能需要根据具体格式调整）
+                messages.append({
+                    "timestamp": metadata.get("timestamp", ""),
+                    "sender_name": metadata.get("sender_name", user_id),
+                    "human_message": metadata.get("human_message", content),
+                    "assistant_message": metadata.get("assistant_message", ""),
+                    "score": result.get("score", 0)
+                })
+                
+            return messages
+        except Exception as e:
+            logger.error(f"获取语义相似消息失败: {str(e)}")
+            return []
