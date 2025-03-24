@@ -333,10 +333,30 @@ class ThemeTransition:
     
     def get_bg_color(self, theme):
         """获取指定主题的背景颜色"""
+        # 如果主题是 'system'，则根据系统设置返回对应的颜色
+        if theme == 'system':
+            # 获取系统当前的主题模式
+            current_mode = ctk.get_appearance_mode().lower()
+            # 根据当前模式返回对应的颜色
+            if current_mode == 'dark':
+                return self.theme_colors['dark']['bg']
+            else:
+                return self.theme_colors['light']['bg']
+        # 否则直接返回主题对应的颜色
         return self.theme_colors[theme]["bg"]
     
     def get_text_color(self, theme):
         """获取指定主题的文本颜色"""
+        # 如果主题是 'system'，则根据系统设置返回对应的颜色
+        if theme == 'system':
+            # 获取系统当前的主题模式
+            current_mode = ctk.get_appearance_mode().lower()
+            # 根据当前模式返回对应的颜色
+            if current_mode == 'dark':
+                return self.theme_colors['dark']['text']
+            else:
+                return self.theme_colors['light']['text']
+        # 否则直接返回主题对应的颜色
         return self.theme_colors[theme]["text"]
     
     def interpolate_color(self, start_color, end_color, ratio):
