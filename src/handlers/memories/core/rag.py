@@ -943,9 +943,34 @@ class RagManager:
             if group_id not in self.storage.data['group_chats']:
                 self.storage.data['group_chats'][group_id] = []
             
+            # 提取消息信息
             timestamp = message.get('timestamp', '')
+            human_message = message.get('human_message', '')
+            sender_name = message.get('sender_name', '')
+            assistant_message = message.get('assistant_message')
+            is_at = message.get('is_at', False)
+            ai_name = message.get('ai_name', self.avatar_name)
+            
+            # 创建RAG存储格式的消息对象 - 确保与rag_storage.json格式一致
+            rag_message = {
+                "id": f"group_chat_{group_id}_{int(time.time())}" if 'id' not in message else message['id'],
+                "content": self._format_content_for_rag(human_message, assistant_message, sender_name),
+                "embedding": None,  # 将在后面获取嵌入向量
+                "metadata": {
+                    "type": "group_chat_message",
+                    "group_id": group_id,
+                    "timestamp": timestamp,
+                    "sender_name": sender_name,
+                    "is_at": is_at,
+                    "ai_name": ai_name,
+                    "human_message": human_message,
+                    "assistant_message": assistant_message
+                }
+            }
+            
+            # 查找是否存在相同时间戳的消息
             existing_messages = [msg for msg in self.storage.data['group_chats'][group_id] 
-                               if msg.get('timestamp') == timestamp]
+                                if msg.get('timestamp') == timestamp]
             
             if existing_messages:
                 for existing_msg in existing_messages:
@@ -953,39 +978,30 @@ class RagManager:
             else:
                 self.storage.data['group_chats'][group_id].append(message)
             
+            # 保存原始消息格式到group_chats
             self.storage._save_data()
             
-            content = f"{message.get('sender_name', '')}: {message.get('human_message', '')}"
-            if message.get('assistant_message'):
-                content += f"\n{self.avatar_name}: {message.get('assistant_message')}"
+            # 构建用于嵌入的内容
+            content_for_embedding = self._format_content_for_rag(human_message, assistant_message, sender_name)
             
-            doc_id = f"group_chat_{group_id}_{int(time.time())}"
-            if 'id' in message:
-                doc_id = message['id']
-            
-            document = {
-                "id": doc_id,
-                "content": content,
-                "metadata": {
-                    "timestamp": message.get('timestamp', ''),
-                    "sender_name": message.get('sender_name', ''),
-                    "human_message": message.get('human_message', ''),
-                    "assistant_message": message.get('assistant_message'),
-                    "is_at": message.get('is_at', False),
-                    "group_id": group_id,
-                    "ai_name": message.get('ai_name', self.avatar_name)
-                }
-            }
-            
-            embedding = await self.embedding_model.get_embedding(content)
+            # 获取嵌入向量
+            embedding = await self.embedding_model.get_embedding(content_for_embedding)
             if embedding:
-                document["embedding"] = embedding
-                self.storage.add_document(document)
+                rag_message["embedding"] = embedding
+                # 使用RAG格式添加文档，确保rag_storage.json中的格式正确
+                self.storage.add_document(rag_message)
             
             return True
         except Exception as e:
             logger.error(f"添加群聊消息到RAG系统失败: {str(e)}")
             return False
+    
+    def _format_content_for_rag(self, human_message, assistant_message, sender_name):
+        """格式化RAG内容"""
+        content = f"{sender_name}: {human_message}"
+        if assistant_message:
+            content += f"\n{self.avatar_name}: {assistant_message}"
+        return content
     
     async def update_group_chat_response(self, group_id: str, timestamp: str, response: str) -> bool:
         """
@@ -1009,9 +1025,15 @@ class RagManager:
                 return False
             
             found = False
+            sender_name = ""
+            human_message = ""
+            
+            # 更新memory.json格式的消息
             for message in self.storage.data['group_chats'][group_id]:
                 if message.get('timestamp') == timestamp:
                     message['assistant_message'] = response
+                    sender_name = message.get('sender_name', '')
+                    human_message = message.get('human_message', '')
                     found = True
                     break
             
@@ -1021,15 +1043,15 @@ class RagManager:
             
             self.storage._save_data()
             
+            # 更新RAG存储中的文档
             query = f"timestamp:{timestamp} AND group_id:{group_id}"
             results = await self.query(query, top_k=1)
             
             if results:
                 doc = results[0]
                 doc["metadata"]["assistant_message"] = response
-                sender_name = doc["metadata"]["sender_name"]
-                human_message = doc["metadata"]["human_message"]
-                doc["content"] = f"{sender_name}: {human_message}\n{self.avatar_name}: {response}"
+                # 更新内容字段，确保格式一致
+                doc["content"] = self._format_content_for_rag(human_message, response, sender_name)
                 
                 await self.update_document(doc)
             
