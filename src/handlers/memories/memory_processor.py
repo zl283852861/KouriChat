@@ -407,11 +407,28 @@ class MemoryProcessor:
                 clean_lines = [line for line in lines if "memory_number:" not in line]
                 clean_assistant_msg = '\n'.join(clean_lines)
             
+            # 清理场景转换标记和其他新增标记
+            def clean_rag_content(text):
+                """清理要存入RAG的内容"""
+                # 移除场景转换标记
+                text = re.sub(r'\n\[场景切换：[^\]]+\]\n', ' ', text)
+                # 移除时间戳
+                text = re.sub(r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]', '', text)
+                # 移除对话标记
+                text = re.sub(r'ta(?:私聊|在群聊里)对你说[：:]\s*', '', text)
+                # 移除其他系统标记
+                text = re.sub(r'\[系统[^\]]*\].*?\[/系统[^\]]*\]', '', text)
+                # 将$符号替换为空格
+                text = re.sub(r'\s*\$\s*', ' ', text)
+                # 移除多余的空白字符
+                text = re.sub(r'\s+', ' ', text)
+                return text.strip()
+            
             # 创建记忆条目
             memory_entry = {
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                "human_message": "None" if is_auto_message else clean_user_msg,
-                "assistant_message": clean_assistant_msg
+                "human_message": "None" if is_auto_message else clean_user_msg.replace('$', ' '),  # 替换$为空格
+                "assistant_message": clean_assistant_msg.replace('$', ' ')  # 替换$为空格
             }
             
             # 确保用户ID存在于记忆数据中，并且是列表形式
@@ -425,8 +442,8 @@ class MemoryProcessor:
                     for key, value in old_data.items():
                         self.memory_data[clean_user_id].append({
                             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"),
-                            "human_message": key,
-                            "assistant_message": value
+                            "human_message": key.replace('$', ' '),  # 替换$为空格
+                            "assistant_message": value.replace('$', ' ')  # 替换$为空格
                         })
             
             # 添加到记忆数据 - 以数组形式存储
@@ -435,6 +452,10 @@ class MemoryProcessor:
             
             # 添加到RAG系统
             if self.rag_manager and not is_auto_message:  # 主动消息不添加到RAG
+                # 清理用户消息和助手回复
+                clean_user_msg = clean_rag_content(clean_user_msg)
+                clean_assistant_msg = clean_rag_content(clean_assistant_msg)
+                
                 # 构建记忆文档
                 memory_doc = {
                     "id": f"memory_{int(time.time())}",

@@ -61,13 +61,14 @@ categories:
          type: string
          description: 嵌入API密钥（硅基流动）
          is_secret: true
-      bbase_url:
+      base_url:
          value: ''
          type: string
          description: 嵌入API基础URL（留空使用LLM模块配置）
       
-      eembedding_model:
-         value: text-embedding-3-large
+
+      embedding_model:
+         value: bge-m3
          type: string
          description: 嵌入模型名称
          options:
@@ -75,12 +76,14 @@ categories:
          - bge-m3
          - bge-reranker-v2-m3
          - BAAI/bge-m3
-         - BAAI/bge-reranker-v2-m3
          - BAAI/bge-large-zh-v1.5
          - BAAI/bge-large-en-v1.5
-         - BAAI/bge-reranker-v2-m3  
-         - Pro/BAAI/bge-reranker-v2-m3
-          
+         - Pro/BAAI/bge-m3
+         - bge-m3
+         - text-embedding-3-large
+         - text-embedding-ada-002
+         - text-embedding-v1
+        
       reranker_model:
         value: ""
         type: string

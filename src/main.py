@@ -24,6 +24,7 @@ from colorama import init, Style, Fore
 from src.AutoTasker.autoTasker import AutoTasker
 import sys
 import asyncio
+from difflib import SequenceMatcher
 
 def _run_async(coro):
     """
@@ -230,12 +231,12 @@ class ChatBot:
         self.user_queues = {}  # 将user_queues移到类的实例变量
         self.queue_lock = threading.Lock()  # 将queue_lock也移到类的实例变量
         self.ai_last_reply_time = {}  # 新增：记录AI 最后回复的时间
-        # self.unanswered_counters = {}  # 新增：每个用户的未回复计数器, 移动到MessageHandler
+        self.group_message_queues = {}  # 新增：群聊消息队列
+        self.group_queue_lock = threading.Lock()  # 新增：群聊队列锁
 
         # 获取机器人的微信名称
         self.wx = WeChat()
-        self.robot_name = self.wx.A_MyIcon.Name  # 移除括号，直接访问Name属性
-        # logger.info(f"机器人名称为 {self.robot_name}")
+        self.robot_name = self.wx.A_MyIcon.Name
         
         # 将wx实例传递给message_handler
         self.message_handler.wx = self.wx
@@ -244,41 +245,233 @@ class ChatBot:
         """处理用户消息队列"""
         try:
             logger.info(f"开始处理消息队列- 聊天ID: {chat_id}")
-            with self.queue_lock:
-                if chat_id not in self.user_queues:
-                    logger.warning(f"未找到消息队列 {chat_id}")
-                    return
-                user_data = self.user_queues.pop(chat_id)
-                messages = user_data['messages']
-                sender_name = user_data['sender_name']
-                username = user_data['username']
-                is_group = user_data.get('is_group', False)
+            
+            # 确定是否是群聊消息
+            is_group_chat = False
+            messages = []
+            sender_name = ""
+            username = ""
+            is_group = False
+            is_at = False  # 添加is_at标志
+            
+            # 先尝试获取群聊消息
+            with self.group_queue_lock:
+                if chat_id in self.group_message_queues:
+                    is_group_chat = True
+                    group_data = self.group_message_queues.pop(chat_id)
+                    messages = group_data['messages']
+                    sender_name = group_data['sender_name']
+                    username = group_data['username']
+                    is_group = True
+                    is_at = group_data.get('is_at', False)  # 从群聊数据中获取is_at标志
+            
+            # 如果不是群聊消息，则获取私聊消息
+            if not is_group_chat:
+                with self.queue_lock:
+                    if chat_id not in self.user_queues:
+                        logger.warning(f"未找到消息队列 {chat_id}")
+                        return
+                    user_data = self.user_queues.pop(chat_id)
+                    messages = user_data['messages']
+                    sender_name = user_data['sender_name']
+                    username = user_data['username']
+                    is_group = user_data.get('is_group', False)
+                    is_at = user_data.get('is_at', False)  # 从用户数据中获取is_at标志
 
             logger.info(f"队列信息 - 发送者: {sender_name}, 消息数: {len(messages)}, 是否群聊: {is_group}")
 
-            # 消息去重处理
+            # 增强的消息去重处理
             if len(messages) > 1:
-                # 移除完全相同的连续消息
-                unique_messages = [messages[0]]
-                for i in range(1, len(messages)):
-                    if messages[i] != messages[i - 1]:
-                        unique_messages.append(messages[i])
+                # 1. 移除完全相同的消息（不限于连续）
+                seen_messages = set()
+                unique_messages = []
+                for msg in messages:
+                    if msg not in seen_messages:
+                        seen_messages.add(msg)
+                        unique_messages.append(msg)
 
-                # 检查是否有重复消息被移除
-                if len(unique_messages) < len(messages):
-                    logger.info(f"消息队列去重: 从 {len(messages)} 条减少到 {len(unique_messages)} 条")
-                    messages = unique_messages
+                # 2. 检查语义相似度（使用简单的字符串相似度）
+                def similarity(a, b):
+                    return SequenceMatcher(None, a, b).ratio()
+
+                # 3. 合并相似度高的消息
+                final_messages = []
+                skip_indices = set()
+                for i in range(len(unique_messages)):
+                    if i in skip_indices:
+                        continue
+                    current_msg = unique_messages[i]
+                    similar_msgs = []
+                    
+                    # 检查后续消息是否相似
+                    for j in range(i + 1, len(unique_messages)):
+                        if j not in skip_indices:
+                            sim_ratio = similarity(current_msg, unique_messages[j])
+                            if sim_ratio > 0.8:  # 相似度阈值
+                                similar_msgs.append(unique_messages[j])
+                                skip_indices.add(j)
+                    
+                    if similar_msgs:
+                        # 选择最长的消息作为代表
+                        best_msg = max([current_msg] + similar_msgs, key=len)
+                        final_messages.append(best_msg)
+                    else:
+                        final_messages.append(current_msg)
+
+                # 4. 检查时间线一致性
+                time_patterns = [
+                    r'昨[天晚]',
+                    r'今[天晚]',
+                    r'刚才',
+                    r'(\d+)点',
+                    r'早上|上午|中午|下午|晚上'
+                ]
+                
+                # 按时间顺序排序消息
+                def extract_time_info(msg):
+                    for pattern in time_patterns:
+                        if re.search(pattern, msg):
+                            return True
+                    return False
+                
+                # 分离带时间信息的消息和普通消息
+                time_messages = [msg for msg in final_messages if extract_time_info(msg)]
+                normal_messages = [msg for msg in final_messages if not extract_time_info(msg)]
+                
+                # 重新组合消息，确保时间顺序正确
+                messages = time_messages + normal_messages
+
+                # 记录去重结果
+                logger.info(f"消息队列优化: 从 {len(messages)} 条减少到 {len(final_messages)} 条")
+                logger.debug(f"去重后的消息: {messages}")
 
             # 合并消息内容
             is_image_recognition = any("发送了图片" in msg or "发送了表情包：" in msg for msg in messages)
 
             # 优化消息合并逻辑
             if len(messages) > 1:
-                # 第一条消息通常包含时间戳和问候语，保持原样
-                # 后续消息直接拼接，避免重复的问候语
-                content = messages[0]
-                for i in range(1, len(messages)):
-                    content += f"\n{messages[i]}"
+                # 智能合并消息
+                content_parts = []
+                current_context = {
+                    'location': None,  # 地点
+                    'time': None,      # 时间
+                    'activity': None,  # 活动
+                    'status': None     # 状态
+                }
+                
+                # 定义场景识别模式
+                patterns = {
+                    'location': r'在(实验室|家|学校|公司|办公室|图书馆|食堂|宿舍|教室|外面|路上|商场|医院|咖啡厅|餐厅)',
+                    'time': r'([早中下晚][上午饭]|凌晨|半夜|\d+点|\d+:\d+)',
+                    'activity': r'(工作|学习|睡觉|休息|实验|写代码|看书|吃饭|上课|开会|散步|运动|锻炼|购物|聊天|玩游戏)',
+                    'status': r'(累了|困了|饿了|忙|闲|开心|难过|紧张|兴奋|疲惫|生病|精神|有事|没事)'
+                }
+                
+                def extract_context(text, timestamp=None):
+                    """提取文本中的场景信息，考虑时间戳"""
+                    context = {}
+                    
+                    # 首先从时间戳中提取时间信息（如果有）
+                    if timestamp:
+                        try:
+                            dt = datetime.strptime(timestamp, "%Y-%m-%d %H:%M:%S")
+                            hour = dt.hour
+                            if 5 <= hour < 12:
+                                context['time'] = '早上'
+                            elif 12 <= hour < 14:
+                                context['time'] = '中午'
+                            elif 14 <= hour < 18:
+                                context['time'] = '下午'
+                            elif 18 <= hour < 24:
+                                context['time'] = '晚上'
+                            else:
+                                context['time'] = '凌晨'
+                        except Exception as e:
+                            logger.debug(f"解析时间戳失败: {str(e)}")
+                    
+                    # 检查文本是否包含历史对话标记
+                    if "以下是之前的对话记录：" in text or "以上是历史对话内容" in text:
+                        return {}  # 如果是历史记录，不提取场景信息
+                    
+                    # 从当前文本中提取场景信息
+                    for key, pattern in patterns.items():
+                        match = re.search(pattern, text)
+                        if match:
+                            # 确保提取的场景信息不是历史记录的一部分
+                            # 检查匹配文本前后是否有历史记录标记
+                            start_pos = match.start()
+                            end_pos = match.end()
+                            context_before = text[max(0, start_pos-50):start_pos]
+                            context_after = text[end_pos:min(len(text), end_pos+50)]
+                            
+                            if not any(marker in context_before or marker in context_after for marker in 
+                                     ["对话记录：", "历史对话", "上次聊天"]):
+                                context[key] = match.group()
+                    
+                    return context
+                
+                def context_changed(old_ctx, new_ctx, msg_time=None):
+                    """判断场景是否发生显著变化，考虑时间连续性"""
+                    if not old_ctx or not new_ctx:
+                        return False
+                    
+                    # 计算显式声明的变化
+                    explicit_changes = sum(1 for k in new_ctx if k in old_ctx and old_ctx[k] != new_ctx[k])
+                    
+                    # 计算新增的维度
+                    additions = sum(1 for k in new_ctx if k not in old_ctx)
+                    
+                    # 检查时间连续性
+                    time_changed = False
+                    if msg_time and 'time' in new_ctx:
+                        try:
+                            current_time = datetime.strptime(msg_time, "%Y-%m-%d %H:%M:%S")
+                            if 'last_time' in old_ctx:
+                                time_diff = current_time - old_ctx['last_time']
+                                # 如果时间间隔超过2小时，认为是场景变化
+                                if time_diff.total_seconds() > 7200:  # 2小时 = 7200秒
+                                    time_changed = True
+                        except Exception as e:
+                            logger.debug(f"时间连续性检查失败: {str(e)}")
+                    
+                    # 如果有显著变化或新增维度，认为场景发生转换
+                    return explicit_changes + additions >= 1 or time_changed
+                
+                # 处理每条消息
+                for msg in messages:
+                    # 提取时间戳
+                    timestamp_match = re.search(r'\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}', msg)
+                    current_timestamp = timestamp_match.group() if timestamp_match else None
+                    
+                    # 提取当前消息的场景信息
+                    new_context = extract_context(msg, current_timestamp)
+                    
+                    # 如果提取到了有效的场景信息
+                    if new_context:
+                        # 如果检测到场景变化，添加优雅的场景转换提示
+                        if context_changed(current_context, new_context, current_timestamp):
+                            # 构建场景转换描述
+                            transition_parts = []
+                            for key in ['time', 'location', 'activity', 'status']:
+                                if key in new_context and (key not in current_context or current_context[key] != new_context[key]):
+                                    transition_parts.append(new_context[key])
+                            
+                            if transition_parts:
+                                transition_text = "，".join(transition_parts)
+                                content_parts.append(f"\n[场景切换：{transition_text}]\n")
+                        
+                        # 更新当前场景
+                        current_context.update(new_context)
+                        if current_timestamp:
+                            try:
+                                current_context['last_time'] = datetime.strptime(current_timestamp, "%Y-%m-%d %H:%M:%S")
+                            except Exception as e:
+                                logger.debug(f"更新时间戳失败: {str(e)}")
+                    
+                    # 添加消息
+                    content_parts.append(msg)
+                
+                content = "\n".join(content_parts)
             else:
                 content = messages[0]
 
@@ -299,14 +492,15 @@ class ChatBot:
                 self.last_processed_content = {}
             self.last_processed_content[chat_key] = (current_content_hash, time.time())
 
-            # 直接调用 MessageHandler 的handle_user_message 方法
+            # 直接调用 MessageHandler 的handle_user_message 方法，传递is_at参数
             response = self.message_handler.handle_user_message(
                 content=content,
                 chat_id=chat_id,
                 sender_name=sender_name,
                 username=username,
                 is_group=is_group,
-                is_image_recognition=is_image_recognition
+                is_image_recognition=is_image_recognition,
+                is_at=is_at  # 传递is_at标志
             )
             logger.info(f"消息已处理- 聊天ID: {chat_id}")
 
@@ -314,7 +508,7 @@ class ChatBot:
             if response and isinstance(response, str):
                 logger.info(f"对话记录 - 用户: {username}\n用户: {content}\nAI: {response}")
             else:
-                logger.warning(f"无有效响应内容 - 用户ID: {username}")
+                logger.debug(f"无有效响应内容 - 用户ID: {username}")
 
             # 记录 AI 最后回复的时间
             self.ai_last_reply_time[username] = time.time()
@@ -343,6 +537,97 @@ class ChatBot:
             # 添加详细日志
             logger.info(f"收到消息 - 来源: {chatName}, 发送者: {username}, 是否群聊: {is_group}")
             logger.info(f"原始消息内容: {content}")
+            
+            # 添加未回复计数器状态日志
+            if hasattr(self.message_handler, 'unanswered_counters'):
+                if chatName in self.message_handler.unanswered_counters:
+                    counter_value = self.message_handler.unanswered_counters.get(chatName, 0)
+                    logger.info(f"聊天 {chatName} 的当前未回复计数器值: {counter_value}")
+                else:
+                    logger.info(f"聊天 {chatName} 不在未回复计数器中")
+
+            # 保存原始内容用于后续比较
+            original_content = content
+
+            # 先判断是否是群聊@消息
+            is_at_robot = False
+            if is_group and self.robot_name and content:
+                # 使用更全面的@检测逻辑
+                robot_name = self.robot_name
+                
+                # 1. 正则表达式匹配常见的@模式
+                # 允许各种类型的空格字符和机器人名称周围的一些变化
+                robot_name_pattern = re.escape(robot_name).replace('\\ ', '[ \u2005\u00A0\u200B\u3000]*')
+                at_pattern = re.compile(f"@{robot_name_pattern}[\\s\u2005\u00A0\u200B\u3000]?")
+                is_at_robot = bool(at_pattern.search(content))
+                
+                # 2. 使用原有的模式列表
+                if not is_at_robot:
+                    at_patterns = [
+                        f'@{self.robot_name} ',    # 标准空格
+                        f'@{self.robot_name}\u2005',  # 特殊空格
+                        f'@{self.robot_name}\u00A0',  # 不间断空格
+                        f'@{self.robot_name}\u200B',  # 零宽空格
+                        f'@{self.robot_name}\u3000',  # 全角空格
+                        f'@{self.robot_name}'      # 无空格
+                    ]
+                    is_at_robot = any(pattern in content for pattern in at_patterns)
+                
+                # 3. 检查近似匹配（处理名称中有可能的错误）
+                if not is_at_robot and content.startswith('@'):
+                    import difflib
+                    # 提取@后面的第一个词
+                    at_name_match = re.match(r'@([^ \u2005\u00A0\u200B\u3000]+)', content)
+                    if at_name_match:
+                        at_name = at_name_match.group(1)
+                        # 检查名称相似度
+                        similarity_ratio = difflib.SequenceMatcher(None, at_name, robot_name).ratio()
+                        if similarity_ratio > 0.8:  # 80%相似度作为阈值
+                            is_at_robot = True
+                            logger.info(f"基于名称相似度检测到@机器人: {at_name} vs {robot_name}, 相似度: {similarity_ratio:.2f}")
+                
+                logger.info(f"群聊消息@状态检查: {is_at_robot}")
+
+                # 如果确认是@机器人的消息，移除@部分
+                if is_at_robot:
+                    logger.info(f"处理群聊@消息 - 机器人名称: {self.robot_name}")
+                    
+                    # 先尝试使用正则表达式移除@部分
+                    new_content = re.sub(f"@{re.escape(robot_name)}[\\s\u2005\u00A0\u200B\u3000]?", "", content, 1).strip()
+                    
+                    # 如果正则替换没有改变内容，再使用原来的模式尝试
+                    if new_content == content:
+                        # 使用原有的移除逻辑
+                        for pattern in at_patterns:
+                            if pattern in content:
+                                content = content.replace(pattern, '').strip()
+                                logger.info(f"移除@后的消息内容: {content}")
+                                break
+                    else:
+                        # 使用正则替换结果
+                        content = new_content
+                        logger.info(f"使用正则表达式移除@后的消息内容: {content}")
+
+                    # 检查是否真的移除了@部分
+                    if original_content == content:
+                        logger.warning("虽检测到@机器人，但移除操作无效")
+                        # 不要将is_at_robot设置为False，仍然尝试处理
+                        # 尝试简单移除消息开头的@部分
+                        if content.startswith('@'):
+                            first_space = content.find(' ')
+                            if first_space > 0:
+                                content = content[first_space+1:].strip()
+                                logger.info(f"使用简单方法移除@后的内容: {content}")
+                    else:
+                        logger.info("成功识别并移除@机器人部分")
+
+            # 如果是群聊消息，检查发送者是否在监听列表中
+            if is_group and username not in listen_list:
+                if not is_at_robot:
+                    logger.debug(f"群聊消息发送者 {username} 不在监听列表中且未@机器人，跳过处理")
+                    return None
+                else:
+                    logger.info(f"非监听列表用户 {username} @了机器人，继续处理消息")
 
             # 增加重复消息检查
             message_key = f"{chatName}_{username}_{hash(content)}"
@@ -350,35 +635,26 @@ class ChatBot:
 
             # 检查是否是短时间内的重复消息
             if hasattr(self, '_processed_messages'):
-                # 清理超过60秒的旧记录，减少内存占用
                 self._processed_messages = {k: v for k, v in self._processed_messages.items()
                                             if current_time - v < 60}
 
                 if message_key in self._processed_messages:
-                    if current_time - self._processed_messages[message_key] < 5:  # 5秒内的重复消息
+                    if current_time - self._processed_messages[message_key] < 5:
                         logger.warning(f"检测到短时间内的重复消息，已忽略 {content[:20]}...")
-                        return
+                        return None
             else:
                 self._processed_messages = {}
 
             # 记录当前消息处理时间
             self._processed_messages[message_key] = current_time
 
-            # 其余消息处理逻辑保持不变
+            # 初始化变量
             img_path = None
             files_path = None
             is_emoji = False
-            is_image_recognition = False  # 新增标记，用于标识是否是图片识别结果
+            is_image_recognition = False
 
-            # 如果是群聊@消息，移除@机器人的部分
-            if is_group and self.robot_name and content:
-                logger.info(f"处理群聊@消息 - 机器人名称: {self.robot_name}")
-                original_content = content
-                content = re.sub(f'@{self.robot_name}\u2005', '', content).strip()
-                logger.info(f"移除@后的消息内容: {content}")
-                if original_content == content:
-                    logger.info("未检测到@机器人，但是继续处理")
-
+            # 处理图片、文件和表情消息
             if content and content.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
                 logger.info(f"检测到图片消息: {content}")
                 img_path = content
@@ -391,26 +667,21 @@ class ChatBot:
                 is_emoji = False
                 content = None
 
-            # 检查是否是"[动画表情]"
             if content and "[动画表情]" in content:
                 logger.info("检测到动画表情")
-                # 修改方法名调用
-                img_path = emoji_handler.capture_emoji_screenshot(username)
-
-                logger.info(f"表情截图保存路径: {img_path}")
+                # 不再使用截图功能，直接将动画表情标记为特定类型的文本消息
                 is_emoji = True
-                content = None
+                content = "发送了一个动画表情"
 
             if img_path:
                 logger.info(f"开始处理图片/表情 - 路径: {img_path}, 是否表情: {is_emoji}")
                 recognized_text = self.moonshot_ai.recognize_image(img_path, is_emoji)
                 logger.info(f"图片/表情识别结果: {recognized_text}")
                 content = recognized_text if content is None else f"{content} {recognized_text}"
-                is_image_recognition = True  # 标记这是图片识别结果
+                is_image_recognition = True
 
             if files_path:
                 logger.info(f"开始处理文件 - 路径：{files_path}")
-                # 调用 Message _handle_file_request 处理方法
                 return self.message_handler.handle_user_message(
                     content=files_path,
                     chat_id=chatName,
@@ -419,12 +690,10 @@ class ChatBot:
                     is_group=is_group
                 )
 
-            # 情感分析处理
             if content:
-                # 检测是否为表情包请求
+                # 如果是群聊@消息，再移除@部分
                 if emoji_handler.is_emoji_request(content):
                     logger.info("检测到表情包请求")
-                    # 使用AI识别的情感选择表情
                     emoji_path = emoji_handler.get_emotion_emoji(content)
                     if emoji_path:
                         logger.info(f"准备发送情感表情包: {emoji_path}")
@@ -433,33 +702,60 @@ class ChatBot:
                 sender_name = username
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 group_info = f"在群聊里" if is_group else "私聊"
-                time_aware_content = f"(此时时间为{current_time}) ta{group_info}对你说{content}"  #去掉用户名，防止出现私聊时出现用户名的情
-                logger.info(f"格式化后的消息 {time_aware_content}")
+                time_aware_content = f"(此时时间为{current_time}) ta{group_info}对你说{content}"
 
-                # 使用MessageHandler的消息缓存功能处理消息
-                self.message_handler.handle_user_message(
-                    content=time_aware_content,
-                    chat_id=chatName,
-                    sender_name=sender_name,
-                    username=username,
-                    is_group=is_group,
-                    is_image_recognition=is_image_recognition
-                )
+                # 根据消息类型选择不同的处理方式
+                if is_group:
+                    # 只有@机器人的消息才进入群聊消息队列
+                    if is_at_robot:
+                        with self.group_queue_lock:
+                            if chatName not in self.group_message_queues:
+                                self.group_message_queues[chatName] = {
+                                    'messages': [],
+                                    'sender_name': sender_name,
+                                    'username': username,
+                                    'last_message_time': current_time,
+                                    'is_at': is_at_robot
+                                }
+                            self.group_message_queues[chatName]['messages'].append(time_aware_content)
+                            
+                            # 设置处理延迟
+                            if len(self.group_message_queues[chatName]['messages']) == 1:
+                                threading.Timer(1.0, self.process_user_messages, args=[chatName]).start()
+                    else:
+                        # 非@消息，直接保存到群聊记忆但不处理
+                        if hasattr(self.message_handler, 'group_chat_memory'):
+                            self.message_handler.group_chat_memory.add_message(chatName, sender_name, content, False)
+                            logger.debug(f"非@消息已保存到群聊记忆: {content[:30]}...")
+                else:
+                    # 私聊消息使用原有的队列机制
+                    with self.queue_lock:
+                        if chatName not in self.user_queues:
+                            self.user_queues[chatName] = {
+                                'messages': [],
+                                'sender_name': sender_name,
+                                'username': username,
+                                'last_message_time': current_time,
+                                'is_at': False  # 私聊消息不需要@标志
+                            }
+                        self.user_queues[chatName]['messages'].append(time_aware_content)
+                        
+                        # 设置处理延迟
+                        if len(self.user_queues[chatName]['messages']) == 1:
+                            threading.Timer(1.0, self.process_user_messages, args=[chatName]).start()
 
-                # 启动或取消未回复消息计时器
+                # 处理未回复消息计时器
                 if username in self.message_handler.unanswered_timers:
                     self.message_handler.unanswered_timers[username].cancel()
-                    #logger.info(f"取消用户 {username} 的未回复计时器")
 
                 # 30分钟后增加未回复计数
                 def increase_counter_after_delay(username):
                     with self.queue_lock:
-                        self.message_handler.increase_unanswered_counter(username)
+                        self.message_handler.increment_unanswered_counter(username)
 
                 timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
                 timer.start()
                 self.message_handler.unanswered_timers[username] = timer
-                #logger.info(f"为用户{username} 启动未回复计时器")
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
@@ -540,6 +836,12 @@ def is_quiet_time() -> bool:
 def get_random_countdown_time():
     """获取随机倒计时时长"""
     try:
+        # 检查是否在调试模式
+        debug_mode = getattr(config, 'debug', False)
+        if debug_mode:
+            logger.info("调试模式下使用短倒计时: 1-2分钟")
+            return random.uniform(60, 120)  # 1-2分钟
+            
         # 检查配置是否存在
         if not hasattr(config, 'behavior') or not hasattr(config.behavior, 'auto_message') or \
            not hasattr(config.behavior.auto_message, 'min_hours') or \
@@ -551,10 +853,21 @@ def get_random_countdown_time():
         min_hours = float(config.behavior.auto_message.min_hours)
         max_hours = float(config.behavior.auto_message.max_hours)
         
+        # 如果两个值都是0，设置为默认值
+        if min_hours == 0 and max_hours == 0:
+            logger.warning("配置的倒计时范围都为0，使用默认值1-3小时")
+            min_hours = 1.0
+            max_hours = 3.0
+        
         # 确保最小值不大于最大值
         if min_hours > max_hours:
             logger.warning(f"配置错误：min_hours({min_hours})大于max_hours({max_hours})，将交换它们")
             min_hours, max_hours = max_hours, min_hours
+        
+        # 确保有最小值
+        if min_hours < 0.01:  # 至少36秒
+            min_hours = 0.01
+            logger.warning(f"min_hours太小，已调整为{min_hours}小时")
             
         # 将小时转换为秒
         min_seconds = int(min_hours * 3600)
@@ -568,20 +881,31 @@ def get_random_countdown_time():
         return random.uniform(3600, 10800)
 
 
-def get_personality_summary(prompt_content: str) -> str:
+def get_personality_summary(prompt_content_param: str = None) -> str:
     """从完整人设中提取关键性格特点"""
     try:
+        # 如果未提供prompt_content参数，使用全局的prompt_content
+        if prompt_content_param is None:
+            # 使用全局变量
+            global prompt_content
+            prompt_content_to_use = prompt_content
+            if prompt_content_to_use is None or not prompt_content_to_use:
+                logger.warning("未提供prompt_content且全局变量为空，返回默认性格描述")
+                return "友好、耐心、善解人意的助手"
+        else:
+            prompt_content_to_use = prompt_content_param
+        
         # 查找核心人格部分
-        core_start = prompt_content.find("# 性格")
+        core_start = prompt_content_to_use.find("# 性格")
         if core_start == -1:
-            return prompt_content[:500]  # 如果找不到标记，返回500字符
+            return prompt_content_to_use[:500]  # 如果找不到标记，返回500字符
 
         # 找到下一个标题或文件结尾
-        next_title = prompt_content.find("#", core_start + 1)
+        next_title = prompt_content_to_use.find("#", core_start + 1)
         if next_title == -1:
-            core_content = prompt_content[core_start:]
+            core_content = prompt_content_to_use[core_start:]
         else:
-            core_content = prompt_content[core_start:next_title]
+            core_content = prompt_content_to_use[core_start:next_title]
 
         # 提取关键内容
         core_lines = [line.strip() for line in core_content.split('\n')
@@ -623,15 +947,42 @@ def is_already_listening(wx_instance, chat_name):
 
 def auto_send_message():
     """自动发送消息- 调用message_handler中的方法"""
-    # 调用message_handler中的auto_send_message方法
-    message_handler.auto_send_message(
-        listen_list=listen_list,
-        robot_wx_name=ROBOT_WX_NAME,
-        get_personality_summary=get_personality_summary,
-        is_quiet_time=is_quiet_time,
-        start_countdown=start_countdown
-    )
-    # 最后启动新的倒计时
+    try:
+        logger.info("开始执行auto_send_message函数")
+        logger.info(f"当前监听列表: {listen_list}")
+        
+        # 调用message_handler中的auto_send_message方法
+        # 如果是安静时间，不发送消息，但仍然需要启动新的倒计时
+        if is_quiet_time():
+            logger.info("当前是安静时间，跳过主动发送，但仍会继续倒计时")
+        else:
+            # 检查message_handler的状态
+            if not message_handler:
+                logger.error("message_handler未初始化")
+                return
+                
+            # 检查未回复计数器状态
+            unanswered_summary = {}
+            for chat_id in listen_list:
+                if chat_id in message_handler.unanswered_counters:
+                    unanswered_summary[chat_id] = message_handler.unanswered_counters[chat_id]
+            logger.info(f"未回复计数器状态: {unanswered_summary}")
+                
+            # 只有在非安静时间才执行发送消息
+            logger.info("开始调用message_handler.auto_send_message方法")
+            message_handler.auto_send_message(
+                listen_list=listen_list,
+                robot_wx_name=ROBOT_WX_NAME,
+                get_personality_summary=get_personality_summary,
+                is_quiet_time=is_quiet_time,
+                start_countdown=start_countdown
+            )
+            logger.info("自动消息发送完成，开始新的倒计时")
+    except Exception as e:
+        logger.error(f"自动发送消息执行失败: {str(e)}", exc_info=True)
+    
+    # 不管是否执行成功或是否在安静时间，都要启动新的倒计时
+    logger.info("启动新的倒计时")
     start_countdown()
 
 
@@ -641,9 +992,14 @@ def start_countdown():
 
     if countdown_timer:
         countdown_timer.cancel()
+        logger.info("已取消之前的倒计时")
 
     countdown_seconds = get_random_countdown_time()
     countdown_end_time = datetime.now() + timedelta(seconds=countdown_seconds)  # 设置结束时间
+    
+    # 输出预计的完成时间
+    end_time_str = countdown_end_time.strftime("%Y-%m-%d %H:%M:%S")
+    logger.info(f"倒计时将在 {end_time_str} 结束")
     
     # 计算小时和分钟，提供更详细的日志
     hours = int(countdown_seconds // 3600)
@@ -668,9 +1024,11 @@ def start_countdown():
     except Exception as e:
         logger.warning(f"无法读取配置的倒计时范围: {str(e)}")
 
+    # 创建倒计时线程并确保超时回调确实被调用
     countdown_timer = threading.Timer(countdown_seconds, auto_send_message)
     countdown_timer.daemon = True
     countdown_timer.start()
+    logger.info(f"倒计时线程已启动，线程ID: {countdown_timer.ident}")
     is_countdown_running = True
 
 
@@ -678,8 +1036,6 @@ def message_listener():
     global wx_listening_chats  # 使用全局变量跟踪已添加的监听集合
     
     wx = None
-    last_window_check = 0
-    check_interval = 21600  # 定时检查更改为6小时一次
     reconnect_attempts = 0
     max_reconnect_attempts = 3
     reconnect_delay = 30  # 重连等待时间（秒）
@@ -689,7 +1045,7 @@ def message_listener():
         try:
             current_time = time.time()
 
-            if wx is None or (current_time - last_window_check > check_interval):
+            if wx is None:
                 # 检查是否需要重置重连计数
                 if current_time - last_reconnect_time > 300:  # 5分钟无错误，重置计数
                     reconnect_attempts = 0
@@ -728,7 +1084,7 @@ def message_listener():
 
                     # 成功初始化，重置计数
                     reconnect_attempts = 0
-                    last_window_check = current_time
+                    last_reconnect_time = current_time
                     logger.info("微信监听恢复正常")
                     
                     # 确保message_handler和chat_bot都有最新的wx对象
@@ -757,6 +1113,11 @@ def message_listener():
                 who = chat.who
                 if not who:
                     continue
+                    
+                # 检查是否是配置中的监听对象
+                if who not in listen_list:
+                    logger.debug(f"跳过非监听对象的消息: {who}")
+                    continue
 
                 one_msgs = msgs.get(chat)
                 if not one_msgs:
@@ -771,15 +1132,24 @@ def message_listener():
                         if msgtype != 'friend':
                             logger.debug(f"非好友消息，忽略! 消息类型: {msgtype}")
                             continue
-                            # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
+                        # 接收窗口名跟发送人一样，代表是私聊，否则是群聊
                         if who == msg.sender:
-                            chat_bot.handle_wxauto_message(msg, msg.sender)  # 处理私聊信息
-                        elif ROBOT_WX_NAME != '' and (bool(re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content)) or bool(
-                                re.search(f'{ROBOT_WX_NAME}\u2005', msg.content))):
-                            # 修改：在群聊被@时或者被叫名字，传入群聊ID(who)作为回复目标
-                            chat_bot.handle_wxauto_message(msg, who, is_group=True)
+                            # 私聊消息处理
+                            chat_bot.handle_wxauto_message(msg, msg.sender)
                         else:
-                            logger.debug(f"非需要处理消息，可能是群聊非@消息: {content}")
+                            # 群聊消息处理，无论是否@机器人都传递到处理函数
+                            # 设置is_group=True标记为群聊消息
+                            is_at_robot = False
+                            if ROBOT_WX_NAME != '':
+                                is_at_robot = bool(re.search(f'@{ROBOT_WX_NAME}', msg.content)) or bool(
+                                    re.search(f'@{ROBOT_WX_NAME}\u2005', msg.content))
+                            
+                            # 所有群聊消息都进行处理，但传递正确的群聊ID
+                            chat_bot.handle_wxauto_message(msg, who, is_group=True)
+                            
+                            # 对于非@消息，记录日志
+                            if not is_at_robot:
+                                logger.debug(f"群聊非@消息，已处理: {content[:30]}...")
                     except Exception as e:
                         logger.debug(f"处理单条消息失败: {str(e)}")
                         continue

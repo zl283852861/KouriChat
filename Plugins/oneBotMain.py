@@ -28,7 +28,7 @@ from src.utils.logger import LoggerConfig
 from src.utils.console import print_status
 from colorama import init, Style
 from src.AutoTasker.autoTasker import AutoTasker
-from src.utils.api_wrapper import APIWrapper
+from src.api_client.wrapper import APIWrapper
 from src.handlers.memory import init_memory
 
 from src.utils.console import print_status
@@ -81,8 +81,8 @@ with open(prompt_path, "r", encoding="utf-8") as f:
 
 # 创建API包装器
 api_wrapper = APIWrapper(
-    api_key=DEEPSEEK_API_KEY,
-    base_url=DEEPSEEK_BASE_URL
+    api_key=config.rag.api_key,
+    base_url=config.rag.base_url
 )
 
 # 初始化记忆系统
