@@ -152,6 +152,13 @@ class MessageHandler:
 
         logger.info(f"消息处理器初始化完成，机器人名称：{self.robot_name}")
 
+        # 添加权重阈值
+        self.weight_threshold = 0.3  # 可以根据需要调整阈值
+        
+        # 添加衰减相关参数
+        self.decay_method = 'exponential'  # 或 'linear'
+        self.decay_rate = 0.1  # 可以根据需要调整衰减率
+
     def _get_config_value(self, key, default_value):
         """从配置文件获取特定值，如果不存在则返回默认值"""
         try:
@@ -1343,232 +1350,55 @@ class MessageHandler:
         
         return typing_speed
 
-    def _calculate_response_length_ratio(self, user_message_length: int) -> float:
-        """计算回复长度与用户消息的比例"""
-        # 基础比例从1.0开始，表示回复长度与用户消息长度相同
-        base_ratio = 1.0
+    def _calculate_response_length_ratio(self, input_length: int) -> float:
+        """
+        根据输入长度计算回复长度的比例
         
-        # 根据用户消息长度动态调整比例，但保持在接近1.0的范围内
-        if user_message_length < 10:  # 非常短的消息
-            ratio = base_ratio * 1.5  # 短消息略微长一点
-        elif user_message_length < 30:  # 较短的消息
-            ratio = base_ratio * 1.3
-        elif user_message_length < 50:  # 中等长度
-            ratio = base_ratio * 1.2
-        elif user_message_length < 100:  # 较长消息
-            ratio = base_ratio * 1.1
-        else:  # 很长的消息
-            ratio = base_ratio * 1.0  # 对于长消息保持1:1比例
-        
-        # 限制最大比例，确保不会过长
-        return min(ratio, 1.5)
-
-    def _handle_voice_request(self, content, chat_id, sender_name, username, is_group):
-        """处理语音请求"""
-        logger.info("处理语音请求")
-        reply = self.get_api_response(content, chat_id)
-        if "</think>" in reply:
-            reply = reply.split("</think>", 1)[1].strip()
-
-        voice_path = self.voice_handler.generate_voice(reply)
-        if voice_path:
-            try:
-                self.wx.SendFiles(filepath=voice_path, who=chat_id)
-            except Exception as e:
-                logger.error(f"发送语音失败: {str(e)}")
-                if is_group:
-                    reply = f"@{sender_name} {reply}"
-                self.wx.SendMsg(msg=reply, who=chat_id)
-            finally:
-                try:
-                    os.remove(voice_path)
-                except Exception as e:
-                    logger.error(f"删除临时语音文件失败: {str(e)}")
+        Args:
+            input_length: 用户输入的字符长度
+            
+        Returns:
+            float: 回复长度的比例因子
+        """
+        if input_length <= 10:
+            return 2.0  # 短消息给予较长回复
+        elif input_length <= 50:
+            return 1.5
+        elif input_length <= 100:
+            return 1.2
         else:
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-            self.wx.SendMsg(msg=reply, who=chat_id)
-        return reply
+            return 1.0  # 长消息保持相同长度
 
-    def _handle_random_image_request(self, content, chat_id, sender_name, username, is_group):
-        """处理随机图片请求"""
-        logger.info("处理随机图片请求")
-        image_path = self.image_handler.get_random_image()
-        if image_path:
-            try:
-                self.wx.SendFiles(filepath=image_path, who=chat_id)
-                reply = "给主人你找了一张好看的图片哦~"
-            except Exception as e:
-                logger.error(f"发送图片失败: {str(e)}")
-                reply = "抱歉主人，图片发送失败了..."
-            finally:
-                try:
-                    if os.path.exists(image_path):
-                        os.remove(image_path)
-                except Exception as e:
-                    logger.error(f"删除临时图片失败: {str(e)}")
-
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-            self.wx.SendMsg(msg=reply, who=chat_id)
-            return reply
-        return None
-
-    def _handle_image_generation_request(self, content, chat_id, sender_name, username, is_group):
-        """处理图像生成请求"""
-        logger.info("处理画图请求")
-        image_path = self.image_handler.generate_image(content)
-        if image_path:
-            try:
-                self.wx.SendFiles(filepath=image_path, who=chat_id)
-                reply = "这是按照主人您的要求生成的图片\\(^o^)/~"
-            except Exception as e:
-                logger.error(f"发送生成图片失败: {str(e)}")
-                reply = "抱歉主人，图片生成失败了..."
-            finally:
-                try:
-                    if os.path.exists(image_path):
-                        os.remove(image_path)
-                except Exception as e:
-                    logger.error(f"删除临时图片失败: {str(e)}")
-
-            if is_group:
-                reply = f"@{sender_name} {reply}"
-            self.wx.SendMsg(msg=reply, who=chat_id)
-            return reply
-        return None
-
-    def _filter_action_emotion(self, text):
-        """处理动作描写和颜文字，确保格式一致"""
-        # 1. 先移除文本中的引号，避免引号包裹非动作文本
-        text = text.replace('"', '').replace('"', '').replace('"', '')
+    def _filter_action_emotion(self, text: str) -> str:
+        """
+        过滤掉文本中的动作和情感描述（通常在括号内）
         
-        # 2. 保护已经存在的括号内容
-        protected_parts = {}
-        
-        # 匹配所有类型的括号及其内容
-        bracket_pattern = r'[\(\[（【][^\(\[（【\)\]）】]*[\)\]）】]'
-        brackets = list(re.finditer(bracket_pattern, text))
-        
-        # 保护已有的括号内容
-        for i, match in enumerate(brackets):
-            placeholder = f"__PROTECTED_{i}__"
-            protected_parts[placeholder] = match.group()
-            text = text.replace(match.group(), placeholder)
-        
-        # 3. 保护颜文字 - 使用更宽松的匹配规则
-        if not hasattr(self, '_emoticon_chars_set'):
-            self._emoticon_chars_set = set(
-                '（()）~～‿⁀∀︿⌒▽△□◇○●ˇ＾∇＿゜◕ω・ノ丿╯╰つ⊂＼／┌┐┘└°△▲▽▼◇◆○●◎■□▢▣▤▥▦▧▨▩♡♥ღ☆★✡⁂✧✦❈❇✴✺✹✸✷✶✵✳✳✲✱✰✯✮✭✬✫✪✩✨✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁✀✿✾✽✼✻✺✹✸✷✶✵✴✳✲✱✰✯✮✭✬✫✪✩✧✦✥✤✣✢✡✠✟✞✝✜✛✚✙✘✗✖✕✔✓✒✑✐✏✎✍✌✋✊✉✈✇✆✅✄✃✂✁❤♪♫♬♩♭♮♯°○◎●◯◐◑◒◓◔◕◖◗¤☼☀☁☂☃☄★☆☎☏⊙◎☺☻☯☭♠♣♧♡♥❤❥❣♂♀☿❀❁❃❈❉❊❋❖☠☢☣☤☥☦☧☨☩☪☫☬☭☮☯☸☹☺☻☼☽☾☿♀♁♂♃♄♆♇♈♉♊♋♌♍♎♏♐♑♒♓♔♕♖♗♘♙♚♛♜♝♞♟♠♡♢♣♤♥♦♧♨♩♪♫♬♭♮♯♰♱♲♳♴♵♶♷♸♹♺♻♼♽♾♿⚀⚁⚂⚃⚄⚆⚇⚈⚉⚊⚋⚌⚍⚎⚏⚐⚑⚒⚓⚔⚕⚖⚗⚘⚙⚚⚛⚜⚝⚞⚟*^_^')
-        
-        emoji_patterns = [
-            # 括号类型的颜文字
-            r'\([\w\W]{1,10}?\)',  # 匹配较短的括号内容
-            r'（[\w\W]{1,10}?）',  # 中文括号
+        Args:
+            text: 原始文本
             
-            # 符号组合类型
-            r'[＼\\\/\*\-\+\<\>\^\$\%\!\?\@\#\&\|\{\}\=\;\:\,\.]{2,}',  # 常见符号组合
-            
-            # 常见表情符号
-            r'[◕◑◓◒◐•‿\^▽\◡\⌒\◠\︶\ω\´\`\﹏\＾\∀\°\◆\□\▽\﹃\△\≧\≦\⊙\→\←\↑\↓\○\◇\♡\❤\♥\♪\✿\★\☆]{1,}',
-            
-            # *号组合
-            r'\*[\w\W]{1,5}?\*'  # 星号强调内容
-        ]
-        
-        for pattern in emoji_patterns:
-            emojis = list(re.finditer(pattern, text))
-            for i, match in enumerate(emojis):
-                # 避免处理过长的内容，可能是动作描写而非颜文字
-                if len(match.group()) <= 15 and not any(p in match.group() for p in protected_parts.values()):
-                    # 检查是否包含足够的表情符号字符
-                    chars_count = sum(1 for c in match.group() if c in self._emoticon_chars_set)
-                    if chars_count >= 2 or len(match.group()) <= 5:
-                        placeholder = f"__EMOJI_{i}__"
-                        protected_parts[placeholder] = match.group()
-                        text = text.replace(match.group(), placeholder)
-        
-        # 4. 处理分隔符 - 保留原样
-        parts = text.split('$')
-        new_parts = []
-        
-        for i, part in enumerate(parts):
-            part = part.strip()
-            if not part:  # 跳过空部分
-                continue
-                
-            # 直接添加部分，不添加括号
-            new_parts.append(part)
-        
-        # 5. 特殊处理：同时兼容原来的 \ 分隔符
-        if len(new_parts) == 1:  # 如果没有找到 $ 分隔符，尝试处理 \ 分隔符
-            parts = text.split('\\')
-            if len(parts) > 1:  # 确认有实际分隔
-                new_parts = []
-                for i, part in enumerate(parts):
-                    part = part.strip()
-                    if not part:
-                        continue
-                    # 直接添加部分，不添加括号
-                    new_parts.append(part)
-        
-        # 6. 重新组合文本
-        result = "$".join(new_parts)
-        
-        # 7. 恢复所有保护的内容
-        for placeholder, content in protected_parts.items():
-            result = result.replace(placeholder, content)
-            
-        return result
+        Returns:
+            str: 过滤后的文本
+        """
+        # 过滤方括号内的内容
+        text = re.sub(r'\[([^\]]*)\]', '', text)
+        # 过滤圆括号内的内容
+        text = re.sub(r'\(([^\)]*)\)', '', text)
+        # 过滤【】内的内容
+        text = re.sub(r'【([^】]*)】', '', text)
+        # 清理可能留下的多余空格
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
 
     def _clean_memory_content(self, content: str) -> str:
-        """清理记忆内容，移除不必要的格式和标记"""
+        """清理记忆内容中的特殊标记"""
         if not content:
             return ""
-        
-        # 移除时间戳和前缀
-        patterns = [
-            r'^\(?\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\)?\s+',  # 时间戳格式
-            r'^\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\]\s+',    # 带方括号的时间戳
-            r'^\(此时时间为\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}(?::\d{2})?\)\s+', # 带说明的时间戳
-            r'^.*?ta(私聊|在群聊里)对你说\s*',  # 对话前缀
-            r'<time>.*?</time>\s*',  # XML风格时间标记
-            r'<group>.*?</group>\s*',  # 群组标记
-            r'<sender>.*?</sender>\s*',  # 发送者标记
-            r'<input>(.*?)</input>',  # 保留input标记内的内容
-            r'<context>.*?</context>\s*'  # 上下文标记
-        ]
-        
-        # 应用所有模式
-        cleaned_content = content
-        for pattern in patterns:
-            if re.search(pattern, cleaned_content):
-                if 'input' in pattern:
-                    # 对于input标记，保留其内容
-                    match = re.search(pattern, cleaned_content)
-                    if match:
-                        cleaned_content = match.group(1)
-                else:
-                    # 对于其他模式，直接移除
-                    cleaned_content = re.sub(pattern, '', cleaned_content)
-        
-        # 移除引用格式
-        cleaned_content = re.sub(r'\(引用消息:.*?\)\s*', '', cleaned_content)
-        
-        # 移除多余的空白字符
-        cleaned_content = re.sub(r'\s+', ' ', cleaned_content)
-        
-        # 移除@标记
-        cleaned_content = re.sub(r'@[^\s]+\s*', '', cleaned_content)
-        
-        # 移除代码块标记
-        cleaned_content = re.sub(r'```.*?```', '', cleaned_content, flags=re.DOTALL)
-        
-        # 移除多行环境中的多余换行符
-        cleaned_content = re.sub(r'\n+', ' ', cleaned_content)
-        
-        return cleaned_content.strip()
-            
+        # 清理XML标记
+        content = re.sub(r'<[^>]+>', '', content)
+        # 清理其他系统标记
+        content = re.sub(r'\[系统.*?\]', '', content)
+        return content.strip()
+
     def _clean_ai_response(self, response: str) -> str:
         """清理AI回复中的所有系统标记和提示词"""
         if not response:
@@ -2302,7 +2132,7 @@ class MessageHandler:
                 "user_weight": user_weight,
                 "semantic_weight": semantic_weight
             })
-            
+        
         # 按权重从高到低排序
         weighted_msgs.sort(key=lambda x: x["weight"], reverse=True)
         
@@ -2343,6 +2173,88 @@ class MessageHandler:
         
         # 限制最大消息数量
         return filtered_msgs[-max_turns:]
+
+    def QQ_handle_text_message(self, content: str, qqid: str, sender_name: str) -> dict:
+        """
+        处理普通文本消息
+        
+        Args:
+            content: 消息内容
+            qqid: QQ号
+            sender_name: 发送者名称
+            
+        Returns:
+            dict: 处理后的回复消息
+        """
+        try:
+            # 添加正则表达式过滤时间戳
+            time_pattern = r'\[\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}:\d{2}\]'
+            content = re.sub(time_pattern, '', content)
+
+            # 更通用的模式
+            general_pattern = r'\[\d[^\]]*\]|\[\d+\]'
+            content = re.sub(general_pattern, '', content)
+
+            logger.info("处理普通文本回复")
+
+            # 定义结束关键词
+            end_keywords = [
+                "结束", "再见", "拜拜", "下次聊", "先这样", "告辞", "bye", "晚点聊", "回头见",
+                "稍后", "改天", "有空聊", "去忙了", "暂停", "待一会儿", "过一会儿", "晚安", "休息",
+                "走了", "撤了", "闪了", "不聊了", "断了", "下线", "离开", "停", "歇", "退"
+            ]
+
+            # 检查消息中是否包含结束关键词
+            is_end_of_conversation = any(keyword in content for keyword in end_keywords)
+            
+            # 计算用户输入的字符长度，用于动态调整回复长度
+            user_input_length = len(content)
+            target_length = int(user_input_length * self._calculate_response_length_ratio(user_input_length))
+            target_sentences = max(1, min(4, int(target_length / 25)))  # 大约每25个字符一个句子
+            
+            # 添加长度限制提示词
+            length_prompt = f"\n\n请注意：你的回复应当与用户消息的长度相当，控制在约{target_length}个字符和{target_sentences}个句子左右。"
+            
+            if is_end_of_conversation:
+                # 如果检测到结束关键词，在消息末尾添加提示
+                content += "\n请以你的身份回应用户的结束语。" + length_prompt
+                logger.info(f"检测到对话结束关键词，尝试生成更自然的结束语")
+            else:
+                # 添加长度限制提示词
+                content += length_prompt
+
+            # 获取 API 回复
+            reply = self.get_api_response(content, qqid)
+            if "</think>" in reply:
+                think_content, reply = reply.split("</think>", 1)
+                logger.info("\n思考过程:")
+                logger.info(think_content.strip())
+                logger.info(reply.strip())
+            else:
+                logger.info("\nAI回复:")
+                logger.info(reply)
+
+            # 过滤括号内的动作和情感描述
+            reply = self._filter_action_emotion(reply)
+
+            # 使用统一的消息分割方法
+            delayed_reply = self._split_message_for_sending(reply)
+            return delayed_reply
+        except Exception as e:
+            logger.error(f"处理QQ文本消息失败: {str(e)}")
+            return {"parts": ["抱歉，处理消息时出现错误，请稍后重试。"], "total_length": 0}
+
+    def QQ_handle_voice_request(self, content, qqid, sender_name):
+        """处理普通文本回复（语音功能已移除）"""
+        return self.QQ_handle_text_message(content, qqid, sender_name)
+
+    def QQ_handle_random_image_request(self, content, qqid, sender_name):
+        """处理普通文本回复（随机图片功能已移除）"""
+        return self.QQ_handle_text_message(content, qqid, sender_name)
+
+    def QQ_handle_image_generation_request(self, content, qqid, sender_name):
+        """处理普通文本回复（图像生成功能已移除）"""
+        return self.QQ_handle_text_message(content, qqid, sender_name) 
 
     def _memory_quality_score(self, mem, username):
         """评估记忆质量分数，返回0-100之间的值"""

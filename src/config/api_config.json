@@ -3,8 +3,6 @@
     "api_key": "",
     "model": "deepseek-ai/DeepSeek-V3",
     "messages": [],
-    "image_config": {
-        "generate_size": "512x512"
-    },
+
     "theme": "light"
 }

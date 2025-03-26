@@ -1442,10 +1442,10 @@
                 MAX_TOKEN: config.MAX_TOKEN || 2000,
                 MOONSHOT_BASE_URL: config.MOONSHOT_BASE_URL || '',
                 MOONSHOT_TEMPERATURE: config.MOONSHOT_TEMPERATURE || 0.7,
-                IMAGE_MODEL: config.IMAGE_MODEL || '',
+
                 MAX_GROUPS: config.MAX_GROUPS || 30,
                 AVATAR_DIR: config.AVATAR_DIR || '',
-                TTS_API_URL: config.TTS_API_URL || '',
+
                 AUTO_MESSAGE: config.AUTO_MESSAGE || '',
                 QUIET_TIME_START: config.QUIET_TIME_START || '',
                 QUIET_TIME_END: config.QUIET_TIME_END || ''
@@ -1804,11 +1804,7 @@
                 if (avatarDirSelect) avatarDirSelect.value = historyConfig.AVATAR_DIR;
             }
             
-            // 应用语音API URL
-            if (historyConfig.TTS_API_URL) {
-                const ttsApiUrlInput = document.getElementById('TTS_API_URL');
-                if (ttsApiUrlInput) ttsApiUrlInput.value = historyConfig.TTS_API_URL;
-            }
+
             
             // 应用自动消息配置
             if (historyConfig.AUTO_MESSAGE) {
@@ -1827,11 +1823,7 @@
                 if (quietTimeEndInput) quietTimeEndInput.value = historyConfig.QUIET_TIME_END;
             }
             
-            // 应用图像生成模型配置
-            if (historyConfig.IMAGE_MODEL) {
-                const imageModelInput = document.getElementById('IMAGE_MODEL');
-                if (imageModelInput) imageModelInput.value = historyConfig.IMAGE_MODEL;
-            }
+
             
             // 应用MAX_GROUPS配置
             if (historyConfig.MAX_GROUPS !== undefined) {

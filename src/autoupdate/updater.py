@@ -62,11 +62,26 @@ class Updater:
         self.timeout = 15  # 增加超时时间
 
     def get_proxy_url(self, original_url: str) -> str:
-        """获取当前代理URL"""
+        """获取当前代理URL
+        
+        根据不同URL类型应用不同的代理策略:
+        - 对于raw.githubusercontent.com域名的链接使用代理
+        - 代理格式为: https://proxy-domain/https://raw.githubusercontent.com/...
+        """
         if self.current_proxy_index >= len(self.PROXY_SERVERS):
             return original_url
+            
         proxy = self.PROXY_SERVERS[self.current_proxy_index]
-        return f"{proxy}{original_url}" if proxy else original_url
+        if not proxy:  # 如果代理为空字符串，直接返回原始URL
+            return original_url
+            
+        # 检查是否为raw.githubusercontent.com域名的链接
+        if original_url.startswith('https://raw.githubusercontent.com'):
+            # 确保代理URL正确格式: proxy/https://raw.githubusercontent.com/...
+            return f"{proxy}https://raw.githubusercontent.com{original_url[29:]}"
+        
+        # 对于其他链接，暂不使用代理
+        return original_url
 
     def try_next_proxy(self) -> bool:
         """尝试切换到下一个代理"""
