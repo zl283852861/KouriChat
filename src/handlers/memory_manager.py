@@ -63,7 +63,7 @@ def init_memory(root_dir, api_wrapper=None):
     try:
         # 从配置获取RAG设置
         from src.config import config
-        from src.config.rag_config import config as rag_config
+        from src.config import config as rag_config  # 修改导入为主配置，但保留原有别名
         
         # 初始化记忆系统
         logger.info(f"初始化记忆系统，根目录: {root_dir}")

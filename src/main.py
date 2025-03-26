@@ -8,7 +8,7 @@ import shutil
 import win32gui
 import win32con
 from src.config import config
-from src.config.rag_config import config as rag_config
+from src.config import config as rag_config  # 修改导入为主配置，但保留原有别名
 from wxauto import WeChat
 import re
 from src.handlers.emoji import EmojiHandler

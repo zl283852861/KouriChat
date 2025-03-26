@@ -1,4 +1,5 @@
 Flask
+flask-compress
 Werkzeug
 requests
 httpx

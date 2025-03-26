@@ -336,7 +336,7 @@ class MessageHandler:
                 prompt_content = get_personality_summary(self.prompt_content)
                 
                 # 获取自动消息内容
-                from src.config.rag_config import config
+                from src.config import config
                 
                 # 检查配置是否存在
                 if not hasattr(config, 'behavior') or not hasattr(config.behavior, 'auto_message') or not hasattr(config.behavior.auto_message, 'content'):
