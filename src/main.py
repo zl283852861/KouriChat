@@ -12,9 +12,7 @@ from src.config.rag_config import config as rag_config
 from wxauto import WeChat
 import re
 from src.handlers.emoji import EmojiHandler
-from src.handlers.image import ImageHandler
 from src.handlers.message import MessageHandler
-from src.handlers.voice import VoiceHandler
 from src.handlers.file import FileHandler
 from src.services.ai.llm_service import LLMService
 from src.services.ai.image_recognition_service import ImageRecognitionService
@@ -548,36 +546,78 @@ class ChatBot:
                 else:
                     logger.info(f"聊天 {chatName} 不在未回复计数器中")
 
+            # 保存原始内容用于后续比较
+            original_content = content
+
             # 先判断是否是群聊@消息
             is_at_robot = False
-            original_content = content
             if is_group and self.robot_name and content:
-                at_patterns = [
-                    f'@{self.robot_name} ',    # 标准空格
-                    f'@{self.robot_name}\u2005',  # 特殊空格
-                    f'@{self.robot_name}\u00A0',  # 不间断空格
-                    f'@{self.robot_name}\u200B',  # 零宽空格
-                    f'@{self.robot_name}\u3000',  # 全角空格
-                    f'@{self.robot_name}'      # 无空格
-                ]
-                is_at_robot = any(pattern in content for pattern in at_patterns)
+                # 使用更全面的@检测逻辑
+                robot_name = self.robot_name
+                
+                # 1. 正则表达式匹配常见的@模式
+                # 允许各种类型的空格字符和机器人名称周围的一些变化
+                robot_name_pattern = re.escape(robot_name).replace('\\ ', '[ \u2005\u00A0\u200B\u3000]*')
+                at_pattern = re.compile(f"@{robot_name_pattern}[\\s\u2005\u00A0\u200B\u3000]?")
+                is_at_robot = bool(at_pattern.search(content))
+                
+                # 2. 使用原有的模式列表
+                if not is_at_robot:
+                    at_patterns = [
+                        f'@{self.robot_name} ',    # 标准空格
+                        f'@{self.robot_name}\u2005',  # 特殊空格
+                        f'@{self.robot_name}\u00A0',  # 不间断空格
+                        f'@{self.robot_name}\u200B',  # 零宽空格
+                        f'@{self.robot_name}\u3000',  # 全角空格
+                        f'@{self.robot_name}'      # 无空格
+                    ]
+                    is_at_robot = any(pattern in content for pattern in at_patterns)
+                
+                # 3. 检查近似匹配（处理名称中有可能的错误）
+                if not is_at_robot and content.startswith('@'):
+                    import difflib
+                    # 提取@后面的第一个词
+                    at_name_match = re.match(r'@([^ \u2005\u00A0\u200B\u3000]+)', content)
+                    if at_name_match:
+                        at_name = at_name_match.group(1)
+                        # 检查名称相似度
+                        similarity_ratio = difflib.SequenceMatcher(None, at_name, robot_name).ratio()
+                        if similarity_ratio > 0.8:  # 80%相似度作为阈值
+                            is_at_robot = True
+                            logger.info(f"基于名称相似度检测到@机器人: {at_name} vs {robot_name}, 相似度: {similarity_ratio:.2f}")
+                
                 logger.info(f"群聊消息@状态检查: {is_at_robot}")
 
                 # 如果确认是@机器人的消息，移除@部分
                 if is_at_robot:
                     logger.info(f"处理群聊@消息 - 机器人名称: {self.robot_name}")
                     
-                    # 移除@部分
-                    for pattern in at_patterns:
-                        if pattern in content:
-                            content = content.replace(pattern, '').strip()
-                            logger.info(f"移除@后的消息内容: {content}")
-                            break
+                    # 先尝试使用正则表达式移除@部分
+                    new_content = re.sub(f"@{re.escape(robot_name)}[\\s\u2005\u00A0\u200B\u3000]?", "", content, 1).strip()
+                    
+                    # 如果正则替换没有改变内容，再使用原来的模式尝试
+                    if new_content == content:
+                        # 使用原有的移除逻辑
+                        for pattern in at_patterns:
+                            if pattern in content:
+                                content = content.replace(pattern, '').strip()
+                                logger.info(f"移除@后的消息内容: {content}")
+                                break
+                    else:
+                        # 使用正则替换结果
+                        content = new_content
+                        logger.info(f"使用正则表达式移除@后的消息内容: {content}")
 
                     # 检查是否真的移除了@部分
                     if original_content == content:
                         logger.warning("虽检测到@机器人，但移除操作无效")
-                        is_at_robot = False  # 修正标志
+                        # 不要将is_at_robot设置为False，仍然尝试处理
+                        # 尝试简单移除消息开头的@部分
+                        if content.startswith('@'):
+                            first_space = content.find(' ')
+                            if first_space > 0:
+                                content = content[first_space+1:].strip()
+                                logger.info(f"使用简单方法移除@后的内容: {content}")
                     else:
                         logger.info("成功识别并移除@机器人部分")
 
@@ -629,10 +669,9 @@ class ChatBot:
 
             if content and "[动画表情]" in content:
                 logger.info("检测到动画表情")
-                img_path = emoji_handler.capture_emoji_screenshot(username)
-                logger.info(f"表情截图保存路径: {img_path}")
+                # 不再使用截图功能，直接将动画表情标记为特定类型的文本消息
                 is_emoji = True
-                content = None
+                content = "发送了一个动画表情"
 
             if img_path:
                 logger.info(f"开始处理图片/表情 - 路径: {img_path}, 是否表情: {is_emoji}")
@@ -1291,16 +1330,9 @@ def main(debug_mode=True):
         sentiment_analyzer=sentiment_analyzer
     )
     
-    image_handler = ImageHandler(
-        root_dir=root_dir,
-        api_key=config.llm.api_key,
-        base_url=config.llm.base_url,
-        image_model=config.media.image_generation.model
-    )
-    voice_handler = VoiceHandler(
-        root_dir=root_dir,
-        tts_api_url=config.media.text_to_speech.tts_api_url
-    )
+    # 图像和语音功能已移除
+    image_handler = None
+    voice_handler = None
     with open(prompt_path, "r", encoding="utf-8") as f:
         # 添加更多API配置日志
         logger.info("============ LLM服务初始化 ============")

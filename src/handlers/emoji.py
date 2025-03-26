@@ -3,7 +3,6 @@
 负责处理表情包相关功能，包括:
 - 表情包请求识别
 - 表情包选择
-- 表情包截图
 - 文件管理
 """
 
@@ -12,10 +11,10 @@ import random
 import logging
 import re
 from datetime import datetime
-import pyautogui
+from typing import Tuple, Optional, Callable
+import threading
+import queue
 import time
-from wxauto import WeChat
-from typing import Tuple, Optional
 from src.config.rag_config import config
 from src.webui.routes.avatar import AVATARS_DIR
 
@@ -34,7 +33,12 @@ class EmojiHandler:
         self.sentiment_analyzer = sentiment_analyzer  # 情感分析器实例
         avatar_name = config.behavior.context.avatar_dir
         self.emoji_dir = os.path.join(AVATARS_DIR, avatar_name,"emojis")
-        self.screenshot_dir = os.path.join(root_dir, 'screenshot')
+        
+        # 使用任务队列替代处理锁
+        self.task_queue = queue.Queue()
+        self.is_replying = False
+        self.worker_thread = threading.Thread(target=self._process_emoji_queue, daemon=True)
+        self.worker_thread.start()
         
         # 情感目录映射（实在没办法了，要适配之前的文件结构）
         # 相信后人的智慧喵~
@@ -54,11 +58,12 @@ class EmojiHandler:
         
         # 确保目录存在
         os.makedirs(self.emoji_dir, exist_ok=True)
-        os.makedirs(self.screenshot_dir, exist_ok=True)
 
     def is_emoji_request(self, text: str) -> bool:
         """判断是否为表情包请求"""
-        emoji_keywords = ["来个表情包", "斗图", "gif", "动图"]
+        # 使用更明确的表情包关键词，确保与图片识别不混淆
+        emoji_keywords = ["发表情", "来个表情包", "表情包", "斗图", "发个表情", "发个gif", "发个动图"]
+        # 使用完整匹配而不是部分匹配，避免误判
         return any(keyword in text.lower() for keyword in emoji_keywords)
 
     def _get_emotion_dir(self, emotion_type: str) -> str:
@@ -88,8 +93,44 @@ class EmojiHandler:
         self._update_trigger_prob(user_id, False)
         return False
 
-    def get_emotion_emoji(self, text: str, user_id: str) -> Optional[str]:
-        """根据情感分析结果获取对应表情包"""
+    def _process_emoji_queue(self):
+        """后台线程处理表情包任务队列"""
+        while True:
+            try:
+                # 等待队列中的任务
+                task = self.task_queue.get()
+                if task is None:
+                    continue
+                    
+                # 如果正在回复，等待回复结束
+                while self.is_replying:
+                    time.sleep(0.5)
+                    
+                # 解析任务
+                text, user_id, callback = task
+                
+                # 执行表情包获取
+                result = self._get_emotion_emoji_impl(text, user_id)
+                if callback and result:
+                    callback(result)
+                    
+            except Exception as e:
+                logger.error(f"处理表情包队列时出错: {str(e)}")
+            finally:
+                # 标记任务完成
+                try:
+                    self.task_queue.task_done()
+                except:
+                    pass
+                time.sleep(0.1)
+    
+    def set_replying_status(self, is_replying: bool):
+        """设置当前是否在进行回复"""
+        self.is_replying = is_replying
+        logger.debug(f"表情包处理回复状态已更新: {'正在回复' if is_replying else '回复结束'}")
+
+    def _get_emotion_emoji_impl(self, text: str, user_id: str) -> Optional[str]:
+        """实际执行表情包获取的内部方法"""
         try:
             if not self.sentiment_analyzer:
                 logger.warning("情感分析器未初始化")
@@ -133,110 +174,18 @@ class EmojiHandler:
             logger.error(f"获取表情包失败: {str(e)}", exc_info=True)
             return None
 
-    def capture_emoji_screenshot(self, username: str) -> str:
-        """捕获并保存表情包截图"""
+    def get_emotion_emoji(self, text: str, user_id: str, callback: Callable = None, is_self_emoji: bool = False) -> Optional[str]:
+        """将表情包获取任务添加到队列"""
         try:
-            # 确保目录存在
-            emoji_dir = os.path.join(self.root_dir, "data", "emoji_cache")
-            os.makedirs(emoji_dir, exist_ok=True)
-            
-            # 生成文件名
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"emoji_{username}_{timestamp}.png"
-            filepath = os.path.join(emoji_dir, filename)
-            
-            # 等待表情加载
-            time.sleep(0.5)
-            
-            # 使用 pyautogui 的安全模式
-            pyautogui.FAILSAFE = True
-            
-            # 获取当前活动窗口
-            try:
-                wx_chat = WeChat()
-                wx_chat.ChatWith(username)  # 确保切换到正确的聊天窗口
-                chat_window = pyautogui.getWindowsWithTitle(username)[0]
-                
-                # 确保窗口被前置和激活
-                if not chat_window.isActive:
-                    chat_window.activate()
-                
-                # 获取消息区域的位置（右下角）
-                window_width = chat_window.width
-                window_height = chat_window.height
-                
-                # 计算表情区域（消息区域的右侧）
-                emoji_width = 150
-                emoji_height = 150
-                emoji_x = chat_window.left + window_width - emoji_width - 50  # 右边缘偏移50像素
-                emoji_y = chat_window.top + window_height - emoji_height - 50  # 下边缘偏移50像素
-                
-                # 截取表情区域
-                screenshot = pyautogui.screenshot(region=(emoji_x, emoji_y, emoji_width, emoji_height))
-                screenshot.save(filepath)
-                
-                logger.info(f"表情包已保存: {filepath}")
-                return filepath
-            except Exception as e:
-                logger.error(f"窗口操作失败: {str(e)}")
-                return ""
-                
-        except Exception as e:
-            logger.error(f"截图失败: {str(e)}")
-            return ""
-
-    def capture_chat_screenshot(self, who: str) -> str:
-        """捕获并保存聊天窗口截图"""
-        try:
-            # 确保截图目录存在
-            os.makedirs(self.screenshot_dir, exist_ok=True)
-            
-            screenshot_path = os.path.join(
-                self.screenshot_dir, 
-                f'{who}_{datetime.now().strftime("%Y%m%d%H%M%S")}.png'
-            )
-            
-            try:
-                # 激活并定位微信聊天窗口
-                wx_chat = WeChat()
-                wx_chat.ChatWith(who)
-                chat_window = pyautogui.getWindowsWithTitle(who)[0]
-                
-                # 确保窗口被前置和激活
-                if not chat_window.isActive:
-                    chat_window.activate()
-                if not chat_window.isMaximized:
-                    chat_window.maximize()
-                
-                # 获取窗口的坐标和大小
-                x, y, width, height = chat_window.left, chat_window.top, chat_window.width, chat_window.height
-
-                time.sleep(1)  # 短暂等待确保窗口已激活
-
-                # 截取指定窗口区域的屏幕
-                screenshot = pyautogui.screenshot(region=(x, y, width, height))
-                screenshot.save(screenshot_path)
-                logger.info(f'已保存截图: {screenshot_path}')
-                return screenshot_path
-                
-            except Exception as e:
-                logger.error(f'截取或保存截图失败: {str(e)}')
+            # 如果是自己发送的表情包，直接跳过处理
+            if is_self_emoji:
+                logger.info(f"检测到自己发送的表情包，跳过获取和识别")
                 return None
                 
+            # 添加到任务队列
+            self.task_queue.put((text, user_id, callback))
+            logger.info(f"已添加表情包获取任务到队列，用户: {user_id}")
+            return "表情包请求已添加到队列，将在消息回复后处理"
         except Exception as e:
-            logger.error(f'创建截图目录失败: {str(e)}')
+            logger.error(f"添加表情包获取任务失败: {str(e)}")
             return None
-
-    def cleanup_screenshot_dir(self):
-        """清理截图目录"""
-        try:
-            if os.path.exists(self.screenshot_dir):
-                for file in os.listdir(self.screenshot_dir):
-                    file_path = os.path.join(self.screenshot_dir, file)
-                    try:
-                        if os.path.isfile(file_path):
-                            os.remove(file_path)
-                    except Exception as e:
-                        logger.error(f"删除截图失败 {file_path}: {str(e)}")
-        except Exception as e:
-            logger.error(f"清理截图目录失败: {str(e)}")
