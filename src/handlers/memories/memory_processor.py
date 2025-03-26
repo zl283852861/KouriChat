@@ -37,14 +37,14 @@ class MemoryProcessor:
             cls._instance = super(MemoryProcessor, cls).__new__(cls)
         return cls._instance
         
-    def __init__(self, root_dir: str = None, api_wrapper: APIWrapper = None, rag_config_path: str = None):
+    def __init__(self, root_dir: str = None, api_wrapper: APIWrapper = None, rag_config = None):
         """
         初始化记忆处理器
         
         Args:
             root_dir: 项目根目录
             api_wrapper: API调用包装器
-            rag_config_path: RAG配置文件路径
+            rag_config: RAG配置字典或配置文件路径
         """
         # 避免重复初始化
         if MemoryProcessor._initialized:
@@ -76,8 +76,16 @@ class MemoryProcessor:
         
         # 初始化RAG
         self.rag_manager = None
-        if rag_config_path:
-            self.init_rag(rag_config_path)
+        if rag_config:
+            # 根据rag_config类型决定初始化方式
+            if isinstance(rag_config, str):
+                # 如果是字符串，视为配置文件路径
+                self.init_rag(rag_config)
+            elif isinstance(rag_config, dict):
+                # 如果是字典，直接用于初始化RAG
+                self.init_rag_from_config(rag_config)
+            else:
+                logger.warning(f"不支持的RAG配置类型: {type(rag_config)}")
         
         # 标记为已初始化
         MemoryProcessor._initialized = True
@@ -861,4 +869,37 @@ class MemoryProcessor:
         """
         logger.info("重新加载记忆数据")
         self.clear_memory()
-        self._load_memory() 
+        self._load_memory()
+
+    def init_rag_from_config(self, config_dict):
+        """
+        从配置字典初始化RAG系统
+        
+        Args:
+            config_dict: 配置字典
+            
+        Returns:
+            RagManager: RAG管理器实例
+        """
+        try:
+            logger.info(f"从配置字典初始化RAG系统")
+            
+            # 创建RAG管理器
+            from src.handlers.memories.core.rag import RagManager
+            self.rag_manager = RagManager(config_dict=config_dict, api_wrapper=self.api_wrapper)
+            
+            # 显示配置信息
+            embedding_model = config_dict.get('embedding_model', 'unknown')
+            reranker_model = config_dict.get('reranker_model', 'none')
+            is_rerank = config_dict.get('is_rerank', False)
+            top_k = config_dict.get('top_k', 5)
+            
+            logger.info(f"RAG系统初始化成功，使用嵌入模型: {embedding_model}")
+            logger.info(f"Top K: {top_k}, 是否重排序: {is_rerank}")
+            if is_rerank and reranker_model != 'none':
+                logger.info(f"重排序模型: {reranker_model}")
+            
+            return self.rag_manager
+        except Exception as e:
+            logger.error(f"从配置字典初始化RAG系统失败: {str(e)}")
+            return None 

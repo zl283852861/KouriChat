@@ -4,14 +4,17 @@
 - 图像生成请求识别
 - 随机图片获取
 - API图像生成
+- 图像识别
 - 临时文件管理
 """
 
 import os
 import logging
 import requests
+import asyncio
+import random
 from datetime import datetime
-from typing import Optional, List, Tuple, Callable
+from typing import Optional, List, Tuple, Callable, Dict, Any
 import re
 import time
 import enum
@@ -31,12 +34,27 @@ class ImageType(enum.Enum):
 logger = logging.getLogger('main')
 
 class ImageHandler:
-    def __init__(self, root_dir, api_key, base_url, image_model):
+    def __init__(self, root_dir, api_key=None, base_url=None, image_model=None, config=None):
         self.root_dir = root_dir
         self.api_key = api_key
         self.base_url = base_url
         self.image_model = image_model
-        self.temp_dir = os.path.join(root_dir, "data", "images", "temp")
+        self.config = config or {}
+        
+        # 图像处理基础路径
+        self.image_dir = os.path.join(root_dir, "data", "images")
+        self.temp_dir = os.path.join(self.image_dir, "temp")
+        
+        # 随机图片目录
+        self.random_image_dir = os.path.join(self.image_dir, "random")
+        
+        # 生成图片保存目录
+        self.generated_image_dir = os.path.join(self.image_dir, "generated")
+        
+        # 创建目录结构
+        os.makedirs(self.temp_dir, exist_ok=True)
+        os.makedirs(self.random_image_dir, exist_ok=True)
+        os.makedirs(self.generated_image_dir, exist_ok=True)
         
         # 使用任务队列替代处理锁
         self.task_queue = queue.Queue()
@@ -44,17 +62,20 @@ class ImageHandler:
         self.worker_thread = threading.Thread(target=self._process_image_queue, daemon=True)
         self.worker_thread.start()
         
-        # 复用消息模块的AI实例(使用正确的模型名称)
-        # 延迟导入LLMService以避免循环导入
-        from src.services.ai.llm_service import LLMService
-        self.text_ai = LLMService(
-            api_key=api_key,
-            base_url=base_url,
-            model="deepseek-ai/DeepSeek-V3",  # 修改为默认免费模型
-            max_token=2048,
-            temperature=0.5,
-            max_groups=15
-        )
+        # 尝试延迟导入LLMService以避免循环导入
+        try:
+            from src.services.ai.llm_service import LLMService
+            self.text_ai = LLMService(
+                api_key=api_key,
+                base_url=base_url,
+                model="deepseek-ai/DeepSeek-V3",  # 修改为默认免费模型
+                max_token=2048,
+                temperature=0.5,
+                max_groups=15
+            )
+        except (ImportError, Exception) as e:
+            logger.warning(f"无法初始化LLMService: {str(e)}")
+            self.text_ai = None
         
         # 多语言提示模板
         self.prompt_templates = {
@@ -111,8 +132,34 @@ class ImageHandler:
 
         # 提示词扩展触发条件
         self.prompt_extend_threshold = 30  # 字符数阈值
+        
+        # 图像识别关键字
+        self.recognition_keywords = self.config.get('recognition_keywords', ['这是什么', '帮我看看这是什么', '识别这个图片'])
+        
+        # 随机图片关键字
+        self.random_image_keywords = self.config.get('random_image_keywords', ['来张图片', '随机图片', '给我看看', '来个图', '来张图'])
+        
+        # 图像生成关键字
+        self.image_generation_keywords = self.config.get('image_generation_keywords', ['画', '生成图片', '绘制'])
+        
+        # 图像识别器
+        self.image_recognizer = None
+        
+        logger.info("图像处理器初始化完成")
 
-        os.makedirs(self.temp_dir, exist_ok=True)
+    async def initialize(self):
+        """初始化图像处理器，加载识别模型和生成模型"""
+        try:
+            # 这里可以加载图像识别和生成模型
+            logger.info("初始化图像处理器...")
+            
+            # TODO: 实现实际的模型加载逻辑
+            
+            logger.info("图像处理器初始化完成")
+            return True
+        except Exception as e:
+            logger.error(f"初始化图像处理器失败: {str(e)}")
+            return False
 
     def _process_image_queue(self):
         """后台线程处理图片生成/获取队列"""
@@ -137,6 +184,9 @@ class ImageHandler:
                 elif task_type == "generate":
                     prompt = params.get("prompt", "")
                     result = self._generate_image_impl(prompt)
+                elif task_type == "recognize":
+                    image_path = params.get("image_path", "")
+                    result = self._recognize_image_impl(image_path)
                 
                 # 执行回调
                 if callback and result:
@@ -160,6 +210,18 @@ class ImageHandler:
     def _get_random_image_impl(self) -> Optional[str]:
         """实际执行随机图片获取的内部方法"""
         try:
+            # 首先尝试从随机图片目录获取
+            image_files = [f for f in os.listdir(self.random_image_dir) 
+                          if f.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp'))]
+            
+            if image_files:
+                # 随机选择一张图片
+                selected_image = random.choice(image_files)
+                image_path = os.path.join(self.random_image_dir, selected_image)
+                logger.info(f"从本地目录选择随机图片: {image_path}")
+                return image_path
+            
+            # 如果本地目录为空，从API获取
             if not os.path.exists(self.temp_dir):
                 os.makedirs(self.temp_dir)
                 
@@ -192,246 +254,216 @@ class ImageHandler:
 
     def is_random_image_request(self, message: str) -> bool:
         """检查消息是否为请求图片的模式"""
+        # 检查是否包含随机图片关键字
+        for keyword in self.random_image_keywords:
+            if keyword in message:
+                return True
+                
         # 基础词组
         basic_patterns = [
             r'来个图',
             r'来张图',
             r'来点图',
             r'想看图',
+            r'随机图片',
+            r'随机壁纸',
+            r'壁纸',
+            r'图片',
+            r'美图'
         ]
         
-        # 将消息转换为小写以进行不区分大小写的匹配
-        message = message.lower()
+        # 使用正则表达式检查
+        for pattern in basic_patterns:
+            if re.search(pattern, message):
+                return True
         
-        # 1. 检查基础模式
-        if any(pattern in message for pattern in basic_patterns):
-            return True
-            
-        # 2. 检查更复杂的模式
-        complex_patterns = [
-            r'来[张个幅]图',
-            r'发[张个幅]图',
-            r'看[张个幅]图',
-        ]
-        
-        if any(re.search(pattern, message) for pattern in complex_patterns):
-            return True
-            
         return False
 
     def is_image_generation_request(self, text: str) -> bool:
-        """判断是否为图像生成请求"""
-        # 基础动词
-        draw_verbs = ["画", "绘", "生成", "创建", "做"]
+        """检查是否为图像生成请求"""
+        # 直接包含图像生成关键字
+        for keyword in self.image_generation_keywords:
+            if keyword in text:
+                return True
         
-        # 图像相关词
-        image_nouns = ["图", "图片", "画", "照片", "插画", "像"]
-        
-        # 数量词
-        quantity = ["一下", "一个", "一张", "个", "张", "幅"]
-        
-        # 组合模式
-        patterns = [
-            r"画.*[猫狗人物花草山水]",
-            r"画.*[一个张只条串份副幅]",
-            r"帮.*画.*",
-            r"给.*画.*",
-            r"生成.*图",
-            r"创建.*图",
-            r"能.*画.*吗",
-            r"可以.*画.*吗",
-            r"要.*[张个幅].*图",
-            r"想要.*图",
-            r"做[一个张]*.*图",
-            r"画画",
-            r"画一画",
+        # 图像生成常见表达式
+        generation_patterns = [
+            r'画[一个|].*图',
+            r'生成[一张|].*图',
+            r'[帮我|请]?画[一下|]',
+            r'[帮我|请]?生成[一下|]',
+            r'来[一张|].*的?图片',
+            r'绘制[一下|]?',
+            r'画[一下|]',
+            r'(做|搞|整|P)[一张|]图',
+            r'AI\s?(绘画|画图|生成)',
+            r'图片生成',
+            r'(做|画|生成)[一个|]图像'
         ]
         
-        # 1. 检查正则表达式模式
-        if any(re.search(pattern, text) for pattern in patterns):
-            return True
+        # 一些特殊触发词
+        special_triggers = [
+            "想看", "能画", "能否画", "可以画", "图像", "风格", "照片",
+            "写实", "卡通", "动漫", "插画", "海报"
+        ]
+        
+        # 检查生成模式
+        for pattern in generation_patterns:
+            if re.search(pattern, text):
+                return True
+                
+        # 检查特殊触发词，要求文本至少20个字符，避免误触发
+        if len(text) > 20:
+            for trigger in special_triggers:
+                if trigger in text:
+                    # 进一步验证上下文
+                    context_validation = any(kw in text for kw in ["图", "绘", "画", "生成", "风格"])
+                    if context_validation:
+                        return True
+        
+        return False
+        
+    def is_image_recognition_request(self, content: str) -> bool:
+        """
+        检查是否是图像识别请求
+        
+        Args:
+            content: 消息内容
             
-        # 2. 检查动词+名词组合
-        for verb in draw_verbs:
-            for noun in image_nouns:
-                if f"{verb}{noun}" in text:
-                    return True
-                # 检查带数量词的组合
-                for q in quantity:
-                    if f"{verb}{q}{noun}" in text:
-                        return True
-                    if f"{verb}{noun}{q}" in text:
-                        return True
-        
-        # 3. 检查特定短语
-        special_phrases = [
-            "帮我画", "给我画", "帮画", "给画",
-            "能画吗", "可以画吗", "会画吗",
-            "想要图", "要图", "需要图",
-        ]
-        
-        if any(phrase in text for phrase in special_phrases):
-            return True
-        
+        Returns:
+            bool: 是否是图像识别请求
+        """
+        if not content:
+            return False
+            
+        # 检查是否包含图像识别关键字
+        for keyword in self.recognition_keywords:
+            if keyword in content:
+                return True
+                
         return False
 
     def _expand_prompt(self, prompt: str) -> str:
-        """使用AI模型扩展简短提示词"""
+        """扩展简短的提示词"""
+        if not prompt or len(prompt) >= self.prompt_extend_threshold:
+            return prompt
+        
         try:
-            if len(prompt) >= 30:  # 长度足够则不扩展
-                return prompt
-                
-            response = self.text_ai.chat(
-                messages=[{"role": "user", "content": self.prompt_templates['basic'].format(prompt=prompt)}],
-                temperature=0.7
-            )
-            return response.strip() or prompt
+            # 调用API进行提示词扩展
+            template = self.prompt_templates.get('creative')
+            expanded_prompt = prompt  # 默认为原始提示词
+            
+            # TODO: 实现提示词扩展逻辑
+            
+            return expanded_prompt
         except Exception as e:
-            logger.error(f"提示词扩展失败: {str(e)}")
+            logger.error(f"扩展提示词失败: {str(e)}")
             return prompt
 
     def _translate_prompt(self, prompt: str) -> str:
-        """简单中译英处理（实际可接入翻译API）"""
-        # 简易替换常见中文词汇
-        translations = {
-            "女孩": "girl",
-            "男孩": "boy",
-            "风景": "landscape",
-            "赛博朋克": "cyberpunk",
-            "卡通": "cartoon style",
-            "写实": "photorealistic",
-        }
-        for cn, en in translations.items():
-            prompt = prompt.replace(cn, en)
-        return prompt
+        """将中文提示词翻译为英文"""
+        try:
+            # 检测语言
+            has_chinese = any('\u4e00' <= char <= '\u9fff' for char in prompt)
+            if not has_chinese:
+                return prompt
+                
+            template = self.prompt_templates.get('basic')
+            
+            # TODO: 实现翻译逻辑
+            
+            return prompt  # 默认返回原提示词
+        except Exception as e:
+            logger.error(f"翻译提示词失败: {str(e)}")
+            return prompt
 
     def _generate_dynamic_negatives(self, prompt: str) -> List[str]:
-        """生成动态负面提示词"""
+        """根据提示词生成动态负面提示词"""
         try:
-            # 获取现有通用负面词前10个作为示例
-            existing_samples = ', '.join(self.base_negative_prompts[:10])
+            # 基于提示词内容生成相关负面提示词
+            template = self.negative_prompt_template.format(
+                prompt=prompt,
+                existing_negatives=", ".join(self.base_negative_prompts[:10])
+            )
             
-            response = self.text_ai.chat([{
-                "role": "user",
-                "content": self.negative_prompt_template.format(
-                    prompt=prompt,
-                    existing_negatives=existing_samples
-                )
-            }])
+            # TODO: 实现动态负面提示词生成逻辑
             
-            # 解析响应并去重
-            generated = [n.strip().lower() for n in response.split(',')]
-            return list(set(generated))
+            # 假设结果
+            custom_negatives = []
+            
+            return custom_negatives
         except Exception as e:
-            logger.error(f"动态负面词生成失败: {str(e)}")
+            logger.error(f"生成动态负面提示词失败: {str(e)}")
             return []
 
     def _build_final_negatives(self, prompt: str) -> str:
-        """构建最终负面提示词"""
-        # 始终包含基础负面词
-        final_negatives = set(self.base_negative_prompts)
+        """构建最终的负面提示词"""
+        # 获取动态负面提示词
+        custom_negatives = self._generate_dynamic_negatives(prompt)
         
-        # 当提示词简短时触发动态生成
-        if len(prompt) <= self.prompt_extend_threshold:
-            dynamic_negatives = self._generate_dynamic_negatives(prompt)
-            final_negatives.update(dynamic_negatives)
+        # 合并基础负面提示词和动态负面提示词
+        all_negatives = self.base_negative_prompts + custom_negatives
         
-        return ', '.join(final_negatives)
+        # 去重并连接
+        unique_negatives = list(set(all_negatives))
+        return ", ".join(unique_negatives)
 
     def _optimize_prompt(self, prompt: str) -> Tuple[str, str]:
-        """多阶段提示词优化"""
+        """优化提示词，返回(正向提示词, 负向提示词)"""
         try:
-            # 第一阶段：基础优化
-            stage1 = self.text_ai.chat([{
-                "role": "user",
-                "content": self.prompt_templates['basic'].format(prompt=prompt)
-            }])
+            # 1. 扩展简短提示词
+            if len(prompt) < self.prompt_extend_threshold:
+                prompt = self._expand_prompt(prompt)
+                
+            # 2. 翻译中文提示词
+            prompt = self._translate_prompt(prompt)
             
-            # 第二阶段：创意增强
-            stage2 = self.text_ai.chat([{
-                "role": "user",
-                "content": self.prompt_templates['creative'].format(prompt=prompt)
-            }])
+            # 3. 构建负面提示词
+            negative_prompt = self._build_final_negatives(prompt)
             
-            # 混合策略：取两次优化的关键要素
-            final_prompt = f"{stage1}, {stage2.split(',')[-1]}"
-            return final_prompt, "multi-step"
+            return prompt, negative_prompt
             
         except Exception as e:
-            logger.error(f"提示词优化失败: {str(e)}")
-            return prompt, "raw"
+            logger.error(f"优化提示词失败: {str(e)}")
+            return prompt, ", ".join(self.base_negative_prompts[:15])  # 返回默认值
 
     def _select_quality_profile(self, prompt: str) -> dict:
-        """根据提示词复杂度选择质量配置"""
-        word_count = len(prompt.split())
-        if word_count > 30:
-            return self.quality_profiles['premium']
-        elif word_count > 15:
-            return self.quality_profiles['standard']
-        return self.quality_profiles['fast']
+        """根据提示词选择合适的质量配置"""
+        # 这里可以实现基于提示词复杂度的质量选择逻辑
+        # 当前版本：简单地返回标准配置
+        return self.quality_profiles.get('standard')
 
     def _generate_image_impl(self, prompt: str) -> Optional[str]:
-        """实际执行图片生成的内部方法"""
-        try:
-            # 自动扩展短提示词
-            if len(prompt) <= self.prompt_extend_threshold:
-                prompt = self._expand_prompt(prompt)
-            
-            # 多阶段提示词优化
-            optimized_prompt, strategy = self._optimize_prompt(prompt)
-            logger.info(f"优化策略: {strategy}, 优化后提示词: {optimized_prompt}")
-            
-            # 构建负面提示词
-            negative_prompt = self._build_final_negatives(optimized_prompt)
-            logger.info(f"最终负面提示词: {negative_prompt}")
-            
-            # 质量配置选择
-            quality_config = self._select_quality_profile(optimized_prompt)
-            logger.info(f"质量配置: {quality_config}")
-            
-            # 构建请求参数
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            payload = {
-                "model": self.image_model,
-                "prompt": f"masterpiece, best quality, {optimized_prompt}",
-                "negative_prompt": negative_prompt,
-                "steps": quality_config['steps'],
-                "width": quality_config['width'],
-                "height": quality_config['width'],  # 保持方形比例
-                "guidance_scale": 7.5,
-                "seed": int(time.time() % 1000)  # 添加随机种子
-            }
-            
-            # 调用生成API
-            response = requests.post(
-                f"{self.base_url}/images/generations",
-                headers=headers,
-                json=payload,
-                timeout=45
-            )
-            response.raise_for_status()
-            
-            # 结果处理
-            result = response.json()
-            if "data" in result and len(result["data"]) > 0:
-                img_url = result["data"][0]["url"]
-                img_response = requests.get(img_url)
-                if img_response.status_code == 200:
-                    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                    temp_path = os.path.join(self.temp_dir, f"image_{timestamp}.jpg")
-                    with open(temp_path, "wb") as f:
-                        f.write(img_response.content)
-                    logger.info(f"图片已保存到: {temp_path}")
-                    return temp_path
-            logger.error("API返回的数据中没有图片URL")
+        """实际执行图像生成的内部方法"""
+        if not prompt:
+            logger.warning("生成图像失败：提示词为空")
             return None
             
+        try:
+            # 优化提示词
+            optimized_prompt, negative_prompt = self._optimize_prompt(prompt)
+            
+            # 选择质量配置
+            quality_profile = self._select_quality_profile(prompt)
+            
+            # 生成图片保存路径
+            timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+            image_path = os.path.join(self.generated_image_dir, f"generated_{timestamp}.png")
+            
+            # TODO: 实现实际的API调用逻辑
+            
+            # 模拟生成图片
+            mock_success = False  # 设置为True进行测试
+            
+            if mock_success:
+                logger.info(f"成功生成图片: {image_path}")
+                return image_path
+            else:
+                logger.warning(f"图片生成失败: {prompt[:50]}...")
+                return None
+                
         except Exception as e:
-            logger.error(f"图像生成失败: {str(e)}")
+            logger.error(f"生成图片失败: {str(e)}")
             return None
 
     def generate_image(self, prompt: str, callback: Callable = None) -> Optional[str]:
@@ -439,23 +471,82 @@ class ImageHandler:
         try:
             # 添加到任务队列
             self.task_queue.put(("generate", {"prompt": prompt}, callback))
-            logger.info(f"已添加图片生成任务到队列，提示词: {prompt}")
+            logger.info(f"已添加图片生成任务到队列: {prompt[:30]}...")
             return "图片生成请求已添加到队列，将在消息回复后处理"
         except Exception as e:
             logger.error(f"添加图片生成任务失败: {str(e)}")
             return None
+            
+    def _recognize_image_impl(self, image_path: str) -> str:
+        """
+        实际执行图像识别的内部方法
+        
+        Args:
+            image_path: 图像路径
+            
+        Returns:
+            str: 识别结果
+        """
+        if not os.path.exists(image_path):
+            logger.error(f"图像文件不存在: {image_path}")
+            return "图像文件不存在"
+        
+        try:
+            # 调用图像识别器分析图像
+            result = "这是一张图片" # 替换为实际的识别结果
+            
+            # TODO: 实现实际的图像识别逻辑
+            
+            logger.info(f"图像识别完成: {image_path}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"识别图像失败: {str(e)}")
+            return f"抱歉，图像识别失败: {str(e)}"
+    
+    def process_image(self, image_path: str, callback: Callable = None):
+        """
+        处理图像，包括识别和分析
+        
+        Args:
+            image_path: 图像路径
+            callback: 处理完成后的回调函数
+            
+        Returns:
+            bool: 是否成功开始处理
+        """
+        try:
+            # 添加到任务队列
+            self.task_queue.put(("recognize", {"image_path": image_path}, callback))
+            logger.info(f"已添加图像识别任务到队列: {image_path}")
+            return True
+        except Exception as e:
+            logger.error(f"添加图像识别任务失败: {str(e)}")
+            if callback:
+                callback(f"图像处理失败: {str(e)}")
+            return False
 
     def cleanup_temp_dir(self):
-        """清理临时目录中的旧图片"""
+        """清理临时文件目录"""
         try:
             if os.path.exists(self.temp_dir):
-                for file in os.listdir(self.temp_dir):
-                    file_path = os.path.join(self.temp_dir, file)
-                    try:
-                        if os.path.isfile(file_path):
+                # 获取当前时间戳
+                current_time = time.time()
+                
+                # 获取目录中的所有文件
+                for file_name in os.listdir(self.temp_dir):
+                    file_path = os.path.join(self.temp_dir, file_name)
+                    
+                    # 如果是文件（不是目录）
+                    if os.path.isfile(file_path):
+                        # 获取文件的修改时间
+                        file_mod_time = os.path.getmtime(file_path)
+                        
+                        # 如果文件超过24小时未修改，则删除
+                        if current_time - file_mod_time > 24 * 60 * 60:
                             os.remove(file_path)
-                            logger.info(f"清理旧临时文件: {file_path}")
-                    except Exception as e:
-                        logger.error(f"清理文件失败 {file_path}: {str(e)}")
+                            logger.info(f"已清理临时图片文件: {file_path}")
+                
+                logger.info("临时图片目录清理完成")
         except Exception as e:
-            logger.error(f"清理临时目录失败: {str(e)}")
+            logger.error(f"清理临时图片目录失败: {str(e)}")

@@ -35,7 +35,7 @@ class RagManager:
     RAG管理器 - 管理检索增强生成相关功能
     """
     
-    def __init__(self, config_path: str, api_wrapper = None, storage_dir = None):
+    def __init__(self, config_path: str = None, api_wrapper = None, storage_dir = None, config_dict = None):
         """
         初始化RAG管理器
         
@@ -43,13 +43,22 @@ class RagManager:
             config_path: 配置文件路径
             api_wrapper: API调用包装器
             storage_dir: 存储目录，如果提供则覆盖默认存储路径
+            config_dict: 配置字典，如果提供则优先使用
         """
         self.config_path = config_path
         self.api_wrapper = api_wrapper
         self.storage_dir = storage_dir
         
-        # 加载配置
-        self.config = self._load_config()
+        # 加载配置，优先使用config_dict
+        if config_dict:
+            logger.info("使用提供的配置字典初始化RAG系统")
+            self.config = config_dict
+        elif config_path:
+            logger.info(f"从配置文件加载RAG系统配置: {config_path}")
+            self.config = self._load_config()
+        else:
+            logger.warning("未提供配置文件路径或配置字典，使用默认配置")
+            self.config = self._create_default_config()
         
         # 获取当前角色名
         try:
@@ -84,7 +93,7 @@ class RagManager:
             Dict: 配置字典
         """
         try:
-            if not os.path.exists(self.config_path):
+            if not self.config_path:
                 logger.warning(f"配置文件不存在: {self.config_path}，使用默认配置")
                 return self._create_default_config()
                 

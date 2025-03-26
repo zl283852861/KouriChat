@@ -556,6 +556,29 @@ class SettingReader:
         """通过字典方式访问配置项"""
         return self.settings[key]
 
+    def get(self, key, default=None):
+        """通过get方法访问配置项，支持默认值
+        
+        Args:
+            key: 配置项键名
+            default: 如果键不存在时返回的默认值
+            
+        Returns:
+            配置项值或默认值
+        """
+        try:
+            # 先检查自身是否有该属性
+            try:
+                return object.__getattribute__(self, key)
+            except AttributeError:
+                # 如果没有，则尝试从settings中获取
+                settings = object.__getattribute__(self, 'settings')
+                if key in settings:
+                    return settings[key]
+                return default
+        except Exception:
+            return default
+
     def __setitem__(self, key, value):
         """通过字典项设置配置项"""
         if key.startswith('_'):

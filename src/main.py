@@ -196,13 +196,15 @@ class DebugBot:
         # 记录用户输入
         self.log_colored_message(f"[用户输入] {user_input}", Fore.WHITE)
         
-        # 对于调试模式，直接调用_handle_text_message方法处理消息
-        reply = self.message_handler._handle_text_message(
+        # 对于调试模式，调用handle_user_message方法处理消息
+        reply = self.message_handler.handle_user_message(
             content=user_input,
             chat_id=chatName,
             sender_name="debug_user",
             username="debug_user",
-            is_group=False
+            is_group=False,
+            is_image_recognition=False,
+            is_at=False
         )
         
         # 只在这一个地方显示AI回复
@@ -233,6 +235,7 @@ class ChatBot:
         self.ai_last_reply_time = {}  # 新增：记录AI 最后回复的时间
         self.group_message_queues = {}  # 新增：群聊消息队列
         self.group_queue_lock = threading.Lock()  # 新增：群聊队列锁
+        self.unanswered_timers = {}  # 新增：未回复消息计时器
 
         # 获取机器人的微信名称
         self.wx = WeChat()
@@ -513,18 +516,29 @@ class ChatBot:
             # 记录 AI 最后回复的时间
             self.ai_last_reply_time[username] = time.time()
 
+            # 处理未回复消息计时器
+            if username in self.unanswered_timers:
+                self.unanswered_timers[username].cancel()
+
+            # 30分钟后增加未回复计数
+            def increase_counter_after_delay(username):
+                with self.queue_lock:
+                    self.message_handler.increment_unanswered_counter(username)
+
+            timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
+            timer.start()
+            self.unanswered_timers[username] = timer
+            
             # 处理完用户消息后，检查是否需要重置计数器
             with self.queue_lock:
-                if username in self.message_handler.unanswered_counters:
+                if hasattr(self.message_handler, 'unanswered_counters') and username in self.message_handler.unanswered_counters:
                     if username in self.ai_last_reply_time:
                         elapsed_time = time.time() - self.ai_last_reply_time[username]
                         if elapsed_time <= 30 * 60:  # 检查是否在 30 分钟内
                             self.message_handler.unanswered_counters[username] = 0
-                            logger.info(
-                                f"用户 {username} 的未回复计数器: {self.message_handler.unanswered_counters[username]}")
+                            logger.info(f"用户 {username} 的未回复计数器已重置")
                         else:
-                            logger.info(
-                                f"用户 {username} 30 分钟后回复，未回复计数器: {self.message_handler.unanswered_counters[username]}")
+                            logger.info(f"用户 {username} 30 分钟后回复，未重置计数器")
 
         except Exception as e:
             logger.error(f"处理消息队列失败: {str(e)}", exc_info=True)
@@ -743,19 +757,6 @@ class ChatBot:
                         # 设置处理延迟
                         if len(self.user_queues[chatName]['messages']) == 1:
                             threading.Timer(1.0, self.process_user_messages, args=[chatName]).start()
-
-                # 处理未回复消息计时器
-                if username in self.message_handler.unanswered_timers:
-                    self.message_handler.unanswered_timers[username].cancel()
-
-                # 30分钟后增加未回复计数
-                def increase_counter_after_delay(username):
-                    with self.queue_lock:
-                        self.message_handler.increment_unanswered_counter(username)
-
-                timer = threading.Timer(1800.0, increase_counter_after_delay, args=[username])
-                timer.start()
-                self.message_handler.unanswered_timers[username] = timer
 
         except Exception as e:
             logger.error(f"消息处理失败: {str(e)}", exc_info=True)
@@ -1278,7 +1279,7 @@ def initialize_auto_tasks(message_handler):
         return AutoTasker(message_handler)
 
 
-def main(debug_mode=True):
+def main(debug_mode=False):
     global files_handler, emoji_handler, image_handler, \
         voice_handler, memory_handler, moonshot_ai, \
         message_handler, listener_thread, chat_bot, wx, ROBOT_WX_NAME
@@ -1390,28 +1391,25 @@ def main(debug_mode=True):
         base_url=config.llm.base_url
     )
     
-    # 初始化新的记忆系统
-    try:
-        from src.handlers.memory import init_memory
-        logger.info("正在初始化新的三层记忆系统...")
-        memory_handler = init_memory(root_dir, api_wrapper)
-        if memory_handler:
-            logger.info("记忆系统初始化成功")
-            # 获取记忆系统统计信息
-            try:
-                stats = memory_handler.get_memory_stats()
-                logger.info(f"记忆系统统计: 记忆条数={stats.get('memory_count', 0)}, 嵌入数={stats.get('embedding_count', 0)}")
-            except Exception as stats_err:
-                logger.warning(f"获取记忆统计信息失败: {str(stats_err)}")
-        else:
-            logger.warning("记忆系统初始化返回空处理器")
-    except Exception as e:
-        logger.error(f"初始化记忆系统失败: {str(e)}")
-        memory_handler = None
-        logger.warning("记忆系统已禁用")
+    # 初始化记忆管理器
+    logger.info("开始初始化记忆管理器...")
     
-    # 关键优化：注册上下文处理函数，将被移除的对话保存到记忆系统
+    # 在初始化memory_handler前添加此日志
+    logger.info(f"初始化记忆管理器，模型: {config.llm.model} - API: {config.llm.base_url}")
+    
+    # 从memory_manager中导入init_memory函数
+    from src.handlers.memory_manager import init_memory
+    
+    # 初始化记忆系统
+    memory_handler = init_memory(root_dir, api_wrapper)
     if memory_handler:
+        logger.info("记忆管理器初始化成功")
+        # 记录一些基本统计信息
+        stats = memory_handler.get_memory_stats()
+        logger.info(f"现有记忆数量: {stats.get('memory_count', 0)}")
+        logger.info(f"嵌入向量数量: {stats.get('embedding_count', 0)}")
+
+        # 关键优化：注册上下文处理函数，将被移除的对话保存到记忆系统
         try:
             # 定义上下文处理函数
             @deepseek.llm.context_handler
@@ -1431,6 +1429,9 @@ def main(debug_mode=True):
             logger.info("已成功注册上下文处理函数，超出上下文的对话将保存到记忆系统")
         except Exception as ctx_err:
             logger.error(f"注册上下文处理函数失败: {str(ctx_err)}")
+    else:
+        logger.warning("记忆管理器初始化失败，将运行在无记忆模式")
+        memory_handler = None
     
     moonshot_ai = ImageRecognitionService(
         api_key=config.media.image_recognition.api_key,
@@ -1447,16 +1448,25 @@ def main(debug_mode=True):
     )
 
     message_handler = MessageHandler(
-        root_dir=root_dir,
+        root_dir=root_dir,  # 如果类不需要这个参数，移除这一行
         llm=deepseek,
-        robot_name=ROBOT_WX_NAME,  # 使用动态获取的机器人名称
+        robot_name=ROBOT_WX_NAME,
         prompt_content=prompt_content,
         image_handler=image_handler,
         emoji_handler=emoji_handler,
         voice_handler=voice_handler,
         memory_handler=memory_handler,
+        config=config,  # 添加配置参数
         is_debug=debug_mode
     )
+
+    # 手动初始化消息处理器
+    logger.info("开始手动初始化消息处理器...")
+    init_success = _run_async(message_handler.initialize())
+    if init_success:
+        logger.info("消息处理器手动初始化成功")
+    else:
+        logger.error("消息处理器手动初始化失败，程序可能无法正常工作")
 
     if debug_mode:
         # 设置日志颜色和级别
