@@ -148,9 +148,7 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
         config_groups = {
             "基础配置": {},
             "图像识别API配置": {},
-            "图像生成配置": {},
             "主动消息配置": {},
-            "语音配置": {},
             "Prompt配置": {},
         }
 
@@ -207,20 +205,6 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             }
         )
 
-        # 图像生成配置
-        config_groups["图像生成配置"].update(
-            {
-                "IMAGE_MODEL": {
-                    "value": config.media.image_generation.model,
-                    "description": "图像生成模型",
-                },
-                "TEMP_IMAGE_DIR": {
-                    "value": config.media.image_generation.temp_dir,
-                    "description": "临时图片目录",
-                },
-            }
-        )
-
         # 主动消息配置
         config_groups["主动消息配置"].update(
             {
@@ -243,20 +227,6 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
                 "QUIET_TIME_END": {
                     "value": config.behavior.quiet_time.end,
                     "description": "安静时间结束",
-                },
-            }
-        )
-
-        # 语音配置
-        config_groups["语音配置"].update(
-            {
-                "TTS_API_URL": {
-                    "value": config.media.text_to_speech.tts_api_url,
-                    "description": "语音服务API地址",
-                },
-                "VOICE_DIR": {
-                    "value": config.media.text_to_speech.voice_dir,
-                    "description": "语音文件目录",
                 },
             }
         )
@@ -423,7 +393,7 @@ def save_config():
             # 处理其他配置项
             elif key in ['LISTEN_LIST', 'DEEPSEEK_BASE_URL', 'MODEL', 'DEEPSEEK_API_KEY', 'MAX_TOKEN', 'TEMPERATURE',
                          'MOONSHOT_API_KEY', 'MOONSHOT_BASE_URL', 'MOONSHOT_TEMPERATURE', 'MOONSHOT_MODEL',
-                         'IMAGE_MODEL', 'TEMP_IMAGE_DIR', 'AUTO_MESSAGE', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS',
+                         'AUTO_MESSAGE', 'MIN_COUNTDOWN_HOURS', 'MAX_COUNTDOWN_HOURS',
                          'QUIET_TIME_START', 'QUIET_TIME_END', 'TTS_API_URL', 'VOICE_DIR', 'MAX_GROUPS', 'AVATAR_DIR',
                          'RAG_API_KEY', 'RAG_BASE_URL', 'RAG_EMBEDDING_MODEL', 'RAG_IS_RERANK', 'RAG_RERANKER_MODEL',
                          'RAG_TOP_K', 'AUTO_DOWNLOAD_LOCAL_MODEL', 'AUTO_ADAPT_SILICONFLOW']:
@@ -507,10 +477,6 @@ def update_config_value(config_data, key, value):
             'MOONSHOT_BASE_URL': ['categories', 'media_settings', 'settings', 'image_recognition', 'base_url', 'value'],
             'MOONSHOT_TEMPERATURE': ['categories', 'media_settings', 'settings', 'image_recognition', 'temperature', 'value'],
             'MOONSHOT_MODEL': ['categories', 'media_settings', 'settings', 'image_recognition', 'model', 'value'],
-            'IMAGE_MODEL': ['categories', 'media_settings', 'settings', 'image_generation', 'model', 'value'],
-            'TEMP_IMAGE_DIR': ['categories', 'media_settings', 'settings', 'image_generation', 'temp_dir', 'value'],
-            'TTS_API_URL': ['categories', 'media_settings', 'settings', 'text_to_speech', 'tts_api_url', 'value'],
-            'VOICE_DIR': ['categories', 'media_settings', 'settings', 'text_to_speech', 'voice_dir', 'value'],
             'AUTO_MESSAGE': ['categories', 'behavior_settings', 'settings', 'auto_message', 'content', 'value'],
             'MIN_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown', 'min_hours', 'value'],
             'MAX_COUNTDOWN_HOURS': ['categories', 'behavior_settings', 'settings', 'auto_message', 'countdown', 'max_hours', 'value'],
@@ -2699,23 +2665,14 @@ def get_all_configs():
                     if 'model' in img_recog:
                         configs['图像识别API配置']['MOONSHOT_MODEL'] = {'value': img_recog['model'].get('value', '')}
 
-                # 图像生成设置
-                configs['图像生成配置'] = {}
-                if 'image_generation' in media_settings:
-                    img_gen = media_settings['image_generation']
-                    if 'model' in img_gen:
-                        configs['图像生成配置']['IMAGE_MODEL'] = {'value': img_gen['model'].get('value', '')}
-                    if 'temp_dir' in img_gen:
-                        configs['图像生成配置']['TEMP_IMAGE_DIR'] = {'value': img_gen['temp_dir'].get('value', '')}
-
                 # 语音设置
-                configs['语音配置'] = {}
-                if 'text_to_speech' in media_settings:
-                    tts = media_settings['text_to_speech']
-                    if 'tts_api_url' in tts:
-                        configs['语音配置']['TTS_API_URL'] = {'value': tts['tts_api_url'].get('value', '')}
-                    if 'voice_dir' in tts:
-                        configs['语音配置']['VOICE_DIR'] = {'value': tts['voice_dir'].get('value', '')}
+                # configs['语音配置'] = {}
+                # if 'text_to_speech' in media_settings:
+                #     tts = media_settings['text_to_speech']
+                #     if 'tts_api_url' in tts:
+                #         configs['语音配置']['TTS_API_URL'] = {'value': tts['tts_api_url'].get('value', '')}
+                #     if 'voice_dir' in tts:
+                #         configs['语音配置']['VOICE_DIR'] = {'value': tts['voice_dir'].get('value', '')}
 
             # 行为设置
             if 'behavior_settings' in config_data['categories'] and 'settings' in config_data['categories'][
