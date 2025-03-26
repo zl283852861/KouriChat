@@ -53,6 +53,8 @@ import httpx
 from openai import OpenAI
 import src.services.ai.llms.llm  # 添加LLM模块导入
 from src.handlers.memories.core.rag import LocalEmbeddingModel
+from flask_compress import Compress  # 添加响应压缩
+import win32event
 
 # 在文件开头添加全局变量声明
 bot_process = None
@@ -89,7 +91,15 @@ dictConfig({
     }
 })
 
-# 初始化日志记录器
+# 设置日志格式
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler()
+    ]
+)
+
 logger = logging.getLogger(__name__)
 
 # 初始化colorama
@@ -106,8 +116,21 @@ app = Flask(__name__,
             template_folder=os.path.join(ROOT_DIR, 'src/webui/templates'),
             static_folder=os.path.join(ROOT_DIR, 'src/webui/static'))
 
+# 添加响应压缩
+compress = Compress()
+compress.init_app(app)
+
 # 添加配置
 app.config['UPLOAD_FOLDER'] = os.path.join(ROOT_DIR, 'src/webui/background_image')
+# 添加配置缓存，避免频繁读取文件
+app.config['CONFIG_CACHE'] = {}
+app.config['CONFIG_CACHE_TIME'] = 0
+# 设置缓存过期时间(秒)
+CONFIG_CACHE_EXPIRE = 5
+# 启用响应压缩
+app.config['COMPRESS_MIMETYPES'] = ['text/html', 'text/css', 'text/javascript', 'application/javascript', 'application/json']
+app.config['COMPRESS_LEVEL'] = 6  # 压缩级别，1-9，越高压缩率越大但CPU占用越多
+app.config['COMPRESS_MIN_SIZE'] = 500  # 最小压缩大小，小于此值不压缩
 
 # 确保上传目录存在
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
@@ -141,7 +164,17 @@ def get_available_avatars() -> List[str]:
 
 def parse_config_groups() -> Dict[str, Dict[str, Any]]:
     """解析配置文件，将配置项按组分类"""
-    from src.config.rag_config import config
+    from src.config import config
+    # 用于缓存结果的静态变量
+    if not hasattr(parse_config_groups, 'cache'):
+        parse_config_groups.cache = None
+        parse_config_groups.cache_time = 0
+        
+    # 检查缓存是否过期
+    current_time = time.time()
+    if (parse_config_groups.cache is not None and 
+        (current_time - parse_config_groups.cache_time) < CONFIG_CACHE_EXPIRE):
+        return parse_config_groups.cache
 
     try:
         # 基础配置组
@@ -188,19 +221,19 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
             {
                 "MOONSHOT_API_KEY": {
                     "value": config.media.image_recognition.api_key,
-                    "description": "Moonshot API密钥（用于图片和表情包识别）\n API申请https://platform.moonshot.cn/console/api-keys （免费15元额度）",
+                    "description": "识图API密钥",
                 },
                 "MOONSHOT_BASE_URL": {
                     "value": config.media.image_recognition.base_url,
-                    "description": "Moonshot API基础URL",
+                    "description": "识图功能 API基础URL",
                 },
                 "MOONSHOT_TEMPERATURE": {
                     "value": config.media.image_recognition.temperature,
-                    "description": "Moonshot温度参数",
+                    "description": "识图功能 温度参数",
                 },
                 "MOONSHOT_MODEL": {
                     "value": config.media.image_recognition.model,
-                    "description": "Moonshot AI模型",
+                    "description": "识图功能  AI模型",
                 }
             }
         )
@@ -271,6 +304,10 @@ def parse_config_groups() -> Dict[str, Dict[str, Any]]:
         }
 
         logger.debug(f"解析后的定时任务配置: {tasks}")
+
+        # 缓存结果
+        parse_config_groups.cache = config_groups
+        parse_config_groups.cache_time = current_time
 
         return config_groups
 
@@ -407,6 +444,10 @@ def save_config():
         # 立即重新加载配置
         g.config_data = current_config
         
+        # 更新缓存
+        app.config['CONFIG_CACHE'] = current_config
+        app.config['CONFIG_CACHE_TIME'] = time.time()
+        
         # 重新加载配置模块，确保更改立即生效
         try:
             # 重新加载配置模块
@@ -449,6 +490,9 @@ def save_config():
                     logger.info("成功重新初始化定时任务，但没有任务")
         except Exception as e:
             logger.error(f"重新初始化定时任务失败: {str(e)}")
+
+        # 重新初始化RAG记忆系统
+        reload_rag_memory()
 
         return jsonify({
             'status': 'success',
@@ -589,11 +633,22 @@ def get_background():
 
 @app.before_request
 def load_config():
-    """每次请求前加载配置"""
+    """每次请求前加载配置，使用缓存机制减少文件IO"""
     try:
+        current_time = time.time()
+        # 如果缓存存在且未过期，使用缓存
+        if app.config['CONFIG_CACHE'] and (current_time - app.config['CONFIG_CACHE_TIME'] < CONFIG_CACHE_EXPIRE):
+            g.config_data = app.config['CONFIG_CACHE']
+            return
+            
+        # 缓存过期或不存在，重新读取配置
         config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
         with open(config_path, 'r', encoding='utf-8') as f:
-            g.config_data = yaml.safe_load(f)
+            config_data = yaml.safe_load(f)
+            g.config_data = config_data
+            # 更新缓存
+            app.config['CONFIG_CACHE'] = config_data
+            app.config['CONFIG_CACHE_TIME'] = current_time
             
         # 尝试重新加载内存中的配置，确保使用最新配置
         try:
@@ -618,8 +673,8 @@ def dashboard():
             return redirect(url_for('init_password'))
         return redirect(url_for('login'))
     
-    # 日志调试
-    logging.info("访问仪表盘页面，登录状态: " + str(session.get('logged_in')))
+    # 减少不必要的日志记录
+    # logging.info("访问仪表盘页面，登录状态: " + str(session.get('logged_in')))
     
     # 检查是否有机器人状态
     if not hasattr(g, 'bot_status'):
@@ -644,7 +699,7 @@ def system_info():
                 'time': time.time()
             }
 
-        cpu_percent = psutil.cpu_percent()
+        cpu_percent = psutil.cpu_percent(interval=0.1)  # 减少CPU检测的阻塞时间
         memory = psutil.virtual_memory()
         disk = psutil.disk_usage('/')
         net = psutil.net_io_counters()
@@ -931,21 +986,15 @@ def config():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
 
-    # 直接从配置文件读取任务数据
-    tasks = []
-    try:
-        import yaml
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = yaml.safe_load(f)
-            if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
-                if 'settings' in config_data['categories']['schedule_settings'] and 'tasks' in \
-                        config_data['categories']['schedule_settings']['settings']:
-                    tasks = config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
-    except Exception as e:
-        logger.error(f"读取任务数据失败: {str(e)}")
-
+    # 使用缓存获取配置数据
     config_groups = parse_config_groups()  # 获取配置组
+
+    # 获取任务列表
+    tasks = []
+    if g.config_data and 'categories' in g.config_data and 'schedule_settings' in g.config_data['categories']:
+        if 'settings' in g.config_data['categories']['schedule_settings'] and 'tasks' in \
+                g.config_data['categories']['schedule_settings']['settings']:
+            tasks = g.config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
 
     logger.debug(f"传递给前端的任务列表: {tasks}")
 
@@ -958,848 +1007,59 @@ def config():
     )
 
 
-# # 添加获取用户信息的路由
-# @app.route('/user_info')
-# def get_user_info():
-#     """获取用户账户信息"""
-#     try:
-#         from src.config import config
-#         api_key = config.llm.api_key
-#         base_url = config.llm.base_url.rstrip('/')
-
-#         # 确保使用正确的API端点
-#         if 'siliconflow.cn' in base_url:
-#             api_url = f"{base_url}/user/info"
-#         else:
-#             return jsonify({
-#                 'status': 'error',
-#                 'message': '当前API不支持查询用户信息'
-#             })
-
-#         headers = {
-#             'Authorization': f'Bearer {api_key}',
-#             'Content-Type': 'application/json'
-#         }
-
-#         response = requests.get(api_url, headers=headers, timeout=10)
-
-#         if response.status_code == 200:
-#             data = response.json()
-#             if data.get('status') is True and data.get('data'):  # 修改判断条件
-#                 user_data = data['data']
-#                 return jsonify({
-#                     'status': 'success',
-#                     'data': {
-#                         'balance': user_data.get('balance', '0'),
-#                         'total_balance': user_data.get('totalBalance', '0'),
-#                         'charge_balance': user_data.get('chargeBalance', '0'),
-#                         'name': user_data.get('name', 'Unknown'),
-#                         'email': user_data.get('email', 'Unknown'),
-#                         'status': user_data.get('status', 'Unknown')
-#                     }
-#                 })
-
-#         return jsonify({
-#             'status': 'error',
-#             'message': f"API返回错误: {response.text}"
-#         })
-
-#     except Exception as e:
-#         return jsonify({
-#             'status': 'error',
-#             'message': f"获取用户信息失败: {str(e)}"
-#         })
-
-# 在 app 初始化后添加
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    """提供静态文件服务"""
-    static_folder = app.static_folder
-    if static_folder is None:
-        static_folder = os.path.join(ROOT_DIR, 'src/webui/static')
-    return send_from_directory(static_folder, filename)
-
-
-@app.route('/execute_command', methods=['POST'])
-def execute_command():
-    """执行控制台命令"""
+@app.route('/combined_config_data')
+def combined_config_data():
+    """合并配置数据接口，减少前端多次请求"""
     try:
-        command = (request.json or {}).get('command', '').strip()
-        global bot_process, bot_start_time
-
-        # 处理内置命令
-        if command.lower() == 'help':
+        if not session.get('logged_in'):
             return jsonify({
-                'status': 'success',
-                'output': '''可用命令:
-help - 显示帮助信息
-clear - 清空日志
-status - 显示系统状态
-version - 显示版本信息
-memory - 显示内存使用情况
-start - 启动机器人
-stop - 停止机器人
-restart - 重启机器人
-download_model - 下载本地嵌入模型
-
-支持所有CMD命令，例如:
-dir - 显示目录内容
-cd - 切换目录
-echo - 显示消息
-type - 显示文件内容
-等...'''
+                'status': 'error',
+                'message': '未登录'
             })
-
-        # 处理RAG相关命令
-        elif command.lower() == 'download_model':
-            # 执行模型下载
-            from src.handlers.memories.core.rag import LocalEmbeddingModel
-            from src.config import config
-            
-            # 获取模型路径配置
-            model_path = config.rag.local_embedding_model_path
-            if not model_path:
-                model_path = "paraphrase-multilingual-MiniLM-L12-v2"
-            
-            try:
-                # 打印下载信息
-                output = [
-                    f"开始下载本地嵌入模型: {model_path}",
-                    "下载过程可能需要几分钟，请耐心等待...",
-                    "正在准备下载环境..."
-                ]
-                
-                # 实例化模型以触发下载
-                import time
-                start_time = time.time()
-                
-                local_model = LocalEmbeddingModel(model_path)
-                
-                # 计算下载时间
-                download_time = time.time() - start_time
-                
-                # 更新输出信息
-                output.append(f"✅ 模型下载成功! 用时: {download_time:.2f}秒")
-                output.append(f"模型已保存到本地缓存，可以在API调用失败时使用")
-                
-                return jsonify({
-                    'status': 'success',
-                    'output': '\n'.join(output)
-                })
-            except Exception as e:
-                return jsonify({
-                    'status': 'error',
-                    'error': f"模型下载失败: {str(e)}\n请检查网络连接和代理设置"
-                })
-
-        elif command.lower() == 'clear':
-            # 清空日志队列
-            while not bot_logs.empty():
-                bot_logs.get()
-            return jsonify({
-                'status': 'success',
-                'output': '',  # 返回空输出，让前端清空日志
-                'clear': True  # 添加标记，告诉前端需要清空日志
-            })
-
-        elif command.lower() == 'status':
-            if bot_process and bot_process.poll() is None:
-                uptime = '0分钟'
-                if bot_start_time:
-                    delta = datetime.datetime.now() - bot_start_time
-                    total_seconds = int(delta.total_seconds())
-                    hours = total_seconds // 3600
-                    minutes = (total_seconds % 3600) // 60
-                    seconds = total_seconds % 60
-                    if hours > 0:
-                        uptime = f"{hours}小时{minutes}分钟{seconds}秒"
-                    elif minutes > 0:
-                        uptime = f"{minutes}分钟{seconds}秒"
-                    else:
-                        uptime = f"{seconds}秒"
-                return jsonify({
-                    'status': 'success',
-                    'output': f'机器人状态: 运行中\n运行时间: {uptime}'
-                })
-            else:
-                return jsonify({
-                    'status': 'success',
-                    'output': '机器人状态: 已停止'
-                })
-
-        elif command.lower() == 'version':
-            return jsonify({
-                'status': 'success',
-                'output': 'KouriChat v1.3.1'
-            })
-
-        elif command.lower() == 'memory':
-            memory = psutil.virtual_memory()
-            return jsonify({
-                'status': 'success',
-                'output': f'内存使用: {memory.percent}% ({memory.used / 1024 / 1024 / 1024:.1f}GB/{memory.total / 1024 / 1024 / 1024:.1f}GB)'
-            })
-
-        elif command.lower() == 'start':
-            if bot_process and bot_process.poll() is None:
-                return jsonify({
-                    'status': 'error',
-                    'error': '机器人已在运行中'
-                })
-
-            # 清空之前的日志
-            while not bot_logs.empty():
-                bot_logs.get()
-
-            # 设置环境变量
-            env = os.environ.copy()
-            env['PYTHONIOENCODING'] = 'utf-8'
-
-            # 创建新的进程组
-            if sys.platform.startswith('win'):
-                CREATE_NEW_PROCESS_GROUP = 0x00000200
-                DETACHED_PROCESS = 0x00000008
-                creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
-                preexec_fn = None
-            else:
-                creationflags = 0
-                preexec_fn = getattr(os, 'setsid', None)
-
-            # 启动进程
-            bot_process = subprocess.Popen(
-                [sys.executable, 'run.py'],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                env=env,
-                encoding='utf-8',
-                errors='replace',
-                creationflags=creationflags if sys.platform.startswith('win') else 0,
-                preexec_fn=preexec_fn
-            )
-
-            # 记录启动时间
-            bot_start_time = datetime.datetime.now()
-
-            return jsonify({
-                'status': 'success',
-                'output': '机器人启动成功'
-            })
-
-        elif command.lower() == 'stop':
-            if bot_process and bot_process.poll() is None:
-                try:
-                    # 首先尝试正常终止进程
-                    bot_process.terminate()
-
-                    # 等待进程结束
-                    try:
-                        bot_process.wait(timeout=5)  # 等待最多5秒
-                    except subprocess.TimeoutExpired:
-                        # 如果超时，强制结束进程
-                        bot_process.kill()
-                        bot_process.wait()
-
-                    # 确保所有子进程都被终止
-                    if sys.platform.startswith('win'):
-                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)],
-                                       capture_output=True)
-                    else:
-                        # 使用 getattr 避免在 Windows 上直接引用不存在的属性
-                        killpg = getattr(os, 'killpg', None)
-                        getpgid = getattr(os, 'getpgid', None)
-                        if killpg and getpgid:
-                            import signal
-                            killpg(getpgid(bot_process.pid), signal.SIGTERM)
-                        else:
-                            bot_process.kill()
-
-                    # 清理进程对象
-                    bot_process = None
-                    bot_start_time = None
-
-                    return jsonify({
-                        'status': 'success',
-                        'output': '机器人已停止'
-                    })
-                except Exception as e:
-                    return jsonify({
-                        'status': 'error',
-                        'error': f'停止失败: {str(e)}'
-                    })
-            else:
-                return jsonify({
-                    'status': 'error',
-                    'error': '机器人未在运行'
-                })
-
-        elif command.lower() == 'restart':
-            # 先停止
-            if bot_process and bot_process.poll() is None:
-                try:
-                    bot_process.terminate()
-                    try:
-                        bot_process.wait(timeout=5)
-                    except subprocess.TimeoutExpired:
-                        bot_process.kill()
-                        bot_process.wait()
-
-                    if sys.platform.startswith('win'):
-                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)],
-                                       capture_output=True)
-                    else:
-                        # 使用 getattr 避免在 Windows 上直接引用不存在的属性
-                        killpg = getattr(os, 'killpg', None)
-                        getpgid = getattr(os, 'getpgid', None)
-                        if killpg and getpgid:
-                            import signal
-                            killpg(getpgid(bot_process.pid), signal.SIGTERM)
-                except Exception as e:
-                    return jsonify({
-                        'status': 'error',
-                        'error': f'重启失败: {str(e)}'
-                    })
-
-            time.sleep(2)  # 等待进程完全停止
-
-            # 然后重新启动
-            try:
-                # 清空日志
-                while not bot_logs.empty():
-                    bot_logs.get()
-
-                env = os.environ.copy()
-                env['PYTHONIOENCODING'] = 'utf-8'
-
-                if sys.platform.startswith('win'):
-                    CREATE_NEW_PROCESS_GROUP = 0x00000200
-                    DETACHED_PROCESS = 0x00000008
-                    creationflags = CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS
-                    preexec_fn = None
-                else:
-                    creationflags = 0
-                    preexec_fn = getattr(os, 'setsid', None)
-
-                bot_process = subprocess.Popen(
-                    [sys.executable, 'run.py'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    env=env,
-                    encoding='utf-8',
-                    errors='replace',
-                    creationflags=creationflags if sys.platform.startswith('win') else 0,
-                    preexec_fn=preexec_fn
-                )
-
-                bot_start_time = datetime.datetime.now()
-
-                return jsonify({
-                    'status': 'success',
-                    'output': '机器人已重启'
-                })
-            except Exception as e:
-                return jsonify({
-                    'status': 'error',
-                    'error': f'重启失败: {str(e)}'
-                })
-
-        # 执行CMD命令
-        else:
-            try:
-                # 使用subprocess执行命令并捕获输出
-                # Windows下设置特殊编码处理
-                if sys.platform.startswith('win'):
-                    # 在Windows中，设置命令行编码为GBK，这是中文Windows的默认编码
-                    process = subprocess.Popen(
-                        command,
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding='gbk',  # 使用GBK编码
-                        errors='replace'  # 替换无法解码的字符
-                    )
-                else:
-                    # 非Windows系统使用UTF-8
-                    process = subprocess.Popen(
-                        command,
-                        shell=True,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        encoding='utf-8',
-                        errors='replace'
-                    )
-
-                # 获取命令输出
-                stdout, stderr = process.communicate(timeout=30)
-                
-                # 处理命令不存在的情况 (Windows下特有的错误信息模式)
-                if sys.platform.startswith('win') and stderr and ("不是内部或外部命令" in stderr or "不能被识别" in stderr):
-                    return jsonify({
-                        'status': 'error',
-                        'error': f"'{command}' 不是内部或外部命令，也不是可运行的程序或批处理文件。"
-                    })
-                
-                # 如果有错误输出
-                if stderr:
-                    return jsonify({
-                        'status': 'error',
-                        'error': stderr
-                    })
-                
-                # 返回命令执行结果
-                return jsonify({
-                    'status': 'success',
-                    'output': stdout or '命令执行成功，无输出'
-                })
-
-            except subprocess.TimeoutExpired:
-                process.kill()
-                return jsonify({
-                    'status': 'error',
-                    'error': '命令执行超时'
-                })
-            except Exception as e:
-                return jsonify({
-                    'status': 'error',
-                    'error': f'执行命令失败: {str(e)}'
-                })
-
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'error': f'执行命令失败: {str(e)}'
-        })
-
-
-@app.route('/check_dependencies')
-def check_dependencies():
-    """检查Python和pip环境"""
-    try:
-        # 检查Python版本
-        python_version = sys.version.split()[0]
-
-        # 检查pip是否安装
-        pip_path = shutil.which('pip')
-        has_pip = pip_path is not None
-
-        # 检查并更新pip
-        try:
-            if pip_path:
-                process = subprocess.Popen(
-                    [sys.executable, '-m', 'pip', 'install', '--upgrade', 'pip'],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                stdout, stderr = process.communicate()
-                if process.returncode == 0:
-                    logger.info('pip已成功更新到最新版本')
-                else:
-                    logger.warning('pip更新失败')
-        except Exception as e:
-            logger.warning(f'pip更新过程中发生错误: {str(e)}')
-
-        pip_path = shutil.which('pip')
-        has_pip = pip_path is not None
-
-        # 检查requirements.txt是否存在
-        requirements_path = os.path.join(ROOT_DIR, 'requirements.txt')
-        has_requirements = os.path.exists(requirements_path)
-
-        # 如果requirements.txt存在，检查是否所有依赖都已安装
-        dependencies_status = "unknown"
-        missing_deps = []
-        if has_requirements and has_pip:
-            try:
-                # 尝试使用默认镜像源安装依赖
-                process = subprocess.Popen(
-                    [sys.executable, '-m', 'pip', 'install', '-r', requirements_path],
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                )
-                stdout, stderr = process.communicate()
-                if process.returncode != 0:
-                    # 如果默认镜像源失败，尝试使用阿里云镜像源
-                    logger.info('默认镜像源安装失败，尝试使用阿里云镜像源...')
-                    process = subprocess.Popen(
-                        [sys.executable, '-m', 'pip', 'install', '-r', requirements_path, '--index-url',
-                         'https://mirrors.aliyun.com/pypi/simple'],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    stdout, stderr = process.communicate()
-
-                if process.returncode == 0:
-                    process = subprocess.Popen(
-                        [sys.executable, '-m', 'pip', 'list'],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                    )
-                    stdout, stderr = process.communicate()
-
-                    # 解码字节数据为字符串，添加错误处理
-                    try:
-                        stdout = stdout.decode('utf-8', errors='replace')
-                    except Exception:
-                        stdout = str(stdout)
-
-                    try:
-                        stderr = stderr.decode('utf-8', errors='replace')
-                    except Exception:
-                        stderr = str(stderr)
-
-                    # 解析pip list的输出，只获取包名
-                    installed_packages = {
-                        line.split()[0].lower()
-                        for line in stdout.split('\n')[2:]
-                        if line.strip()
-                    }
-
-                    logger.debug(f"已安装的包: {installed_packages}")
-
-                    # 读取requirements.txt，只获取有效的包名
-                    required_packages = set()
-                    # 尝试多种编码读取requirements.txt文件
-                    encodings_to_try = ['utf-8', 'gbk', 'latin-1', 'cp1252']
-                    requirements_content = None
-
-                    for encoding in encodings_to_try:
-                        try:
-                            with open(requirements_path, 'r', encoding=encoding) as f:
-                                requirements_content = f.read()
-                            logger.debug(f"成功使用{encoding}编码读取requirements.txt")
-                            break
-                        except UnicodeDecodeError:
-                            continue
-                        except Exception as e:
-                            logger.error(f"读取requirements.txt时出错: {str(e)}")
-                            break
-
-                    if requirements_content is None:
-                        raise Exception("无法读取requirements.txt文件，尝试了多种编码均失败")
-
-                    # 解析requirements.txt内容
-                    for line in requirements_content.splitlines():
-                        line = line.strip()
-                        # 跳过无效行：空行、注释、镜像源配置、-r 开头的文件包含
-                        if (not line or
-                                line.startswith('#') or
-                                line.startswith('-i ') or
-                                line.startswith('-r ') or
-                                line.startswith('--')):
-                            continue
-
-                        # 只取包名，忽略版本信息和其他选项
-                        pkg = line.split('=')[0].split('>')[0].split('<')[0].split('~')[0].split('[')[0]
-                        pkg = pkg.strip().lower()
-                        if pkg:  # 确保包名不为空
-                            required_packages.add(pkg)
-
-                    logger.debug(f"需要的包: {required_packages}")
-
-                    # 检查缺失的依赖
-                    missing_deps = [
-                        pkg for pkg in required_packages
-                        if pkg not in installed_packages and not (
-                                pkg == 'wxauto' and 'wxauto-py' in installed_packages
-                        )
-                    ]
-
-                    logger.debug(f"缺失的包: {missing_deps}")
-
-                    # 根据是否有缺失依赖设置状态
-                    dependencies_status = "complete" if not missing_deps else "incomplete"
-
-            except Exception as e:
-                logger.error(f"检查依赖时出错: {str(e)}")
-                dependencies_status = "error"
-        else:
-            dependencies_status = "complete" if not has_requirements else "incomplete"
-
+        
+        # 获取系统信息
+        sys_info = {
+            'bot_status': 'running' if bot_process is not None else 'stopped',
+            'memory_initialized': memory_initialized,
+            'platform': sys.platform,
+            'python_version': sys.version,
+            'local_embedding_models': get_available_embedding_models()
+        }
+        
+        # 获取配置
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config_data = yaml.safe_load(f)
+        
+        # 提取任务
+        tasks = []
+        if ('categories' in config_data and 'schedule_settings' in config_data['categories'] and
+            'settings' in config_data['categories']['schedule_settings'] and
+            'tasks' in config_data['categories']['schedule_settings']['settings']):
+            tasks = config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
+        
+        # 检查是否有更新
+        update_info = check_update_status()
+        
+        # 获取可用的角色列表
+        avatars = get_available_avatars()
+        
         return jsonify({
             'status': 'success',
-            'python_version': python_version,
-            'has_pip': has_pip,
-            'has_requirements': has_requirements,
-            'dependencies_status': dependencies_status,
-            'missing_dependencies': missing_deps
+            'system_info': sys_info,
+            'config': config_data,
+            'tasks': tasks,
+            'has_update': update_info.get('has_update', False),
+            'update_info': update_info,
+            'avatars': avatars,
+            'is_local': is_local_network()
         })
     except Exception as e:
-        logger.error(f"依赖检查失败: {str(e)}")
+        logger.error(f"获取合并配置数据失败: {str(e)}")
         return jsonify({
             'status': 'error',
             'message': str(e)
         })
-
-
-@app.route('/favicon.ico')
-def favicon():
-    """提供网站图标"""
-    return send_from_directory(
-        os.path.join(app.root_path, 'src/webui/static'),
-        'mom.ico',
-        mimetype='image/vnd.microsoft.icon'
-    )
-
-
-def cleanup_processes():
-    """清理所有相关进程"""
-    try:
-        # 清理机器人进程
-        global bot_process, job_object
-        if bot_process:
-            try:
-                logger.info(f"正在终止机器人进程 (PID: {bot_process.pid})...")
-
-                # 获取进程组
-                parent = psutil.Process(bot_process.pid)
-                children = parent.children(recursive=True)
-
-                # 终止子进程
-                for child in children:
-                    try:
-                        logger.info(f"正在终止子进程 (PID: {child.pid})...")
-                        child.terminate()
-                    except:
-                        try:
-                            logger.info(f"正在强制终止子进程 (PID: {child.pid})...")
-                            child.kill()
-                        except Exception as e:
-                            logger.error(f"终止子进程 (PID: {child.pid}) 失败: {str(e)}")
-
-                # 终止主进程
-                bot_process.terminate()
-
-                # 等待进程结束
-                try:
-                    gone, alive = psutil.wait_procs(children + [parent], timeout=3)
-
-                    # 强制结束仍在运行的进程
-                    for p in alive:
-                        try:
-                            logger.info(f"正在强制终止进程 (PID: {p.pid})...")
-                            p.kill()
-                        except Exception as e:
-                            logger.error(f"强制终止进程 (PID: {p.pid}) 失败: {str(e)}")
-                except Exception as e:
-                    logger.error(f"等待进程结束失败: {str(e)}")
-
-                # 如果在Windows上，使用taskkill强制终止进程树
-                if sys.platform.startswith('win'):
-                    try:
-                        logger.info(f"使用taskkill终止进程树 (PID: {bot_process.pid})...")
-                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)],
-                                       capture_output=True)
-                    except Exception as e:
-                        logger.error(f"使用taskkill终止进程失败: {str(e)}")
-
-                bot_process = None
-
-            except Exception as e:
-                logger.error(f"清理机器人进程失败: {str(e)}")
-
-        # 清理当前进程的所有子进程
-        try:
-            current_process = psutil.Process()
-            children = current_process.children(recursive=True)
-
-            for child in children:
-                try:
-                    logger.info(f"正在终止子进程 (PID: {child.pid})...")
-                    child.terminate()
-                except:
-                    try:
-                        logger.info(f"正在强制终止子进程 (PID: {child.pid})...")
-                        child.kill()
-                    except Exception as e:
-                        logger.error(f"终止子进程 (PID: {child.pid}) 失败: {str(e)}")
-
-            # 等待所有子进程结束
-            gone, alive = psutil.wait_procs(children, timeout=3)
-            for p in alive:
-                try:
-                    logger.info(f"正在强制终止进程 (PID: {p.pid})...")
-                    p.kill()
-                except Exception as e:
-                    logger.error(f"强制终止进程 (PID: {p.pid}) 失败: {str(e)}")
-        except Exception as e:
-            logger.error(f"清理子进程失败: {str(e)}")
-
-    except Exception as e:
-        logger.error(f"清理进程失败: {str(e)}")
-
-
-def signal_handler(signum, frame):
-    """信号处理函数"""
-    logger.info(f"收到信号: {signum}")
-    cleanup_processes()
-    sys.exit(0)
-
-
-# 注册信号处理器
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-
-# Windows平台特殊处理
-if sys.platform.startswith('win'):
-    try:
-        signal.signal(signal.SIGBREAK, signal_handler)
-    except:
-        pass
-
-# 注册退出处理
-atexit.register(cleanup_processes)
-
-
-def open_browser(port):
-    """在新线程中打开浏览器"""
-
-    def _open_browser():
-        # 等待服务器启动
-        time.sleep(1.5)
-        # 优先使用 localhost
-        url = f"http://localhost:{port}"
-        webbrowser.open(url)
-
-    # 创建新线程来打开浏览器
-    threading.Thread(target=_open_browser, daemon=True).start()
-
-
-def create_job_object():
-    global job_object
-    try:
-        if sys.platform.startswith('win'):
-            # 创建作业对象
-            job_object = win32job.CreateJobObject(None, "KouriChatBotJob")
-
-            # 设置作业对象的扩展限制信息
-            info = win32job.QueryInformationJobObject(
-                job_object, win32job.JobObjectExtendedLimitInformation
-            )
-
-            # 设置当所有进程句柄关闭时终止作业
-            info['BasicLimitInformation']['LimitFlags'] = win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-
-            # 应用设置
-            win32job.SetInformationJobObject(
-                job_object, win32job.JobObjectExtendedLimitInformation, info
-            )
-
-            # 将当前进程添加到作业对象
-            current_process = win32process.GetCurrentProcess()
-            win32job.AssignProcessToJobObject(job_object, current_process)
-
-            logger.info("已创建作业对象并将当前进程添加到作业中")
-            return True
-    except Exception as e:
-        logger.error(f"创建作业对象失败: {str(e)}")
-    return False
-
-
-# 添加控制台关闭事件处理
-def setup_console_control_handler():
-    try:
-        if sys.platform.startswith('win'):
-            def handler(dwCtrlType):
-                if dwCtrlType in (win32con.CTRL_CLOSE_EVENT, win32con.CTRL_LOGOFF_EVENT, win32con.CTRL_SHUTDOWN_EVENT):
-                    logger.info("检测到控制台关闭事件，正在清理进程...")
-                    cleanup_processes()
-                    return True
-                return False
-
-            win32api.SetConsoleCtrlHandler(handler, True)
-            logger.info("已设置控制台关闭事件处理器")
-    except Exception as e:
-        logger.error(f"设置控制台关闭事件处理器失败: {str(e)}")
-
-
-def main():
-    """主函数"""
-    from src.config import config
-
-    # 设置系统编码为 UTF-8 (不清除控制台输出)
-    if sys.platform.startswith('win'):
-        os.system("@chcp 65001 >nul")  # 使用 >nul 来隐藏输出而不清屏
-
-    print("\n" + "=" * 50)
-    print_status("配置管理系统启动中...", "info", "LAUNCH")
-    print("-" * 50)
-
-    # 创建作业对象来管理子进程
-    create_job_object()
-
-    # 设置控制台关闭事件处理
-    setup_console_control_handler()
-
-    # 检查必要目录
-    print_status("检查系统目录...", "info", "FILE")
-    if not os.path.exists(os.path.join(ROOT_DIR, 'src/webui/templates')):
-        print_status("错误：模板目录不存在！", "error", "CROSS")
-        return
-    print_status("系统目录检查完成", "success", "CHECK")
-
-    # 检查配置文件
-    print_status("检查配置文件...", "info", "CONFIG")
-    if not os.path.exists(config.config_path):
-        print_status("错误：配置文件不存在！", "error", "CROSS")
-        return
-    print_status("配置文件检查完成", "success", "CHECK")
-
-    # 修改启动 Web 服务器的部分
-    try:
-        cli = sys.modules['flask.cli']
-        if hasattr(cli, 'show_server_banner'):
-            setattr(cli, 'show_server_banner', lambda *x: None)  # 禁用 Flask 启动横幅
-    except (KeyError, AttributeError):
-        pass
-
-    host = '0.0.0.0'
-    port = 8502
-
-    print_status("正在启动Web服务...", "info", "INTERNET")
-    print("-" * 50)
-    print_status("配置管理系统已就绪！", "success", "STAR_1")
-
-    # 获取本机所有IP地址
-    def get_ip_addresses():
-        ip_list = []
-        try:
-            # 获取主机名
-            hostname = socket.gethostname()
-            # 获取本机IP地址列表
-            addresses = socket.getaddrinfo(hostname, None)
-
-            for addr in addresses:
-                ip = addr[4][0]
-                # 只获取IPv4地址且不是回环地址
-                if isinstance(ip, str) and '.' in ip and ip != '127.0.0.1':
-                    ip_list.append(ip)
-        except:
-            pass
-        return ip_list
-
-    # 显示所有可用的访问地址
-    ip_addresses = get_ip_addresses()
-    print_status("可通过以下地址访问:", "info", "CHAIN")
-    print(f"  Local:   http://localhost:{port}")
-    print(f"  Local:   http://127.0.0.1:{port}")
-    for ip in ip_addresses:
-        print(f"  Network: http://{ip}:{port}")
-    print("=" * 50 + "\n")
-
-    # 启动浏览器
-    open_browser(port)
-
-    app.run(
-        host=host,
-        port=port,
-        debug=True,
-        use_reloader=False  # 禁用重载器以避免创建多余的进程
-    )
 
 
 @app.route('/install_dependencies', methods=['POST'])
@@ -2110,6 +1370,16 @@ def logout():
 def get_model_configs():
     """获取模型和API配置"""
     try:
+        # 使用静态缓存
+        if not hasattr(get_model_configs, 'cache'):
+            get_model_configs.cache = None
+            get_model_configs.cache_time = 0
+        
+        current_time = time.time()
+        # 使用缓存中的数据，如果缓存不超过5分钟
+        if get_model_configs.cache and (current_time - get_model_configs.cache_time < 300):  # 5分钟缓存
+            return jsonify(get_model_configs.cache)
+        
         models_path = os.path.join(ROOT_DIR, 'src/config/models.json')
 
         if not os.path.exists(models_path):
@@ -2213,13 +1483,13 @@ def save_quick_setup():
             # 如果没有设置其他必要的LLM配置，设置默认值
             if "base_url" not in current_config["categories"]["llm_settings"]["settings"]:
                 current_config["categories"]["llm_settings"]["settings"]["base_url"] = {
-                    "value": "https://api.moonshot.cn/v1",
+                    "value": "https://api.ciallo.ac.cn/v1",
                     "type": "string",
                     "description": "API基础URL"
                 }
             if "model" not in current_config["categories"]["llm_settings"]["settings"]:
                 current_config["categories"]["llm_settings"]["settings"]["model"] = {
-                    "value": "moonshot-v1-8k",
+                    "value": "kourichat-visionk",
                     "type": "string",
                     "description": "使用的模型"
                 }
@@ -2565,15 +1835,21 @@ def get_tasks():
     """获取最新的任务数据"""
     try:
         import yaml
-        # 直接从配置文件读取任务数据
+        # 使用全局配置缓存
+        if g.config_data:
+            config_data = g.config_data
+        else:
+            # 如果全局缓存不存在，从文件读取
+            config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = yaml.safe_load(f)
+                
+        # 从配置数据中提取任务
         tasks = []
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = yaml.safe_load(f)
-            if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
-                if 'settings' in config_data['categories']['schedule_settings'] and 'tasks' in \
-                        config_data['categories']['schedule_settings']['settings']:
-                    tasks = config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
+        if 'categories' in config_data and 'schedule_settings' in config_data['categories']:
+            if 'settings' in config_data['categories']['schedule_settings'] and 'tasks' in \
+                    config_data['categories']['schedule_settings']['settings']:
+                tasks = config_data['categories']['schedule_settings']['settings']['tasks'].get('value', [])
 
         logger.debug(f"获取到的任务数据: {tasks}")
 
@@ -2594,12 +1870,16 @@ def get_all_configs():
     """获取所有最新的配置数据"""
     try:
         import yaml
-        # 直接从配置文件读取所有配置数据
-        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
-        with open(config_path, 'r', encoding='utf-8') as f:
-            config_data = yaml.safe_load(f)
+        # 使用全局配置缓存
+        if g.config_data:
+            config_data = g.config_data
+        else:
+            # 如果全局缓存不存在，从文件读取
+            config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = yaml.safe_load(f)
 
-        # 特别处理RAG_IS_RERANK，直接从YAML中读取
+        # 特别处理RAG_IS_RERANK，直接从配置数据中读取
         rerank_enabled = False
         try:
             if ('categories' in config_data and 'rag_settings' in config_data['categories'] and
@@ -2611,7 +1891,7 @@ def get_all_configs():
                     rerank_enabled = rerank_value.lower() == 'true'
                 else:
                     rerank_enabled = bool(rerank_value)
-                logger.info(f"从YAML直接读取RAG_IS_RERANK值: {rerank_value}, 转换后: {rerank_enabled}, 类型: {type(rerank_enabled)}")
+                logger.info(f"从配置数据中读取RAG_IS_RERANK值: {rerank_value}, 转换后: {rerank_enabled}, 类型: {type(rerank_enabled)}")
         except Exception as e:
             logger.error(f"读取RAG_IS_RERANK失败: {str(e)}")
 
@@ -2957,6 +2237,289 @@ def fix_config_file():
     except Exception as e:
         logging.error(f"修复配置文件失败: {str(e)}")
         return False
+
+
+# 添加静态资源缓存控制
+@app.after_request
+def add_cache_headers(response):
+    """为静态资源添加缓存头"""
+    if request.path.startswith('/static'):
+        # 静态资源缓存1小时
+        response.headers['Cache-Control'] = 'public, max-age=3600'
+    return response
+
+
+def cleanup_processes():
+    """清理所有相关进程"""
+    try:
+        # 清理机器人进程
+        global bot_process, job_object
+        if bot_process:
+            try:
+                logger.info(f"正在终止机器人进程 (PID: {bot_process.pid})...")
+
+                # 获取进程组
+                parent = psutil.Process(bot_process.pid)
+                children = parent.children(recursive=True)
+
+                # 终止子进程
+                for child in children:
+                    try:
+                        logger.info(f"正在终止子进程 (PID: {child.pid})...")
+                        child.terminate()
+                    except:
+                        try:
+                            logger.info(f"正在强制终止子进程 (PID: {child.pid})...")
+                            child.kill()
+                        except Exception as e:
+                            logger.error(f"终止子进程 (PID: {child.pid}) 失败: {str(e)}")
+
+                # 终止主进程
+                bot_process.terminate()
+
+                # 等待进程结束
+                try:
+                    gone, alive = psutil.wait_procs(children + [parent], timeout=3)
+
+                    # 强制结束仍在运行的进程
+                    for p in alive:
+                        try:
+                            logger.info(f"正在强制终止进程 (PID: {p.pid})...")
+                            p.kill()
+                        except Exception as e:
+                            logger.error(f"强制终止进程 (PID: {p.pid}) 失败: {str(e)}")
+                except Exception as e:
+                    logger.error(f"等待进程结束失败: {str(e)}")
+
+                # 如果在Windows上，使用taskkill强制终止进程树
+                if sys.platform.startswith('win'):
+                    try:
+                        logger.info(f"使用taskkill终止进程树 (PID: {bot_process.pid})...")
+                        subprocess.run(['taskkill', '/F', '/T', '/PID', str(bot_process.pid)],
+                                       capture_output=True)
+                    except Exception as e:
+                        logger.error(f"使用taskkill终止进程失败: {str(e)}")
+
+                bot_process = None
+
+            except Exception as e:
+                logger.error(f"清理机器人进程失败: {str(e)}")
+
+        # 清理当前进程的所有子进程
+        try:
+            current_process = psutil.Process()
+            children = current_process.children(recursive=True)
+
+            for child in children:
+                try:
+                    logger.info(f"正在终止子进程 (PID: {child.pid})...")
+                    child.terminate()
+                except:
+                    try:
+                        logger.info(f"正在强制终止子进程 (PID: {child.pid})...")
+                        child.kill()
+                    except Exception as e:
+                        logger.error(f"终止子进程 (PID: {child.pid}) 失败: {str(e)}")
+
+            # 等待所有子进程结束
+            gone, alive = psutil.wait_procs(children, timeout=3)
+            for p in alive:
+                try:
+                    logger.info(f"正在强制终止进程 (PID: {p.pid})...")
+                    p.kill()
+                except Exception as e:
+                    logger.error(f"强制终止进程 (PID: {p.pid}) 失败: {str(e)}")
+        except Exception as e:
+            logger.error(f"清理子进程失败: {str(e)}")
+
+    except Exception as e:
+        logger.error(f"清理进程失败: {str(e)}")
+
+
+def create_job_object():
+    global job_object
+    try:
+        if sys.platform.startswith('win'):
+            # 创建作业对象
+            job_object = win32job.CreateJobObject(None, "KouriChatBotJob")
+
+            # 设置作业对象的扩展限制信息
+            info = win32job.QueryInformationJobObject(
+                job_object, win32job.JobObjectExtendedLimitInformation
+            )
+
+            # 设置当所有进程句柄关闭时终止作业
+            info['BasicLimitInformation']['LimitFlags'] = win32job.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+
+            # 应用设置
+            win32job.SetInformationJobObject(
+                job_object, win32job.JobObjectExtendedLimitInformation, info
+            )
+
+            # 将当前进程添加到作业对象
+            current_process = win32process.GetCurrentProcess()
+            win32job.AssignProcessToJobObject(job_object, current_process)
+
+            logger.info("已创建作业对象并将当前进程添加到作业中")
+            return True
+    except Exception as e:
+        logger.error(f"创建作业对象失败: {str(e)}")
+    return False
+
+
+def setup_console_control_handler():
+    try:
+        if sys.platform.startswith('win'):
+            def handler(dwCtrlType):
+                if dwCtrlType in (win32con.CTRL_CLOSE_EVENT, win32con.CTRL_LOGOFF_EVENT, win32con.CTRL_SHUTDOWN_EVENT):
+                    logger.info("检测到控制台关闭事件，正在清理进程...")
+                    cleanup_processes()
+                    return True
+                return False
+
+            win32api.SetConsoleCtrlHandler(handler, True)
+            logger.info("已设置控制台关闭事件处理器")
+    except Exception as e:
+        logger.error(f"设置控制台关闭事件处理器失败: {str(e)}")
+
+
+def open_browser(port):
+    """在新线程中打开浏览器"""
+
+    def _open_browser():
+        # 等待服务器启动
+        time.sleep(1.5)
+        # 优先使用 localhost
+        url = f"http://localhost:{port}"
+        webbrowser.open(url)
+
+    # 创建新线程来打开浏览器
+    threading.Thread(target=_open_browser, daemon=True).start()
+
+
+def reload_rag_memory():
+    """重新初始化RAG记忆系统"""
+    try:
+        # 从配置文件路径
+        config_path = os.path.join(ROOT_DIR, 'src/config/config.yaml')
+        logger.info(f"正在使用配置文件重新初始化RAG记忆系统: {config_path}")
+        
+        # 重新加载整个记忆系统
+        try:
+            # 先尝试导入init_memory
+            from src.handlers.memory import init_memory
+            # 重新初始化记忆
+            memory_handler = init_memory(ROOT_DIR)
+            if memory_handler:
+                logger.info("成功重新初始化记忆系统")
+            else:
+                logger.warning("记忆系统初始化返回None")
+        except Exception as e:
+            logger.error(f"重新初始化记忆系统失败: {str(e)}")
+        
+        # 再尝试单独初始化RAG系统
+        try:
+            from src.handlers.handler_init import init_rag_from_config
+            rag_instance = init_rag_from_config(config_path)
+            if rag_instance:
+                logger.info("成功重新初始化RAG系统")
+                return True
+            else:
+                logger.warning("RAG系统初始化返回None")
+        except Exception as e:
+            logger.error(f"重新初始化RAG系统失败: {str(e)}")
+        
+        return False
+    except Exception as e:
+        logger.error(f"重新初始化RAG记忆系统总体失败: {str(e)}")
+        return False
+
+# 清除文件锁
+WIN32_FILE_LOCKS = {}
+
+def main():
+    """主函数"""
+    from src.config import config
+
+    # 设置系统编码为 UTF-8 (不清除控制台输出)
+    if sys.platform.startswith('win'):
+        os.system("@chcp 65001 >nul")  # 使用 >nul 来隐藏输出而不清屏
+
+    print("\n" + "=" * 50)
+    print_status("配置管理系统启动中...", "info", "LAUNCH")
+    print("-" * 50)
+
+    # 创建作业对象来管理子进程
+    create_job_object()
+
+    # 设置控制台关闭事件处理
+    setup_console_control_handler()
+
+    # 检查必要目录
+    print_status("检查系统目录...", "info", "FILE")
+    if not os.path.exists(os.path.join(ROOT_DIR, 'src/webui/templates')):
+        print_status("错误：模板目录不存在！", "error", "CROSS")
+        return
+    print_status("系统目录检查完成", "success", "CHECK")
+
+    # 检查配置文件
+    print_status("检查配置文件...", "info", "CONFIG")
+    if not os.path.exists(config.config_path):
+        print_status("错误：配置文件不存在！", "error", "CROSS")
+        return
+    print_status("配置文件检查完成", "success", "CHECK")
+
+    # 修改启动 Web 服务器的部分
+    try:
+        cli = sys.modules['flask.cli']
+        if hasattr(cli, 'show_server_banner'):
+            setattr(cli, 'show_server_banner', lambda *x: None)  # 禁用 Flask 启动横幅
+    except (KeyError, AttributeError):
+        pass
+
+    host = '0.0.0.0'
+    port = 8502
+
+    print_status("正在启动Web服务...", "info", "INTERNET")
+    print("-" * 50)
+    print_status("配置管理系统已就绪！", "success", "STAR_1")
+
+    # 获取本机所有IP地址
+    def get_ip_addresses():
+        ip_list = []
+        try:
+            # 获取主机名
+            hostname = socket.gethostname()
+            # 获取本机IP地址列表
+            addresses = socket.getaddrinfo(hostname, None)
+
+            for addr in addresses:
+                ip = addr[4][0]
+                # 只获取IPv4地址且不是回环地址
+                if isinstance(ip, str) and '.' in ip and ip != '127.0.0.1':
+                    ip_list.append(ip)
+        except:
+            pass
+        return ip_list
+
+    # 显示所有可用的访问地址
+    ip_addresses = get_ip_addresses()
+    print_status("可通过以下地址访问:", "info", "CHAIN")
+    print(f"  Local:   http://localhost:{port}")
+    print(f"  Local:   http://127.0.0.1:{port}")
+    for ip in ip_addresses:
+        print(f"  Network: http://{ip}:{port}")
+    print("=" * 50 + "\n")
+
+    # 启动浏览器
+    open_browser(port)
+
+    app.run(
+        host=host,
+        port=port,
+        debug=True,
+        use_reloader=False  # 禁用重载器以避免创建多余的进程
+    )
 
 
 if __name__ == '__main__':

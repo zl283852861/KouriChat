@@ -1,7 +1,7 @@
 import os
 import json
 from flask import Blueprint, request, jsonify, render_template
-from src.config.rag_config import config
+from src.config import config
 from pathlib import Path
 
 avatar_manager = Blueprint('avatar_manager', __name__)

@@ -130,7 +130,7 @@ def init_memory(root_dir, api_wrapper=None):
         
         # 从配置获取RAG设置
         from src.config import config
-        from src.config.rag_config import config as rag_config
+        from src.config import config as rag_config
         
         # 初始化记忆系统
         logger.info(f"初始化记忆系统，根目录: {root_dir}")

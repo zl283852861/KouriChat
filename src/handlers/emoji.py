@@ -15,7 +15,7 @@ from typing import Tuple, Optional, Callable
 import threading
 import queue
 import time
-from src.config.rag_config import config
+from src.config import config
 from src.webui.routes.avatar import AVATARS_DIR
 
 # 基础表情包触发概率配置（巧可酱快来修改）
