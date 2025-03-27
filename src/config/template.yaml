@@ -73,16 +73,13 @@ categories:
          description: 嵌入模型名称
          options:
          - text-embedding-3-large
+         - text-embedding-ada-002
+         - text-embedding-v1
          - bge-m3
-         - bge-reranker-v2-m3
          - BAAI/bge-m3
          - BAAI/bge-large-zh-v1.5
          - BAAI/bge-large-en-v1.5
          - Pro/BAAI/bge-m3
-         - bge-m3
-         - text-embedding-3-large
-         - text-embedding-ada-002
-         - text-embedding-v1
         
       reranker_model:
         value: ""
@@ -102,7 +99,7 @@ categories:
         max: 20
         
       is_rerank:
-        value: true
+        value: False
         type: boolean
         description: 是否对检索结果进行重排序（提高相关性）
         
@@ -127,16 +124,16 @@ categories:
         api_key:
           value: ""
           type: string
-          description: Moonshot AI API密钥（用于图片和表情包识别）
+          description: 识图 AI API密钥（用于图片和表情包识别）
           is_secret: true
         base_url:
           value: "https://api.ciallo.ac.cn/v1"
           type: string
-          description: Moonshot API基础URL
+          description: 识图 API基础URL
         temperature:
           value: 0.7
           type: number
-          description: Moonshot AI的温度值
+          description: 识图 AI的温度值
           min: 0
           max: 2
         model:

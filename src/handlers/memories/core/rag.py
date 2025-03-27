@@ -13,6 +13,7 @@ import math
 from typing import Dict, List, Any, Optional, Tuple, Union, Callable
 from datetime import datetime
 import re
+from src.config import config as rag_config
 
 # 设置日志
 logger = logging.getLogger('main')
@@ -104,8 +105,6 @@ class RagManager:
         Returns:
             Dict: 默认配置字典
         """
-        from src.config.rag_config import config as rag_config
-        
         # 使用rag_config中的配置作为默认值，避免硬编码
         default_config = {
             "api_key": rag_config.OPENAI_API_KEY,

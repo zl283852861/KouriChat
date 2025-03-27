@@ -3,7 +3,7 @@ import schedule
 import threading
 import time
 from typing import Dict, Optional
-from src.config.rag_config import config  # 修改导入路径
+from src.config import config  # 修改导入，直接使用主配置
 
 logger = logging.getLogger(__name__)
 
