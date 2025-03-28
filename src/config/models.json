@@ -3,7 +3,7 @@
     "update_url": "https://static.ciallo.ac.cn/models/latest.json",
     "api_providers": [
         {
-            "id": "kourichat",
+            "id": "kourichat-global",
             "name": "KouriChat API (全球优化)",
             "url": "https://api.ciallo.ac.cn/v1",
             "register_url": "https://api.ciallo.ac.cn/register",
@@ -11,7 +11,7 @@
             "priority": 1
         },
         {
-            "id": "kourichat",
+            "id": "kourichat-ap",
             "name": "KouriChat API (亚太备线)",
             "url": "https://api.kourichat.com/v1",
             "register_url": "https://api.kourichat.com/register",
@@ -52,7 +52,72 @@
         }
     ],
     "models": {
-        "kourichat": [
+        "kourichat-global": [
+            {
+                "id": "kourichat-v3",
+                "name": "KouriChat V3",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "kourichat-r1",
+                "name": "KouriChat R1",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "deepseek-v3",
+                "name": "DeepSeek V3",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "deepseek-r1",
+                "name": "DeepSeek R1",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "grok-2-latest",
+                "name": "Grok 2代模型",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "grok-3-latest",
+                "name": "Grok 3代模型(网页逆向)",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "gemini-1.5-pro",
+                "name": "Gemini 1.5 Pro模型",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "gemini-2.0-flash",
+                "name": "Gemini 2.0 Flash模型",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            },
+            {
+                "id": "gemini-2.0-pro",
+                "name": "Gemini 2.0 Pro模型",
+                "status": "active",
+                "type": "chat",
+                "context_length": 16000
+            }
+        ],
+        "kourichat-ap": [
             {
                 "id": "kourichat-v3",
                 "name": "KouriChat V3",
@@ -194,4 +259,4 @@
             }
         ]
     }
-} 
+}
